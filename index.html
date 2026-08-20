@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  APRI — Athena Political & Regulatory Intelligence
+  apri.athenacentre.org
+
+  BEFORE LAUNCH — swap these three placeholders (search for "PAPERMARK"):
+
+  1. data-papermark="library"  → the Subscriber Library link.
+       On Papermark PRO there are no data rooms / multi-file links, so this
+       currently scrolls to the document list below (href="#documents").
+       That is honest and works today. Replace with the real data-room URL
+       only if you upgrade to the Data Rooms tier.
+
+  2. data-papermark="note-monthly" → Papermark link for the August 2026
+       Monthly Intelligence Note.
+
+  3. data-papermark="note-update-001" → Papermark link for Athena
+       Intelligence Update 001-2026.
+
+  Also review: the "Enquire about subscriber access" line in the documents
+  section (marked OPTIONAL) and the /privacy footer link.
+  ============================================================================
+-->
+<html lang="en-NG">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Athena Political &amp; Regulatory Intelligence</title>
+<meta name="description" content="Independent political, regulatory and political-economy intelligence for organisations operating, investing and making strategic decisions in Nigeria.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://apri.athenacentre.org/">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Athena Centre">
+<meta property="og:title" content="Athena Political &amp; Regulatory Intelligence">
+<meta property="og:description" content="Independent political, regulatory and political-economy intelligence for organisations operating, investing and making strategic decisions in Nigeria.">
+<meta property="og:url" content="https://apri.athenacentre.org/">
+<meta name="twitter:card" content="summary">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23191c20'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='20' fill='%239a7d4e' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --paper:#ffffff;
+    --ink:#191c20;
+    --body:#3a3f46;
+    --muted:#6b7178;
+    --faint:#8d939a;
+    --brass:#9a7d4e;
+    --brass-dark:#7c6339;
+    --hairline:#e4e1da;
+    --hairline-soft:#efece6;
+    --tint:#faf9f7;
+    --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --measure:64ch;
+    --gutter:clamp(1.5rem,5vw,3rem);
+    --section:clamp(4rem,8.5vw,7.5rem);
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+
+  html{-webkit-text-size-adjust:100%}
+
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--body);
+    font-family:var(--sans);
+    font-size:clamp(1rem,0.96rem + 0.18vw,1.0625rem);
+    line-height:1.72;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  /* Institutional brass hairline at the very top of the page */
+  body::before{
+    content:"";
+    display:block;
+    height:3px;
+    background:var(--brass);
+  }
+
+  .wrap{
+    width:100%;
+    max-width:1040px;
+    margin-inline:auto;
+    padding-inline:var(--gutter);
+  }
+
+  h1,h2,h3{
+    font-family:var(--serif);
+    color:var(--ink);
+    font-weight:600;
+    letter-spacing:-0.011em;
+    margin:0;
+    text-wrap:balance;
+  }
+
+  p{margin:0}
+
+  a{color:var(--brass-dark);text-decoration:none}
+  a:hover{color:var(--ink)}
+
+  /* ---------- eyebrow / section labels ---------- */
+  .eyebrow{
+    font-family:var(--sans);
+    font-size:0.6875rem;
+    font-weight:600;
+    letter-spacing:0.16em;
+    text-transform:uppercase;
+    color:var(--brass);
+    margin:0;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead{
+    border-bottom:1px solid var(--hairline);
+  }
+  .masthead .wrap{
+    display:flex;
+    align-items:baseline;
+    gap:0.75rem;
+    padding-block:1.5rem;
+    flex-wrap:wrap;
+  }
+  .wordmark{
+    font-family:var(--serif);
+    font-size:1.0625rem;
+    font-weight:600;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:var(--ink);
+  }
+  .wordmark-sub{
+    font-size:0.75rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--faint);
+  }
+
+  /* ---------- hero ---------- */
+  .hero{
+    padding-block:clamp(3.5rem,8vw,6.5rem) var(--section);
+  }
+  .hero h1{
+    font-size:clamp(2rem,1.35rem + 3.1vw,3.375rem);
+    line-height:1.12;
+    max-width:22ch;
+    margin-top:1.5rem;
+  }
+  .hero .lede{
+    font-family:var(--serif);
+    font-size:clamp(1.0625rem,1rem + 0.5vw,1.3125rem);
+    line-height:1.6;
+    color:var(--body);
+    max-width:52ch;
+    margin-top:1.75rem;
+  }
+  .hero-actions{margin-top:2.75rem}
+
+  .access-note{
+    margin-top:2.25rem;
+    padding-top:1.5rem;
+    border-top:1px solid var(--hairline);
+    max-width:58ch;
+    font-size:0.875rem;
+    line-height:1.7;
+    color:var(--muted);
+  }
+
+  /* ---------- buttons ---------- */
+  .btn{
+    display:inline-block;
+    font-family:var(--sans);
+    font-size:0.8125rem;
+    font-weight:600;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    padding:1.0625rem 2.125rem;
+    border:1px solid var(--ink);
+    transition:background-color .18s ease,color .18s ease,border-color .18s ease;
+  }
+  .btn-primary{
+    background:var(--ink);
+    color:#fff;
+  }
+  .btn-primary:hover{
+    background:var(--brass-dark);
+    border-color:var(--brass-dark);
+    color:#fff;
+  }
+  .btn-secondary{
+    background:transparent;
+    color:var(--ink);
+    padding:0.875rem 1.75rem;
+  }
+  .btn-secondary:hover{
+    background:var(--ink);
+    color:#fff;
+  }
+  .btn:focus-visible,a:focus-visible{
+    outline:2px solid var(--brass);
+    outline-offset:3px;
+  }
+
+  /* ---------- generic section ---------- */
+  .section{
+    padding-block:var(--section);
+    border-top:1px solid var(--hairline);
+  }
+  .section-head{margin-bottom:clamp(2.5rem,5vw,3.75rem)}
+  .section-head h2{
+    font-size:clamp(1.375rem,1.2rem + 0.85vw,1.875rem);
+    line-height:1.25;
+    margin-top:0.875rem;
+  }
+
+  /* ---------- documents ---------- */
+  .doc{
+    padding-block:clamp(2.25rem,4vw,3rem);
+    border-top:1px solid var(--hairline-soft);
+    display:grid;
+    grid-template-columns:1fr;
+    gap:1.5rem;
+  }
+  .doc:first-of-type{border-top:0;padding-top:0}
+  .doc h3{
+    font-size:clamp(1.1875rem,1.1rem + 0.5vw,1.5rem);
+    line-height:1.3;
+  }
+  .doc-meta{
+    font-size:0.75rem;
+    font-weight:500;
+    letter-spacing:0.11em;
+    text-transform:uppercase;
+    color:var(--brass);
+    margin-top:0.625rem;
+  }
+  .doc-desc{
+    margin-top:1.125rem;
+    max-width:var(--measure);
+    color:var(--body);
+  }
+  .doc-action{margin-top:1.75rem}
+
+  @media (min-width:820px){
+    .doc{
+      grid-template-columns:minmax(0,1fr) auto;
+      align-items:start;
+      column-gap:3.5rem;
+    }
+    .doc-action{margin-top:0.375rem;justify-self:end}
+  }
+
+  .enquire{
+    margin-top:clamp(2.5rem,5vw,3.5rem);
+    padding-top:1.5rem;
+    border-top:1px solid var(--hairline);
+    font-size:0.875rem;
+    color:var(--muted);
+  }
+  .enquire a{
+    border-bottom:1px solid var(--brass);
+    padding-bottom:1px;
+  }
+
+  /* ---------- tracks list ---------- */
+  .tracks{
+    list-style:none;
+    margin:0;
+    padding:0;
+    border-top:1px solid var(--hairline-soft);
+  }
+  .tracks li{
+    display:flex;
+    align-items:baseline;
+    gap:clamp(1.25rem,3vw,2.5rem);
+    padding-block:1.375rem;
+    border-bottom:1px solid var(--hairline-soft);
+  }
+  .tracks .num{
+    font-family:var(--sans);
+    font-size:0.6875rem;
+    font-weight:600;
+    letter-spacing:0.1em;
+    color:var(--brass);
+    flex:0 0 auto;
+    padding-top:0.25rem;
+  }
+  .tracks .label{
+    font-family:var(--serif);
+    font-size:clamp(1.0625rem,1rem + 0.35vw,1.25rem);
+    color:var(--ink);
+    line-height:1.4;
+  }
+
+  /* ---------- prose blocks ---------- */
+  .prose{
+    font-family:var(--serif);
+    font-size:clamp(1.0625rem,1rem + 0.4vw,1.25rem);
+    line-height:1.66;
+    max-width:58ch;
+    color:var(--body);
+  }
+  .prose + .prose{margin-top:1.375rem}
+
+  /* ---------- contact ---------- */
+  .contact{
+    margin-top:clamp(2.25rem,4vw,3rem);
+    padding-top:1.75rem;
+    border-top:1px solid var(--hairline);
+  }
+  .contact .label{
+    font-size:0.6875rem;
+    font-weight:600;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--faint);
+  }
+  .contact a{
+    display:inline-block;
+    margin-top:0.625rem;
+    font-family:var(--serif);
+    font-size:clamp(1.0625rem,1rem + 0.4vw,1.25rem);
+    color:var(--ink);
+    border-bottom:1px solid var(--brass);
+    padding-bottom:2px;
+  }
+  .contact a:hover{color:var(--brass-dark)}
+
+  /* ---------- footer ---------- */
+  footer{
+    border-top:1px solid var(--hairline);
+    background:var(--tint);
+    padding-block:2.75rem;
+    font-size:0.8125rem;
+    color:var(--faint);
+  }
+  footer .wrap{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:1.25rem;
+    flex-wrap:wrap;
+  }
+  footer a{color:var(--muted)}
+  footer a:hover{color:var(--ink)}
+  .footer-links{display:flex;gap:1.5rem;flex-wrap:wrap}
+
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none!important;scroll-behavior:auto!important}
+  }
+  html{scroll-behavior:smooth}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <span class="wordmark">Athena Centre</span>
+    <span class="wordmark-sub">Political &amp; Regulatory Intelligence</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Subscriber Access</p>
+
+      <h1>Athena Political &amp; Regulatory Intelligence</h1>
+
+      <p class="lede">Independent political, regulatory and political-economy intelligence for organisations operating, investing and making strategic decisions in Nigeria.</p>
+
+      <div class="hero-actions">
+        <!-- PAPERMARK: library link. Currently anchors to the document list,
+             which is accurate on the Pro tier. -->
+        <a class="btn btn-primary" href="#documents" data-papermark="library">Access Subscriber Library</a>
+      </div>
+
+      <p class="access-note">Access is restricted to authorised recipients. You may be asked to verify your email before viewing or downloading documents. Subscriber copies may be watermarked and tracked.</p>
+    </div>
+  </section>
+
+  <!-- ================= DOCUMENTS ================= -->
+  <section class="section" id="documents">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Secure Documents</p>
+        <h2>Current releases</h2>
+      </div>
+
+      <article class="doc">
+        <div>
+          <h3>Nigeria Political &amp; Regulatory Environment</h3>
+          <p class="doc-meta">Monthly Intelligence Note · August 2026</p>
+          <p class="doc-desc">A confidential monthly intelligence note on Nigeria’s political, regulatory and political-economy operating environment, with sector exposure, forward-looking assessments, forecast tracking and executive actions.</p>
+        </div>
+        <div class="doc-action">
+          <!-- PAPERMARK: replace href with the share link for the monthly note -->
+          <a class="btn btn-secondary" href="#" data-papermark="note-monthly">Access Secure Note</a>
+        </div>
+      </article>
+
+      <article class="doc">
+        <div>
+          <h3>Athena Intelligence Update 001-2026</h3>
+          <p class="doc-meta">Focused Briefing Note</p>
+          <p class="doc-desc">A concise intelligence update on a material political, regulatory or operating-risk development, prepared for subscribers and authorised readers.</p>
+        </div>
+        <div class="doc-action">
+          <!-- PAPERMARK: replace href with the share link for Update 001-2026 -->
+          <a class="btn btn-secondary" href="#" data-papermark="note-update-001">Access Secure Note</a>
+        </div>
+      </article>
+
+      <!-- OPTIONAL — delete this block if the page should serve existing
+           subscribers only and offer no route in. -->
+      <p class="enquire">Not yet a subscriber? <a href="mailto:intelligence@athenacentre.org?subject=APRI%20subscriber%20access%20enquiry">Enquire about subscriber access</a>.</p>
+    </div>
+  </section>
+
+  <!-- ================= WHAT APRI TRACKS ================= -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Coverage</p>
+        <h2>What APRI Tracks</h2>
+      </div>
+
+      <ul class="tracks">
+        <li><span class="num">01</span><span class="label">Political Power &amp; Coalition Stability</span></li>
+        <li><span class="num">02</span><span class="label">Government &amp; Regulatory Watch</span></li>
+        <li><span class="num">03</span><span class="label">Policy Implementation Tracker</span></li>
+        <li><span class="num">04</span><span class="label">State-Level Political &amp; Operating Risk</span></li>
+        <li><span class="num">05</span><span class="label">Political Economy Outlook</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= DESIGNED FOR ================= -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Audience</p>
+        <h2>Designed For</h2>
+      </div>
+      <p class="prose">Boards, CEOs, strategy teams, risk officers, government relations teams, investors and regulated businesses.</p>
+    </div>
+  </section>
+
+  <!-- ================= ABOUT ================= -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">About</p>
+        <h2>About Athena Political &amp; Regulatory Intelligence</h2>
+      </div>
+
+      <p class="prose">Athena Political &amp; Regulatory Intelligence helps business leaders understand how shifts in political power, public policy, regulation and institutional behaviour may affect their operating environment, investment decisions and strategic outlook.</p>
+
+      <div class="contact">
+        <p class="label">Contact</p>
+        <a href="mailto:intelligence@athenacentre.org">intelligence@athenacentre.org</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>&copy; 2026 Athena Centre for Policy and Leadership</span>
+    <span class="footer-links">
+      <a href="https://athenacentre.org">Athena Centre</a>
+      <!-- Deliberately no link to AIBT. AIBT links in; APRI does not link out. -->
+      <a href="/privacy">Privacy</a>
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>
