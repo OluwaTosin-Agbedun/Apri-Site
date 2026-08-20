@@ -1,0 +1,52 @@
+name: Sync from first repo
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout second repo
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Clone first repo
+        run: |
+          rm -rf /tmp/upstream
+          git clone https://x-access-token:${{ secrets.UPSTREAM_TOKEN }}@github.com/athenacenterpl-cmd/Apri-Site.git /tmp/upstream
+
+      - name: Copy first repo into second repo
+        run: |
+          mkdir -p /tmp/current-workflow
+          cp -f .github/workflows/sync-upstream.yml /tmp/current-workflow/sync-upstream.yml || true
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+
+          rsync -a --delete --exclude='.git' /tmp/upstream/ ./
+
+          mkdir -p .github/workflows
+          cp -f /tmp/current-workflow/sync-upstream.yml .github/workflows/sync-upstream.yml || true
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+            exit 0
+          fi
+
+          git commit -m "Sync from athenacenterpl-cmd/Apri-Site"
+          git push
