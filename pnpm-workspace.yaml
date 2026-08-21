@@ -1,0 +1,6 @@
+allowBuilds:
+  sharp: set this to true or false
+# pnpm 11 reads build-script allowances from here, not package.json.
+# sharp powers next/image optimisation and needs its native postinstall step.
+onlyBuiltDependencies:
+  - sharp

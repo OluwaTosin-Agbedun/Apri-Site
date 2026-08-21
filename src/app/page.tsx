@@ -1,0 +1,239 @@
+import Link from 'next/link'
+import { CONTACT_EMAIL } from '@/config'
+import SiteHeader from '@/components/SiteHeader'
+import SiteFooter from '@/components/SiteFooter'
+import AccessForm from './access-form'
+import {
+  PUBLICATION_SECTIONS,
+  getPublishedPublications,
+  type Publication,
+} from '@/lib/publications'
+
+export const dynamic = 'force-dynamic'
+
+function PublicationCard({ doc }: { doc: Publication }) {
+  const isRequest = doc.ctaMode === 'request'
+  const hasLink = Boolean(doc.papermarkLink)
+
+  const ctaClasses =
+    'inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors cursor-pointer'
+
+  const arrow = (
+    <span className="ml-2 opacity-70 group-hover:translate-x-1 transition-transform">
+      &rarr;
+    </span>
+  )
+
+  return (
+    <article className="group border border-border p-8 sm:p-10 hover:border-accent transition-colors bg-card/30">
+      <span className="text-xs font-medium uppercase tracking-wider text-accent mb-3 block">
+        {doc.kicker || doc.productLine}
+      </span>
+
+      <h3 className="font-serif text-xl text-foreground">{doc.title}</h3>
+
+      {doc.strapline && (
+        <p className="font-serif text-base text-foreground/70 italic mt-2">
+          {doc.strapline}
+        </p>
+      )}
+
+      <p className="text-sm text-foreground/70 leading-relaxed mt-5 mb-7 max-w-2xl">
+        {doc.description}
+      </p>
+
+      <dl className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-x-6 gap-y-2 mb-8 text-xs leading-relaxed">
+        <dt className="uppercase tracking-wider text-muted-foreground">Frequency</dt>
+        <dd className="text-foreground/70">{doc.frequency}</dd>
+        <dt className="uppercase tracking-wider text-muted-foreground">Audience</dt>
+        <dd className="text-foreground/70">{doc.audience}</dd>
+      </dl>
+
+      {isRequest ? (
+        <Link href="/#access" className={ctaClasses}>
+          {doc.ctaLabel}
+          {arrow}
+        </Link>
+      ) : hasLink ? (
+        <a
+          href={doc.papermarkLink}
+          target="_blank"
+          rel="noreferrer"
+          className={ctaClasses}
+        >
+          {doc.ctaLabel}
+          {arrow}
+        </a>
+      ) : (
+        // No link assigned yet. Rendered as plain text rather than a dead
+        // anchor, so a reader is never sent to a broken destination.
+        <span className="inline-flex items-center text-sm font-medium text-muted-foreground">
+          {doc.ctaLabel} &mdash; link pending
+        </span>
+      )}
+
+      {doc.attribution && (
+        <p className="text-xs text-muted-foreground mt-8 pt-6 border-t border-border/60 max-w-xl leading-relaxed">
+          {doc.attribution}
+        </p>
+      )}
+    </article>
+  )
+}
+
+export default async function HomePage() {
+  const documents = await getPublishedPublications()
+
+  return (
+    <div className="min-h-screen bg-background">
+      <SiteHeader />
+
+      <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+        {/* Hero */}
+        <header className="mb-24">
+          <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-6 leading-tight tracking-tight">
+            Athena Political &amp; Regulatory Intelligence
+          </h1>
+          <p className="text-lg sm:text-xl text-foreground/80 leading-relaxed mb-10 max-w-2xl">
+            Independent political, regulatory and political-economy intelligence for
+            organisations operating, investing and making strategic decisions in Nigeria.
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-start gap-4">
+            <Link
+              href="/#access"
+              className="bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
+            >
+              Access Subscriber Library
+            </Link>
+            <Link
+              href="/services"
+              className="border border-border px-8 py-3.5 text-sm font-medium tracking-wide text-foreground hover:border-accent transition-colors"
+            >
+              Request a Briefing
+            </Link>
+          </div>
+        </header>
+
+        {/* Publications */}
+        <section id="publications" className="mb-24 scroll-mt-28">
+          <div className="mb-12">
+            <h2 className="font-serif text-2xl text-foreground mb-4">
+              Publications &amp; Briefings
+            </h2>
+            <p className="text-sm text-foreground/70 leading-relaxed max-w-2xl">
+              APRI publishes written intelligence products on Nigeria&rsquo;s political,
+              regulatory and political economy environment, issued to subscribers and
+              authorised readers.
+            </p>
+          </div>
+
+          {documents.length === 0 ? (
+            <p className="text-sm text-muted-foreground border border-border bg-card/30 p-8">
+              No publications are currently listed.
+            </p>
+          ) : (
+            <div className="space-y-16">
+              {PUBLICATION_SECTIONS.map((section) => {
+                const items = documents.filter((doc) => doc.section === section)
+                if (items.length === 0) return null
+
+                return (
+                  <div key={section}>
+                    <h3 className="text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground mb-6 pb-3 border-b border-border">
+                      {section}
+                    </h3>
+                    <div className="space-y-6">
+                      {items.map((doc) => (
+                        <PublicationCard key={doc.id} doc={doc} />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 mb-24">
+          <section>
+            <h2 className="font-serif text-xl text-foreground mb-6">What APRI Tracks</h2>
+            <ul className="space-y-4 text-sm text-foreground/80">
+              {[
+                'Political Power & Coalition Stability',
+                'Government & Regulatory Watch',
+                'Policy Implementation Tracker',
+                'State-Level Political & Operating Risk',
+                'Political Economy Outlook',
+              ].map((item) => (
+                <li key={item} className="flex gap-3">
+                  <span className="text-accent">&mdash;</span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="font-serif text-xl text-foreground mb-6">Designed For</h2>
+            <p className="text-sm text-foreground/80 leading-relaxed mb-8">
+              Boards, CEOs, strategy teams, risk officers, government relations teams,
+              investors and regulated businesses.
+            </p>
+            <Link
+              href="/services"
+              className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors"
+            >
+              Services &amp; Briefings <span className="ml-2 opacity-70">&rarr;</span>
+            </Link>
+          </section>
+        </div>
+
+        {/* Subscription Access */}
+        <section id="access" className="mb-24 pt-16 border-t border-border scroll-mt-28">
+          <h2 className="font-serif text-2xl text-foreground mb-4">Subscription Access</h2>
+          <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-2xl">
+            Access to the APRI subscriber library is granted to authorised recipients.
+            Submit your details below and a secure access link will be issued if approved.
+          </p>
+
+          <AccessForm />
+
+          <div className="mt-10 pt-8 border-t border-border">
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
+              <span className="font-medium text-foreground">Access note:</span> Access is
+              restricted to authorised recipients. You may be asked to verify your email
+              before viewing or downloading documents. Subscriber copies may be watermarked
+              and tracked.
+            </p>
+          </div>
+        </section>
+
+        {/* Contact */}
+        <section id="contact" className="mb-24 pt-16 border-t border-border scroll-mt-28">
+          <h2 className="font-serif text-xl text-foreground mb-6">
+            About Athena Political &amp; Regulatory Intelligence
+          </h2>
+          <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-2xl">
+            Athena Political &amp; Regulatory Intelligence helps business leaders understand
+            how shifts in political power, public policy, regulation and institutional
+            behaviour may affect their operating environment, investment decisions and
+            strategic outlook.
+          </p>
+
+          <div className="text-sm">
+            <span className="text-muted-foreground mr-2">Contact:</span>
+            <a
+              href={`mailto:${CONTACT_EMAIL}`}
+              className="text-foreground hover:text-accent transition-colors font-medium"
+            >
+              {CONTACT_EMAIL}
+            </a>
+          </div>
+        </section>
+
+        <SiteFooter />
+      </div>
+    </div>
+  )
+}

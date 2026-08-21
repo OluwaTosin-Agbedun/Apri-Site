@@ -1,4 +1,13 @@
-import type { BriefingType } from '../context/AppContext';
+/**
+ * The five briefing names, which the request form also offers. Declared here
+ * because the Vite-era AppContext that used to own this union is gone.
+ */
+export type BriefingType =
+  | 'Board Political & Regulatory Risk Briefing'
+  | 'Executive Political & Regulatory Briefing'
+  | 'Strategy & Retreat Briefing'
+  | 'Sector Political & Regulatory Risk Briefing'
+  | 'Rapid Intelligence Briefing';
 
 export type ServiceItem = {
   id: string;

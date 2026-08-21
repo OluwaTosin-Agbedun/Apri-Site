@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
-import { Link, NavLink, useLocation } from 'react-router';
+'use client'
 
-type NavItem = { label: string; to: string };
+import { useState } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+type NavItem = { label: string; href: string }
 
 /**
  * Site navigation, in the order given by the publication brief. Publications,
@@ -10,37 +13,37 @@ type NavItem = { label: string; to: string };
  * the written publications.
  */
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Home', to: '/' },
-  { label: 'Publications', to: '/#publications' },
-  { label: 'Services & Briefings', to: '/services' },
-  { label: 'Subscription Access', to: '/#access' },
-  { label: 'Contact', to: '/#contact' }
-];
+  { label: 'Home', href: '/' },
+  { label: 'Publications', href: '/#publications' },
+  { label: 'Services & Briefings', href: '/services' },
+  { label: 'Subscription Access', href: '/#access' },
+  { label: 'Contact', href: '/#contact' },
+]
 
 export default function SiteHeader() {
-  const { pathname, hash } = useLocation();
-  const [isOpen, setIsOpen] = useState(false);
+  const pathname = usePathname()
+  const [isOpen, setIsOpen] = useState(false)
 
-  const isCurrent = (to: string) => {
-    const [path, target] = to.split('#');
-    const normalisedPath = path || '/';
-    if (normalisedPath !== pathname) return false;
-    if (target) return hash === `#${target}`;
-    return !hash;
-  };
+  // Only the path is compared. The fragment is not visible to the router on the
+  // server, so highlighting a specific section would flicker on hydration.
+  const isCurrent = (href: string) => {
+    const path = href.split('#')[0] || '/'
+    if (path === '/') return pathname === '/' && !href.includes('#')
+    return pathname === path
+  }
 
-  const linkClass = (to: string) =>
+  const linkClass = (href: string) =>
     `text-sm tracking-wide transition-colors ${
-      isCurrent(to)
+      isCurrent(href)
         ? 'text-foreground border-b border-accent pb-0.5'
         : 'text-foreground/60 hover:text-foreground'
-    }`;
+    }`
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-sm">
       <div className="max-w-5xl lg:max-w-6xl mx-auto px-6">
         <div className="flex items-center justify-between h-20">
-          <Link to="/" className="group" onClick={() => setIsOpen(false)}>
+          <Link href="/" className="group" onClick={() => setIsOpen(false)}>
             <span className="font-serif text-base text-foreground tracking-tight">APRI</span>
             <span className="hidden sm:inline text-xs text-muted-foreground ml-3 pl-3 border-l border-border">
               Athena Political &amp; Regulatory Intelligence
@@ -49,9 +52,9 @@ export default function SiteHeader() {
 
           <nav className="hidden lg:flex items-center gap-8">
             {NAV_ITEMS.map((item) => (
-              <NavLink key={item.to} to={item.to} className={linkClass(item.to)}>
+              <Link key={item.href} href={item.href} className={linkClass(item.href)}>
                 {item.label}
-              </NavLink>
+              </Link>
             ))}
           </nav>
 
@@ -69,18 +72,18 @@ export default function SiteHeader() {
         {isOpen && (
           <nav className="lg:hidden pb-6 flex flex-col gap-4 border-t border-border pt-6">
             {NAV_ITEMS.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
+              <Link
+                key={item.href}
+                href={item.href}
                 onClick={() => setIsOpen(false)}
-                className={linkClass(item.to)}
+                className={linkClass(item.href)}
               >
                 {item.label}
-              </NavLink>
+              </Link>
             ))}
           </nav>
         )}
       </div>
     </header>
-  );
+  )
 }

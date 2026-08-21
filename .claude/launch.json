@@ -7,7 +7,7 @@
       "runtimeArgs": [
         "/d",
         "/c",
-        "corepack pnpm run dev"
+        "node node_modules\\next\\dist\\bin\\next dev --webpack -p 8443"
       ],
       "port": 8443
     }
