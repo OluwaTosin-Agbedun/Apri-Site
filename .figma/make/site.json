@@ -1,0 +1,11 @@
+{
+  "title": "Athena Political & Regulatory Intelligence",
+  "description": "Provides secure access to exclusive political and regulatory intelligence for executives and investors operating in Nigeria's complex environment.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

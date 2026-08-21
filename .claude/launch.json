@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "apri-dev",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/d",
+        "/c",
+        "corepack pnpm run dev"
+      ],
+      "port": 8443
+    }
+  ]
+}
