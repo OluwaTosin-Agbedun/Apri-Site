@@ -3,6 +3,10 @@
 import { revalidatePath } from 'next/cache'
 import { getSql } from '@/lib/db'
 import {
+  sendBriefingConfirmation,
+  sendBriefingNotification,
+} from '@/lib/email'
+import {
   BriefingRequestSchema,
   SubscriberSchema,
   fieldErrors,
@@ -86,6 +90,15 @@ export async function requestBriefing(
 
   revalidatePath('/admin')
   revalidatePath('/admin/briefings')
+
+  try {
+    await Promise.all([
+      sendBriefingConfirmation(d),
+      sendBriefingNotification(d),
+    ])
+  } catch {
+    // Email failure must not block the request — the data is already saved.
+  }
 
   return {
     ok: true,

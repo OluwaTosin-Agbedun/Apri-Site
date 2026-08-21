@@ -3,13 +3,15 @@
   "configurations": [
     {
       "name": "apri-dev",
-      "runtimeExecutable": "cmd",
+      "runtimeExecutable": "node",
       "runtimeArgs": [
-        "/d",
-        "/c",
-        "node node_modules\\next\\dist\\bin\\next dev --webpack -p 8443"
+        "node_modules\\next\\dist\\bin\\next",
+        "dev",
+        "--webpack",
+        "-p",
+        "3001"
       ],
-      "port": 8443
+      "port": 3001
     }
   ]
 }

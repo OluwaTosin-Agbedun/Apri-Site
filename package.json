@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 8443",
+    "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 8443",
+    "start": "next start -p 3001",
     "lint": "next lint",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",
@@ -19,6 +19,7 @@
     "next": "16.2.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "resend": "^6.21.0",
     "server-only": "^0.0.1",
     "zod": "^4.4.3"
   },
