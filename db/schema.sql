@@ -133,14 +133,9 @@ alter table documents add column if not exists status       text not null defaul
 alter table documents add column if not exists published_at timestamptz;
 alter table documents add column if not exists synced_at    timestamptz;
 
-do $$
-begin
-  if not exists (select 1 from pg_constraint where conname = 'documents_status_check') then
-    alter table documents
-      add constraint documents_status_check
-      check (status in ('draft', 'published', 'archived'));
-  end if;
-end $$;
+alter table documents drop constraint if exists documents_status_check;
+alter table documents add constraint documents_status_check
+  check (status in ('draft', 'published', 'archived'));
 
 -- The uniqueness that makes the sync idempotent: clicking "Fetch from
 -- Papermark" repeatedly updates the same row instead of inserting duplicates.
