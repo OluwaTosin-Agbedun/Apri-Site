@@ -18,6 +18,7 @@ const BLANK: DocumentDraft = {
   frequency: '',
   audience: '',
   attribution: '',
+  coverageAreas: '',
   ctaLabel: 'Access Secure Note',
   ctaMode: 'link',
   papermarkLink: '',
@@ -39,6 +40,7 @@ type Row = {
   attribution: string
   cta_label: string
   cta_mode: string
+  coverage_areas: string
   papermark_link: string
   sort_order: number
   status: string
@@ -75,7 +77,7 @@ export default async function EditDocumentPage({
   const rows = (await sql`
     select id, slug, section_label, kicker, title, strapline, product_line,
            description, frequency, audience, attribution, cta_label, cta_mode,
-           papermark_link, sort_order, status
+           coverage_areas, papermark_link, sort_order, status
     from documents
     where id = ${id}
     limit 1
@@ -96,6 +98,7 @@ export default async function EditDocumentPage({
     frequency: row.frequency,
     audience: row.audience,
     attribution: row.attribution,
+    coverageAreas: row.coverage_areas,
     ctaLabel: row.cta_label,
     ctaMode: row.cta_mode,
     papermarkLink: row.papermark_link,

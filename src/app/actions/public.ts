@@ -27,16 +27,17 @@ export async function requestAccess(
     name: formData.get('name'),
     organization: formData.get('organization'),
     email: formData.get('email'),
+    subscriptionLevel: formData.get('subscriptionLevel') ?? '',
   })
 
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
 
-  const { name, organization, email } = parsed.data
+  const { name, organization, email, subscriptionLevel } = parsed.data
   const sql = getSql()
 
   await sql`
-    insert into subscribers (name, organization, email, status)
-    values (${name}, ${organization}, ${email}, 'Pending')
+    insert into subscribers (name, organization, email, subscription_level, status)
+    values (${name}, ${organization}, ${email}, ${subscriptionLevel}, 'Pending')
   `
 
   revalidatePath('/admin')

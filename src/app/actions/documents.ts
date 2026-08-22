@@ -91,6 +91,7 @@ export async function saveDocument(
     frequency: formData.get('frequency') ?? '',
     audience: formData.get('audience') ?? '',
     attribution: formData.get('attribution') ?? '',
+    coverageAreas: formData.get('coverageAreas') ?? '',
     ctaLabel: formData.get('ctaLabel') || 'Access Secure Note',
     ctaMode: formData.get('ctaMode') || 'link',
     papermarkLink: formData.get('papermarkLink') ?? '',
@@ -110,6 +111,7 @@ export async function saveDocument(
           title = ${d.title}, strapline = ${d.strapline}, product_line = ${d.productLine},
           description = ${d.description}, frequency = ${d.frequency},
           audience = ${d.audience}, attribution = ${d.attribution},
+          coverage_areas = ${d.coverageAreas},
           cta_label = ${d.ctaLabel}, cta_mode = ${d.ctaMode},
           papermark_link = ${d.papermarkLink}, sort_order = ${d.sortOrder},
           updated_at = now()
@@ -119,13 +121,13 @@ export async function saveDocument(
       await sql`
         insert into documents (
           slug, section_label, kicker, title, strapline, product_line,
-          description, frequency, audience, attribution, cta_label, cta_mode,
-          papermark_link, sort_order, status, is_published
+          description, frequency, audience, attribution, coverage_areas,
+          cta_label, cta_mode, papermark_link, sort_order, status, is_published
         ) values (
           ${d.slug}, ${d.sectionLabel}, ${d.kicker}, ${d.title}, ${d.strapline},
           ${d.productLine}, ${d.description}, ${d.frequency}, ${d.audience},
-          ${d.attribution}, ${d.ctaLabel}, ${d.ctaMode}, ${d.papermarkLink},
-          ${d.sortOrder}, 'draft', false
+          ${d.attribution}, ${d.coverageAreas}, ${d.ctaLabel}, ${d.ctaMode},
+          ${d.papermarkLink}, ${d.sortOrder}, 'draft', false
         )
       `
     }

@@ -3,6 +3,14 @@
 import { useActionState } from 'react'
 import { requestAccess } from '@/app/actions/public'
 
+const SUBSCRIPTION_LEVELS = [
+  'Individual Access',
+  'Professional Team Access',
+  'Political Monitor',
+  'Executive Intelligence',
+  'Board Briefing',
+]
+
 const field =
   'w-full border border-border bg-background p-3 text-sm focus:outline-none focus:border-accent'
 
@@ -45,6 +53,14 @@ export default function AccessForm() {
         {state?.errors?.email && (
           <p className="mt-2 text-xs text-red-700">{state.errors.email[0]}</p>
         )}
+      </div>
+      <div>
+        <select name="subscriptionLevel" className={`${field} appearance-none cursor-pointer`} defaultValue="">
+          <option value="" disabled>Subscription Level (optional)</option>
+          {SUBSCRIPTION_LEVELS.map((level) => (
+            <option key={level} value={level}>{level}</option>
+          ))}
+        </select>
       </div>
 
       <button

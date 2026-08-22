@@ -20,6 +20,7 @@ export type DocumentDraft = {
   attribution: string
   ctaLabel: string
   ctaMode: string
+  coverageAreas: string
   papermarkLink: string
   sortOrder: number
   status: string
@@ -102,6 +103,15 @@ export default function DocumentForm({ draft }: { draft: DocumentDraft }) {
         <label htmlFor="audience" className={label}>Audience</label>
         <textarea id="audience" name="audience" rows={2} defaultValue={draft.audience} className={field} />
         {err('audience')}
+      </div>
+
+      <div>
+        <label htmlFor="coverageAreas" className={label}>Coverage areas</label>
+        <textarea id="coverageAreas" name="coverageAreas" rows={5} defaultValue={draft.coverageAreas} className={field} placeholder={"One area per line, e.g.\nPolitical Events & Developments\nRegulatory & Policy Shifts"} />
+        <p className="mt-2 text-xs text-muted-foreground">
+          One area per line. Shown as a bullet list on the publication detail page.
+        </p>
+        {err('coverageAreas')}
       </div>
 
       <div>

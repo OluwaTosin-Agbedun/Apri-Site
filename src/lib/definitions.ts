@@ -52,6 +52,7 @@ export const SubscriberSchema = z.object({
   name: z.string().trim().min(1, { error: 'Enter your full name.' }).max(160),
   organization: z.string().trim().min(1, { error: 'Enter your organisation.' }).max(200),
   email,
+  subscriptionLevel: z.string().trim().max(120).default(''),
 })
 
 export const DocumentSchema = z.object({
@@ -84,6 +85,7 @@ export const DocumentSchema = z.object({
         .pipe(z.url({ protocol: /^https$/, error: 'Must be an https:// URL.' })),
     ])
     .default(''),
+  coverageAreas: z.string().trim().max(4000).default(''),
   sortOrder: z.coerce.number().int().min(0).max(9999).default(0),
   isPublished: z.coerce.boolean().default(true),
 })

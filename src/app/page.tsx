@@ -30,7 +30,11 @@ function PublicationCard({ doc }: { doc: Publication }) {
         {doc.kicker || doc.productLine}
       </span>
 
-      <h3 className="font-serif text-xl text-foreground">{doc.title}</h3>
+      <h3 className="font-serif text-xl text-foreground">
+        <Link href={`/publications/${doc.slug}`} className="hover:text-accent transition-colors">
+          {doc.title}
+        </Link>
+      </h3>
 
       {doc.strapline && (
         <p className="font-serif text-base text-foreground/70 italic mt-2">
@@ -38,9 +42,16 @@ function PublicationCard({ doc }: { doc: Publication }) {
         </p>
       )}
 
-      <p className="text-sm text-foreground/70 leading-relaxed mt-5 mb-7 max-w-2xl">
+      <p className="text-sm text-foreground/70 leading-relaxed mt-5 mb-5 max-w-2xl">
         {doc.description}
       </p>
+
+      <Link
+        href={`/publications/${doc.slug}`}
+        className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mb-4"
+      >
+        Read more <span className="ml-2 opacity-70">&rarr;</span>
+      </Link>
 
       <dl className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-x-6 gap-y-2 mb-8 text-xs leading-relaxed">
         <dt className="uppercase tracking-wider text-muted-foreground">Frequency</dt>
@@ -50,7 +61,7 @@ function PublicationCard({ doc }: { doc: Publication }) {
       </dl>
 
       {isRequest ? (
-        <Link href="/#access" className={ctaClasses}>
+        <Link href="/access" className={ctaClasses}>
           {doc.ctaLabel}
           {arrow}
         </Link>
@@ -198,6 +209,15 @@ export default async function HomePage() {
           </p>
 
           <AccessForm />
+
+          <div className="mt-8">
+            <Link
+              href="/access"
+              className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors"
+            >
+              View all subscription levels <span className="ml-2 opacity-70">&rarr;</span>
+            </Link>
+          </div>
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">

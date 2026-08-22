@@ -6,17 +6,10 @@ import { usePathname } from 'next/navigation'
 
 type NavItem = { label: string; href: string }
 
-/**
- * Site navigation, in the order given by the publication brief. Publications,
- * Subscription Access and Contact are sections of the home page; Services &
- * Briefings is a separate page, because the brief asks for it to sit apart from
- * the written publications.
- */
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Home', href: '/' },
-  { label: 'Publications', href: '/#publications' },
+  { label: 'Publications', href: '/publications' },
   { label: 'Services & Briefings', href: '/services' },
-  { label: 'Subscription Access', href: '/#access' },
+  { label: 'Subscription Access', href: '/access' },
   { label: 'Contact', href: '/#contact' },
 ]
 
@@ -24,12 +17,9 @@ export default function SiteHeader() {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
 
-  // Only the path is compared. The fragment is not visible to the router on the
-  // server, so highlighting a specific section would flicker on hydration.
   const isCurrent = (href: string) => {
-    const path = href.split('#')[0] || '/'
-    if (path === '/') return pathname === '/' && !href.includes('#')
-    return pathname === path
+    if (href === '/publications') return pathname.startsWith('/publications')
+    return pathname === href
   }
 
   const linkClass = (href: string) =>

@@ -10,6 +10,7 @@ type Row = {
   name: string
   organization: string
   email: string
+  subscription_level: string
   status: string
   created_at: string
 }
@@ -19,7 +20,7 @@ export default async function AdminSubscribersPage() {
   const sql = getSql()
 
   const subscribers = (await sql`
-    select id, name, organization, email, status, created_at
+    select id, name, organization, email, subscription_level, status, created_at
     from subscribers
     order by created_at desc
     limit 500
@@ -44,6 +45,7 @@ export default async function AdminSubscribersPage() {
                 <th className="font-medium p-4">Name</th>
                 <th className="font-medium p-4">Organisation</th>
                 <th className="font-medium p-4">Email</th>
+                <th className="font-medium p-4">Subscription Level</th>
                 <th className="font-medium p-4">Status</th>
                 <th className="font-medium p-4 text-right">Date Requested</th>
               </tr>
@@ -54,6 +56,7 @@ export default async function AdminSubscribersPage() {
                   <td className="p-4 font-medium text-foreground">{sub.name || '—'}</td>
                   <td className="p-4 text-foreground/70">{sub.organization || '—'}</td>
                   <td className="p-4 text-foreground/70">{sub.email}</td>
+                  <td className="p-4 text-foreground/70">{sub.subscription_level || '—'}</td>
                   <td className="p-4">
                     <span
                       className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${

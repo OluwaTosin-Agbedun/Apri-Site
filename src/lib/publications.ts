@@ -18,6 +18,7 @@ export type Publication = {
   ctaLabel: string
   ctaMode: 'link' | 'request'
   papermarkLink: string
+  coverageAreas: string
   sortOrder: number
   isPublished: boolean
 }
@@ -37,6 +38,7 @@ type Row = {
   cta_label: string
   cta_mode: 'link' | 'request'
   papermark_link: string
+  coverage_areas: string
   sort_order: number
   is_published: boolean
 }
@@ -57,6 +59,7 @@ function toPublication(row: Row): Publication {
     ctaLabel: row.cta_label,
     ctaMode: row.cta_mode,
     papermarkLink: row.papermark_link,
+    coverageAreas: row.coverage_areas,
     sortOrder: row.sort_order,
     isPublished: row.is_published,
   }
@@ -65,7 +68,7 @@ function toPublication(row: Row): Publication {
 const SELECT_COLUMNS = `
   id, slug, section_label, kicker, title, strapline, product_line,
   description, frequency, audience, attribution, cta_label, cta_mode,
-  papermark_link, sort_order, is_published
+  papermark_link, coverage_areas, sort_order, is_published
 `
 
 /** Published publications, for the public site. */
@@ -77,6 +80,16 @@ export async function getPublishedPublications(): Promise<Publication[]> {
      order by sort_order asc, created_at desc`
   )) as Row[]
   return rows.map(toPublication)
+}
+
+/** Single publication by slug, for detail pages. */
+export async function getPublicationBySlug(slug: string): Promise<Publication | null> {
+  const sql = getSql()
+  const rows = (await sql.query(
+    `select ${SELECT_COLUMNS} from documents where slug = $1 limit 1`,
+    [slug]
+  )) as Row[]
+  return rows[0] ? toPublication(rows[0]) : null
 }
 
 /** Everything, published or not, for the CMS. */

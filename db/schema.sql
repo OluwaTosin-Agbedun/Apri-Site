@@ -75,6 +75,11 @@ create table if not exists subscribers (
   constraint subscribers_status_check check (status in ('Pending', 'Active', 'Declined'))
 );
 
+alter table subscribers add column if not exists subscription_level text not null default '';
+
+-- Coverage areas: newline-separated list editable from the CMS document form.
+alter table documents add column if not exists coverage_areas text not null default '';
+
 create index if not exists subscribers_created_idx on subscribers (created_at desc);
 
 -- ---------------------------------------------------------------------------
@@ -150,3 +155,16 @@ create index if not exists documents_status_idx on documents (status, sort_order
 insert into app_settings (key, value)
 values ('papermark_auto_sync', 'false')
 on conflict (key) do nothing;
+
+-- Seed coverage areas for existing publications (idempotent: skips if already set).
+update documents set coverage_areas = E'Political Events & Developments\nRegulatory & Policy Shifts\nElectoral & Institutional Dynamics\nSecurity & Stability Risks\nStrategic & Operating-Risk Implications'
+where slug = 'athena-intelligence-update' and coverage_areas = '';
+
+update documents set coverage_areas = E'Political Power & Coalition Dynamics\nGovernment & Regulatory Watch\nPolicy Implementation & Compliance Tracker\nSector Exposure Assessments\nState-Level Political & Operating Risk\nForward-Looking Assessments & Scenario Analysis'
+where slug = 'nigeria-political-regulatory-environment' and coverage_areas = '';
+
+update documents set coverage_areas = E'90–180 Day Political Outlook\nRegulatory Pipeline & Compliance Risks\nPolitical Economy Trends\nElectoral & Transition Scenarios\nSector-Specific Impact Assessments\nStrategic Risk Matrix'
+where slug = 'nigeria-political-regulatory-outlook' and coverage_areas = '';
+
+update documents set coverage_areas = E'Election Calendar & Key Dates\nParty & Coalition Dynamics\nElectoral Commission Watch\nLegal & Constitutional Developments\nDemocratic Institution Assessment\nState-Level Political Mapping'
+where slug = 'political-landscape-monitor' and coverage_areas = '';
