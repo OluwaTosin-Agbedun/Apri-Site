@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { requireAdmin } from '@/lib/dal'
 import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
+import { seriesLabel, visibilityBadge, isVisibility } from '@/lib/entitlements'
 import SyncPanel from './sync-panel'
 import RowActions from './row-actions'
 
@@ -15,6 +16,10 @@ type Row = {
   section_label: string
   status: string
   cta_mode: string
+  visibility: string
+  open_link_url: string | null
+  series: string
+  edition_date: string | null
   papermark_link: string
   papermark_document_id: string | null
   sort_order: number
@@ -33,6 +38,7 @@ export default async function AdminDocumentsPage() {
 
   const documents = (await sql`
     select id, title, kicker, section_label, status, cta_mode,
+           visibility, open_link_url, series, edition_date,
            papermark_link, papermark_document_id, sort_order, published_at
     from documents
     order by sort_order asc, created_at desc
@@ -70,7 +76,8 @@ export default async function AdminDocumentsPage() {
             <thead className="border-b border-border bg-black/5 text-foreground/70">
               <tr>
                 <th className="font-medium p-4">Title</th>
-                <th className="font-medium p-4">Section</th>
+                <th className="font-medium p-4">Series</th>
+                <th className="font-medium p-4">Audience</th>
                 <th className="font-medium p-4">Status</th>
                 <th className="font-medium p-4">Link</th>
                 <th className="font-medium p-4 text-right">Actions</th>
@@ -88,7 +95,27 @@ export default async function AdminDocumentsPage() {
                       <p className="text-xs text-accent/70 mt-1">From Papermark</p>
                     )}
                   </td>
-                  <td className="p-4 text-foreground/70">{doc.section_label || '—'}</td>
+                  <td className="p-4 text-foreground/70">
+                    {doc.series ? seriesLabel(doc.series) : doc.section_label || '—'}
+                    {doc.edition_date && (
+                      <span className="block text-xs text-muted-foreground mt-0.5">
+                        {new Date(doc.edition_date).toLocaleDateString('en-GB')}
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-4">
+                    <span
+                      className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                        doc.visibility === 'OPEN'
+                          ? 'bg-accent/10 text-accent'
+                          : 'bg-muted text-muted-foreground border border-border'
+                      }`}
+                    >
+                      {isVisibility(doc.visibility)
+                        ? visibilityBadge(doc.visibility)
+                        : doc.visibility}
+                    </span>
+                  </td>
                   <td className="p-4">
                     <span
                       className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
@@ -99,23 +126,31 @@ export default async function AdminDocumentsPage() {
                     </span>
                   </td>
                   <td className="p-4">
-                    {doc.cta_mode === 'request' ? (
-                      <span className="text-xs text-muted-foreground">On request</span>
-                    ) : doc.papermark_link ? (
-                      <a
-                        href={doc.papermark_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-medium text-foreground hover:text-accent transition-colors"
-                      >
-                        Preview &rarr;
-                      </a>
+                    {doc.visibility === 'OPEN' ? (
+                      doc.open_link_url ? (
+                        <a
+                          href={doc.open_link_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-medium text-foreground hover:text-accent transition-colors"
+                        >
+                          Preview &rarr;
+                        </a>
+                      ) : (
+                        <span className="text-xs text-red-700">Public link missing</span>
+                      )
                     ) : (
-                      <span className="text-xs text-red-700">Missing secure link</span>
+                      <span className="text-xs text-muted-foreground">
+                        Via subscriber link
+                      </span>
                     )}
                   </td>
                   <td className="p-4 text-right">
-                    <RowActions id={doc.id} status={doc.status} />
+                    <RowActions
+                      id={doc.id}
+                      status={doc.status}
+                      visibility={doc.visibility}
+                    />
                   </td>
                 </tr>
               ))}

@@ -168,3 +168,337 @@ where slug = 'nigeria-political-regulatory-outlook' and coverage_areas = '';
 
 update documents set coverage_areas = E'Election Calendar & Key Dates\nParty & Coalition Dynamics\nElectoral Commission Watch\nLegal & Constitutional Developments\nDemocratic Institution Assessment\nState-Level Political Mapping'
 where slug = 'political-landscape-monitor' and coverage_areas = '';
+
+-- ===========================================================================
+-- Subscriber portal
+--
+-- Internal access levels L1..L4 are never shown to visitors. The public
+-- /access page keeps its five tier names; `level` is the private mapping used
+-- to decide what a signed-in subscriber may read.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- subscribers: paid-seat fields
+--
+-- One row is one named person. An organisation buying several seats gets
+-- several rows, each with its own email and its own watermarked link. There is
+-- deliberately no shared organisational login.
+-- ---------------------------------------------------------------------------
+alter table subscribers add column if not exists full_name        text;
+alter table subscribers add column if not exists role_title       text not null default '';
+alter table subscribers add column if not exists phone            text not null default '';
+alter table subscribers add column if not exists level            text;
+alter table subscribers add column if not exists public_tier      text not null default '';
+alter table subscribers add column if not exists seats            integer not null default 1;
+alter table subscribers add column if not exists term_start       date;
+alter table subscribers add column if not exists term_end         date;
+alter table subscribers add column if not exists invoice_ref      text not null default '';
+alter table subscribers add column if not exists library_link_url text;
+alter table subscribers add column if not exists papermark_link_id text;
+alter table subscribers add column if not exists last_viewed_at   timestamptz;
+alter table subscribers add column if not exists updated_at       timestamptz not null default now();
+alter table subscribers add column if not exists note             text not null default '';
+
+-- full_name backfills from the original `name` column so no enquiry is lost.
+update subscribers set full_name = name where full_name is null;
+
+-- Widen status to the portal lifecycle while preserving the existing values
+-- the enquiry form already writes ('Pending' / 'Active' / 'Declined').
+alter table subscribers drop constraint if exists subscribers_status_check;
+alter table subscribers add constraint subscribers_status_check
+  check (status in (
+    'Pending', 'Active', 'Declined',
+    'pending', 'active', 'lapsed', 'suspended'
+  ));
+
+alter table subscribers drop constraint if exists subscribers_level_check;
+alter table subscribers add constraint subscribers_level_check
+  check (level is null or level in ('L1', 'L2', 'L3', 'L4'));
+
+alter table subscribers drop constraint if exists subscribers_seats_check;
+alter table subscribers add constraint subscribers_seats_check
+  check (seats >= 1);
+
+-- One seat per email address. Case-insensitive so Ada@x.com and ada@x.com
+-- cannot become two seats for the same person.
+create unique index if not exists subscribers_email_lower_key
+  on subscribers (lower(email));
+
+create index if not exists subscribers_level_status_idx
+  on subscribers (status, level);
+
+-- ---------------------------------------------------------------------------
+-- documents: series, edition and visibility
+--
+-- `visibility` is the gate. OPEN means any visitor may read it from the public
+-- publications page; L1..L4 mean it belongs to a paid library and is only ever
+-- reachable behind sign-in.
+-- ---------------------------------------------------------------------------
+alter table documents add column if not exists code          text;
+alter table documents add column if not exists series        text not null default '';
+alter table documents add column if not exists summary       text not null default '';
+alter table documents add column if not exists edition_date  date;
+alter table documents add column if not exists visibility    text not null default 'L2';
+alter table documents add column if not exists open_link_url text;
+alter table documents add column if not exists page_count    integer;
+
+alter table documents drop constraint if exists documents_series_check;
+alter table documents add constraint documents_series_check
+  check (series = '' or series in ('PLM', 'AEO', 'AIU', 'MIN', 'QIB', 'BP'));
+
+alter table documents drop constraint if exists documents_visibility_check;
+alter table documents add constraint documents_visibility_check
+  check (visibility in ('OPEN', 'L1', 'L2', 'L3', 'L4'));
+
+-- Partial, so the many rows with no code yet do not collide on null.
+create unique index if not exists documents_code_key
+  on documents (code)
+  where code is not null;
+
+create index if not exists documents_visibility_idx
+  on documents (status, visibility, edition_date desc);
+
+-- Seed series and visibility for the four existing publications. Idempotent:
+-- only fills rows that have not been classified yet.
+update documents set series = 'AIU', visibility = 'L2'
+where slug = 'athena-intelligence-update' and series = '';
+
+update documents set series = 'MIN', visibility = 'L2'
+where slug = 'nigeria-political-regulatory-environment' and series = '';
+
+update documents set series = 'QIB', visibility = 'L3'
+where slug = 'nigeria-political-regulatory-outlook' and series = '';
+
+update documents set series = 'PLM', visibility = 'L1'
+where slug = 'political-landscape-monitor' and series = '';
+
+-- summary backfills from description so portal rows are never blank.
+update documents set summary = description
+where summary = '' and description <> '';
+
+-- ---------------------------------------------------------------------------
+-- publication_access: per-subscriber link override
+--
+-- Used for board papers and anything that needs its own dedicated watermarked
+-- link rather than the subscriber's general library link.
+-- ---------------------------------------------------------------------------
+create table if not exists publication_access (
+  id                uuid primary key default gen_random_uuid(),
+  subscriber_id     uuid        not null references subscribers (id) on delete cascade,
+  publication_id    uuid        not null references documents (id) on delete cascade,
+  link_url          text        not null default '',
+  papermark_link_id text,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  constraint publication_access_unique unique (subscriber_id, publication_id)
+);
+
+create index if not exists publication_access_subscriber_idx
+  on publication_access (subscriber_id);
+
+-- ---------------------------------------------------------------------------
+-- auth_tokens: single-use magic-link tokens
+--
+-- Only the hash is stored, so a database read cannot be replayed as a sign-in.
+-- consumed_at latches the single use; expires_at bounds the window.
+-- ---------------------------------------------------------------------------
+create table if not exists auth_tokens (
+  id            uuid primary key default gen_random_uuid(),
+  subscriber_id uuid        not null references subscribers (id) on delete cascade,
+  token_hash    text        not null,
+  expires_at    timestamptz not null,
+  consumed_at   timestamptz,
+  created_at    timestamptz not null default now()
+);
+
+create unique index if not exists auth_tokens_hash_key on auth_tokens (token_hash);
+create index if not exists auth_tokens_subscriber_idx
+  on auth_tokens (subscriber_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- document_views: what the Papermark webhook records
+--
+-- Written by the webhook receiver once PAPERMARK_WEBHOOK_SECRET is configured.
+-- Holds no personal data beyond the subscriber reference already in the system.
+-- ---------------------------------------------------------------------------
+create table if not exists document_views (
+  id             uuid primary key default gen_random_uuid(),
+  subscriber_id  uuid references subscribers (id) on delete set null,
+  publication_id uuid references documents (id) on delete set null,
+  papermark_view_id text,
+  viewed_at      timestamptz not null default now(),
+  created_at     timestamptz not null default now()
+);
+
+create unique index if not exists document_views_papermark_key
+  on document_views (papermark_view_id)
+  where papermark_view_id is not null;
+
+create index if not exists document_views_subscriber_idx
+  on document_views (subscriber_id, viewed_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Engagement tracking: richer view records
+--
+-- Extends document_views rather than adding a second table. The columns below
+-- carry what Papermark's View object actually reports, plus which of the two
+-- collectors wrote the row.
+--
+-- papermark_view_id becomes NOT NULL because it is the idempotency key: a row
+-- without one could be inserted twice by a webhook retry and would silently
+-- inflate a subscriber's open count, which is the one number this whole
+-- feature exists to get right.
+-- ---------------------------------------------------------------------------
+alter table document_views add column if not exists papermark_link_id text;
+alter table document_views add column if not exists viewer_email      text;
+alter table document_views add column if not exists duration_seconds  integer;
+alter table document_views add column if not exists completion_pct    numeric(5,2);
+alter table document_views add column if not exists downloaded        boolean not null default false;
+alter table document_views add column if not exists source            text not null default 'webhook';
+
+-- Safe on an empty table, and a no-op once already applied. Any row lacking an
+-- id would be un-deduplicable, so there is nothing to preserve.
+delete from document_views where papermark_view_id is null;
+
+alter table document_views alter column papermark_view_id set not null;
+
+alter table document_views drop constraint if exists document_views_source_check;
+alter table document_views add constraint document_views_source_check
+  check (source in ('webhook', 'poll'));
+
+alter table document_views drop constraint if exists document_views_completion_check;
+alter table document_views add constraint document_views_completion_check
+  check (completion_pct is null or (completion_pct >= 0 and completion_pct <= 100));
+
+alter table document_views drop constraint if exists document_views_duration_check;
+alter table document_views add constraint document_views_duration_check
+  check (duration_seconds is null or duration_seconds >= 0);
+
+-- Now that the column is NOT NULL the partial index can become a plain one,
+-- which is what `on conflict (papermark_view_id)` needs to bind to.
+drop index if exists document_views_papermark_key;
+create unique index if not exists document_views_view_id_key
+  on document_views (papermark_view_id);
+
+create index if not exists document_views_publication_idx
+  on document_views (publication_id);
+create index if not exists document_views_link_idx
+  on document_views (papermark_link_id);
+create index if not exists document_views_unmatched_idx
+  on document_views (viewed_at desc)
+  where subscriber_id is null;
+
+-- How many recent editions to test for the engagement flag. Editable in the
+-- admin; stored as a setting so it survives a redeploy.
+insert into app_settings (key, value)
+values ('engagement_window', '2')
+on conflict (key) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Per-subscriber stamped copies
+--
+-- Each subscriber's name is stamped into the PDF before upload, so there is one
+-- Papermark document and one link per subscriber per publication, allow-listed
+-- to that one address. publication_access is therefore the primary route to a
+-- document, not an override.
+--
+-- A publication may instead be marked as a shared, unstamped copy -- the one
+-- case where a single link serves everyone. Default false, because a document
+-- reaching the wrong reader with someone else's name on it is the failure this
+-- whole arrangement exists to prevent.
+-- ---------------------------------------------------------------------------
+alter table documents add column if not exists is_shared_copy boolean not null default false;
+
+-- Revocation state. Rows are never deleted: the record of what someone had
+-- access to outlives their access to it. Revoking clears the link, not the row.
+alter table publication_access add column if not exists revoked_at  timestamptz;
+alter table publication_access add column if not exists revoke_state text not null default 'live';
+
+alter table publication_access drop constraint if exists publication_access_revoke_check;
+alter table publication_access add constraint publication_access_revoke_check
+  check (revoke_state in ('live', 'revoked', 'manual_required'));
+
+create index if not exists publication_access_live_idx
+  on publication_access (subscriber_id, publication_id)
+  where revoke_state = 'live';
+create index if not exists publication_access_manual_idx
+  on publication_access (revoke_state)
+  where revoke_state = 'manual_required';
+
+-- ---------------------------------------------------------------------------
+-- Copy-gap alerts
+--
+-- A gap is computed, never stored -- the queue must read as empty when all is
+-- well, and a stored row would linger after it was filled. What is stored is
+-- only whether we have already emailed about a given gap, so the daily run
+-- reports it once rather than every night.
+-- ---------------------------------------------------------------------------
+create table if not exists copy_gap_alerts (
+  subscriber_id  uuid        not null references subscribers (id) on delete cascade,
+  publication_id uuid        not null references documents (id) on delete cascade,
+  alerted_at     timestamptz not null default now(),
+  primary key (subscriber_id, publication_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- The open lane, kept structurally separate
+--
+-- A publication is either open to everyone or gated behind a level, never both.
+-- `visibility` already holds one value, so the two cannot be set at once -- but
+-- an open_link_url left on a level-gated publication would be a public address
+-- for a paid document sitting one refactor away from being rendered.
+--
+-- The constraint is what makes "a paid publication never falls back to an open
+-- link" structural rather than a matter of code discipline: for a non-OPEN row
+-- there is no open link to fall back to.
+-- ---------------------------------------------------------------------------
+update documents set open_link_url = null where visibility <> 'OPEN';
+
+alter table documents drop constraint if exists documents_open_link_lane_check;
+alter table documents add constraint documents_open_link_lane_check
+  check (open_link_url is null or visibility = 'OPEN');
+
+-- A shared unstamped copy is a paid-lane concept; an OPEN publication is
+-- already unstamped and public, so the two flags must not combine.
+alter table documents drop constraint if exists documents_shared_copy_lane_check;
+alter table documents add constraint documents_shared_copy_lane_check
+  check (is_shared_copy = false or visibility <> 'OPEN');
+
+-- ---------------------------------------------------------------------------
+-- Copy identity
+--
+-- Each stamped copy carries a short code in its footer that resolves back to
+-- exactly one access row. seat_no gives each subscriber a stable short number,
+-- so the code does not change if their name is corrected.
+-- ---------------------------------------------------------------------------
+create sequence if not exists subscriber_seat_no_seq;
+
+alter table subscribers add column if not exists seat_no integer;
+update subscribers set seat_no = nextval('subscriber_seat_no_seq') where seat_no is null;
+alter table subscribers alter column seat_no set default nextval('subscriber_seat_no_seq');
+
+create unique index if not exists subscribers_seat_no_key on subscribers (seat_no);
+
+alter table publication_access add column if not exists copy_id text;
+create unique index if not exists publication_access_copy_id_key
+  on publication_access (copy_id)
+  where copy_id is not null;
+
+-- ---------------------------------------------------------------------------
+-- Held alerts
+--
+-- A subscriber with no stamped copy must not be emailed about an edition they
+-- cannot open. They are held rather than skipped, and released the moment their
+-- copy lands -- skipping would mean they simply never heard about it.
+-- ---------------------------------------------------------------------------
+create table if not exists alert_holds (
+  subscriber_id  uuid        not null references subscribers (id) on delete cascade,
+  publication_id uuid        not null references documents (id) on delete cascade,
+  held_at        timestamptz not null default now(),
+  released_at    timestamptz,
+  primary key (subscriber_id, publication_id)
+);
+
+create index if not exists alert_holds_pending_idx
+  on alert_holds (held_at)
+  where released_at is null;

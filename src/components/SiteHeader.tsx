@@ -13,6 +13,16 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Contact', href: '/#contact' },
 ]
 
+/**
+ * The subscriber portal entry point, hidden until the flag is turned on.
+ *
+ * Read at module scope because NEXT_PUBLIC_ values are substituted at build
+ * time. The flag is public by design -- it reveals only whether the portal is
+ * live, which the presence of the link itself would reveal anyway.
+ */
+const PORTAL_ENABLED =
+  process.env.NEXT_PUBLIC_SUBSCRIBER_PORTAL_ENABLED === 'true'
+
 export default function SiteHeader() {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
@@ -46,6 +56,14 @@ export default function SiteHeader() {
                 {item.label}
               </Link>
             ))}
+            {PORTAL_ENABLED && (
+              <Link
+                href="/portal"
+                className="text-sm tracking-wide text-accent hover:text-accent-hover transition-colors"
+              >
+                Subscriber sign in
+              </Link>
+            )}
           </nav>
 
           <button
@@ -71,6 +89,15 @@ export default function SiteHeader() {
                 {item.label}
               </Link>
             ))}
+            {PORTAL_ENABLED && (
+              <Link
+                href="/portal"
+                onClick={() => setIsOpen(false)}
+                className="text-sm tracking-wide text-accent hover:text-accent-hover transition-colors"
+              >
+                Subscriber sign in
+              </Link>
+            )}
           </nav>
         )}
       </div>

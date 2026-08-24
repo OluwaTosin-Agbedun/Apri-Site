@@ -6,6 +6,8 @@ const NAV = [
   { href: '/admin', label: 'Dashboard' },
   { href: '/admin/documents', label: 'Publications' },
   { href: '/admin/subscribers', label: 'Subscribers' },
+  { href: '/admin/copies', label: 'Copies' },
+  { href: '/admin/engagement', label: 'Engagement' },
   { href: '/admin/briefings', label: 'Briefing Requests' },
 ]
 

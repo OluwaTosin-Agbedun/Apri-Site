@@ -12,6 +12,7 @@ import {
   fieldErrors,
   type FormState,
 } from '@/lib/definitions'
+import { levelForPublicTier, seatsForPublicTier } from '@/lib/entitlements'
 
 /**
  * Subscriber access request from the home page.
@@ -27,18 +28,57 @@ export async function requestAccess(
     name: formData.get('name'),
     organization: formData.get('organization'),
     email: formData.get('email'),
+    phone: formData.get('phone'),
+    roleTitle: formData.get('roleTitle') ?? '',
     subscriptionLevel: formData.get('subscriptionLevel') ?? '',
+    note: formData.get('note') ?? '',
   })
 
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
 
-  const { name, organization, email, subscriptionLevel } = parsed.data
+  const { name, organization, email, phone, roleTitle, subscriptionLevel, note } =
+    parsed.data
+
+  // The internal level is derived here from the chosen public tier name. It is
+  // never read from the form: a crafted POST must not be able to award itself
+  // Board-level entitlement by naming it.
+  const level = levelForPublicTier(subscriptionLevel)
+  const seats = seatsForPublicTier(subscriptionLevel)
+
   const sql = getSql()
 
-  await sql`
-    insert into subscribers (name, organization, email, subscription_level, status)
-    values (${name}, ${organization}, ${email}, ${subscriptionLevel}, 'Pending')
-  `
+  // An enquiry is not a seat. Status is written as the pending constant, and
+  // level is recorded only as what they asked for -- an administrator sets the
+  // real entitlement when payment lands.
+  try {
+    await sql`
+      insert into subscribers (
+        name, full_name, organization, email, phone, role_title,
+        subscription_level, public_tier, level, seats, note, status
+      ) values (
+        ${name}, ${name}, ${organization}, ${email}, ${phone}, ${roleTitle},
+        ${subscriptionLevel}, ${subscriptionLevel}, ${level}, ${seats}, ${note}, 'Pending'
+      )
+    `
+  } catch {
+    // The unique index on lower(email) means a repeat enquiry from the same
+    // address lands here. Update the existing enquiry rather than reporting a
+    // failure -- and never touch status, level or term, so re-submitting the
+    // public form cannot alter a live subscription.
+    await sql`
+      update subscribers set
+        name = ${name},
+        full_name = ${name},
+        organization = ${organization},
+        phone = ${phone},
+        role_title = ${roleTitle},
+        subscription_level = ${subscriptionLevel},
+        note = ${note},
+        updated_at = now()
+      where lower(email) = ${email}
+        and lower(status) in ('pending', 'declined')
+    `
+  }
 
   revalidatePath('/admin')
   revalidatePath('/admin/subscribers')
@@ -46,7 +86,7 @@ export async function requestAccess(
   return {
     ok: true,
     message:
-      'Your details have been submitted. If authorised, a secure access link will be sent to your email.',
+      'Your details have been submitted. We reply within one business day.',
   }
 }
 

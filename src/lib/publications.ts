@@ -1,5 +1,6 @@
 import 'server-only'
 import { getSql } from './db'
+import { isVisibility, type Visibility } from './entitlements'
 
 export { PUBLICATION_SECTIONS, type PublicationSection } from "./sections"
 
@@ -19,6 +20,12 @@ export type Publication = {
   ctaMode: 'link' | 'request'
   papermarkLink: string
   coverageAreas: string
+  visibility: Visibility
+  openLinkUrl: string | null
+  series: string
+  code: string | null
+  editionDate: string | null
+  summary: string
   sortOrder: number
   isPublished: boolean
 }
@@ -39,6 +46,12 @@ type Row = {
   cta_mode: 'link' | 'request'
   papermark_link: string
   coverage_areas: string
+  visibility: string
+  open_link_url: string | null
+  series: string
+  code: string | null
+  edition_date: string | null
+  summary: string
   sort_order: number
   is_published: boolean
 }
@@ -60,6 +73,14 @@ function toPublication(row: Row): Publication {
     ctaMode: row.cta_mode,
     papermarkLink: row.papermark_link,
     coverageAreas: row.coverage_areas,
+    // An unrecognised value falls back to the most restrictive setting. A
+    // publication must never become public because its visibility was mangled.
+    visibility: isVisibility(row.visibility) ? row.visibility : 'L4',
+    openLinkUrl: row.open_link_url,
+    series: row.series,
+    code: row.code,
+    editionDate: row.edition_date,
+    summary: row.summary || row.description,
     sortOrder: row.sort_order,
     isPublished: row.is_published,
   }
@@ -68,7 +89,8 @@ function toPublication(row: Row): Publication {
 const SELECT_COLUMNS = `
   id, slug, section_label, kicker, title, strapline, product_line,
   description, frequency, audience, attribution, cta_label, cta_mode,
-  papermark_link, coverage_areas, sort_order, is_published
+  papermark_link, coverage_areas, visibility, open_link_url,
+  series, code, edition_date, summary, sort_order, is_published
 `
 
 /** Published publications, for the public site. */

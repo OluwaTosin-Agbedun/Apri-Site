@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "next lint",
+    "test": "node --env-file=.env.local --test \"tests/*.test.mjs\"",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",
     "format": "oxfmt"
@@ -17,6 +18,7 @@
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.9",
     "next": "16.2.10",
+    "pdf-lib": "^1.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "resend": "^6.21.0",

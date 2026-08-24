@@ -35,18 +35,24 @@ export async function setDocumentStatus(
   const sql = getSql()
 
   if (next === 'published') {
-    // Refuse to publish something with no destination: a live card whose
-    // button goes nowhere is worse than an unpublished one.
     const rows = (await sql`
-      select papermark_link, cta_mode from documents where id = ${id} limit 1
-    `) as { papermark_link: string; cta_mode: string }[]
+      select visibility, open_link_url from documents where id = ${id} limit 1
+    `) as { visibility: string; open_link_url: string | null }[]
 
     const row = rows[0]
     if (!row) return { message: 'That publication no longer exists.' }
-    if (row.cta_mode === 'link' && !row.papermark_link) {
+
+    // An OPEN edition is read straight from the public page, so it needs its
+    // own email-gated link. Publishing one without it would put a live card on
+    // the site whose button goes nowhere.
+    //
+    // A paid edition needs no check here: subscribers reach it through the link
+    // on their own record, so it is publishable before any link exists and the
+    // portal shows "access being prepared" until one is set.
+    if (row.visibility === 'OPEN' && !row.open_link_url) {
       return {
         message:
-          'Add a secure link before publishing, or set the button to "Request Access".',
+          'An open edition needs its public link before publishing. Add one, or set the audience to a subscriber level.',
       }
     }
 
@@ -92,6 +98,13 @@ export async function saveDocument(
     audience: formData.get('audience') ?? '',
     attribution: formData.get('attribution') ?? '',
     coverageAreas: formData.get('coverageAreas') ?? '',
+    code: formData.get('code') ?? '',
+    series: formData.get('series') ?? '',
+    summary: formData.get('summary') ?? '',
+    editionDate: formData.get('editionDate') ?? '',
+    visibility: formData.get('visibility') || 'L4',
+    openLinkUrl: formData.get('openLinkUrl') ?? '',
+    pageCount: formData.get('pageCount') ?? '',
     ctaLabel: formData.get('ctaLabel') || 'Access Secure Note',
     ctaMode: formData.get('ctaMode') || 'link',
     papermarkLink: formData.get('papermarkLink') ?? '',
@@ -103,6 +116,13 @@ export async function saveDocument(
   const d = parsed.data
   const sql = getSql()
 
+  // Empty strings become NULL so that the unique index on `code` does not treat
+  // several un-coded drafts as duplicates of one another.
+  const code = d.code || null
+  const editionDate = d.editionDate || null
+  const openLinkUrl = d.openLinkUrl || null
+  const pageCount = d.pageCount === '' ? null : d.pageCount
+
   try {
     if (id) {
       await sql`
@@ -112,6 +132,9 @@ export async function saveDocument(
           description = ${d.description}, frequency = ${d.frequency},
           audience = ${d.audience}, attribution = ${d.attribution},
           coverage_areas = ${d.coverageAreas},
+          code = ${code}, series = ${d.series}, summary = ${d.summary},
+          edition_date = ${editionDate}::date, visibility = ${d.visibility},
+          open_link_url = ${openLinkUrl}, page_count = ${pageCount},
           cta_label = ${d.ctaLabel}, cta_mode = ${d.ctaMode},
           papermark_link = ${d.papermarkLink}, sort_order = ${d.sortOrder},
           updated_at = now()
@@ -122,12 +145,17 @@ export async function saveDocument(
         insert into documents (
           slug, section_label, kicker, title, strapline, product_line,
           description, frequency, audience, attribution, coverage_areas,
-          cta_label, cta_mode, papermark_link, sort_order, status, is_published
+          code, series, summary, edition_date, visibility, open_link_url,
+          page_count, cta_label, cta_mode, papermark_link, sort_order,
+          status, is_published
         ) values (
           ${d.slug}, ${d.sectionLabel}, ${d.kicker}, ${d.title}, ${d.strapline},
           ${d.productLine}, ${d.description}, ${d.frequency}, ${d.audience},
-          ${d.attribution}, ${d.coverageAreas}, ${d.ctaLabel}, ${d.ctaMode},
-          ${d.papermarkLink}, ${d.sortOrder}, 'draft', false
+          ${d.attribution}, ${d.coverageAreas},
+          ${code}, ${d.series}, ${d.summary}, ${editionDate}::date,
+          ${d.visibility}, ${openLinkUrl}, ${pageCount},
+          ${d.ctaLabel}, ${d.ctaMode}, ${d.papermarkLink}, ${d.sortOrder},
+          'draft', false
         )
       `
     }

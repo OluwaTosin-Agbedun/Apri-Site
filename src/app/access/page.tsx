@@ -1,6 +1,7 @@
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import AccessForm from '@/app/access-form'
+import { accessNotice } from '@/lib/delivery'
 
 export const metadata = {
   title: 'Subscription Access · APRI',
@@ -83,10 +84,8 @@ export default function AccessPage() {
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-              <span className="font-medium text-foreground">Access note:</span> Access is
-              restricted to authorised recipients. You may be asked to verify your email
-              before viewing or downloading documents. Subscriber copies may be watermarked
-              and tracked.
+              <span className="font-medium text-foreground">Access note:</span>{' '}
+              {accessNotice()}
             </p>
           </div>
         </section>

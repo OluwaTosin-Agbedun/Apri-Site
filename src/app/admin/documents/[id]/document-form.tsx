@@ -4,6 +4,7 @@ import { useActionState } from 'react'
 import Link from 'next/link'
 import { saveDocument } from '@/app/actions/documents'
 import { PUBLICATION_SECTIONS } from '@/lib/sections'
+import { SERIES, SERIES_CODES, visibilityLabel, VISIBILITIES } from '@/lib/entitlements'
 import type { FormState } from '@/lib/definitions'
 
 export type DocumentDraft = {
@@ -21,6 +22,13 @@ export type DocumentDraft = {
   ctaLabel: string
   ctaMode: string
   coverageAreas: string
+  code: string
+  series: string
+  summary: string
+  editionDate: string
+  visibility: string
+  openLinkUrl: string
+  pageCount: string
   papermarkLink: string
   sortOrder: number
   status: string
@@ -93,6 +101,101 @@ export default function DocumentForm({ draft }: { draft: DocumentDraft }) {
         </div>
       </div>
 
+      <div className="pt-6 border-t border-border">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
+          This edition
+        </h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div>
+            <label htmlFor="series" className={label}>Series</label>
+            <select id="series" name="series" defaultValue={draft.series} className={field}>
+              <option value="">Unassigned</option>
+              {SERIES_CODES.map((code) => (
+                <option key={code} value={code}>{SERIES[code]}</option>
+              ))}
+            </select>
+            {err('series')}
+          </div>
+          <div>
+            <label htmlFor="code" className={label}>Edition code</label>
+            <input id="code" name="code" defaultValue={draft.code} className={field} placeholder="APRI-MIN-2026-08" />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Must be unique. Leave blank if this edition has no code yet.
+            </p>
+            {err('code')}
+          </div>
+          <div>
+            <label htmlFor="editionDate" className={label}>Edition date</label>
+            <input id="editionDate" name="editionDate" type="date" defaultValue={draft.editionDate} className={field} />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Orders the subscriber library, newest first.
+            </p>
+            {err('editionDate')}
+          </div>
+          <div>
+            <label htmlFor="pageCount" className={label}>Pages</label>
+            <input id="pageCount" name="pageCount" type="number" min={1} defaultValue={draft.pageCount} className={field} />
+            {err('pageCount')}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <label htmlFor="summary" className={label}>One-line summary</label>
+          <textarea id="summary" name="summary" rows={2} defaultValue={draft.summary} className={field} />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Shown under the title in the subscriber library and in the alert email.
+          </p>
+          {err('summary')}
+        </div>
+      </div>
+
+      <div className="pt-6 border-t border-border">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
+          Who may read it
+        </h3>
+
+        <div>
+          <label htmlFor="visibility" className={label}>Audience</label>
+          <select id="visibility" name="visibility" defaultValue={draft.visibility || 'L4'} className={field}>
+            {/*
+              VISIBILITIES is OPEN then L1..L4, so the order is never
+              alphabetical. Labels come from the shared lookup rather than the
+              public accessBadge wording, which is written for visitors.
+            */}
+            {VISIBILITIES.map((v) => (
+              <option key={v} value={v}>
+                {visibilityLabel(v)}
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs text-muted-foreground">
+            A subscriber sees every edition at or below their own level. Open editions are
+            public and never appear in a paid library.
+          </p>
+          {err('visibility')}
+        </div>
+
+        <div className="mt-6">
+          <label htmlFor="openLinkUrl" className={label}>
+            Public link (open editions only)
+          </label>
+          <input
+            id="openLinkUrl"
+            name="openLinkUrl"
+            type="url"
+            defaultValue={draft.openLinkUrl}
+            className={field}
+            placeholder="https://www.papermark.com/view/…"
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            The email-gated Papermark link used when the audience is Open. Required before
+            an open edition can be published. Leave blank for subscriber editions.
+          </p>
+          {err('openLinkUrl')}
+        </div>
+      </div>
+
       <div>
         <label htmlFor="description" className={label}>Description</label>
         <textarea id="description" name="description" rows={4} defaultValue={draft.description} className={field} />
@@ -137,11 +240,14 @@ export default function DocumentForm({ draft }: { draft: DocumentDraft }) {
       </div>
 
       <div>
-        <label htmlFor="papermarkLink" className={label}>Papermark URL</label>
+        <label htmlFor="papermarkLink" className={label}>
+          Reference link (internal)
+        </label>
         <input id="papermarkLink" name="papermarkLink" type="url" defaultValue={draft.papermarkLink} className={field} placeholder="https://www.papermark.com/view/…" />
         <p className="mt-2 text-xs text-muted-foreground">
-          Must be an https:// address. Leave blank if the button sends readers to
-          Subscription Access instead.
+          Kept for reference and for the Papermark sync. Never shown on the public site:
+          subscribers open editions through the link on their own record, and open editions
+          use the public link above.
         </p>
         {err('papermarkLink')}
       </div>

@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { CONTACT_EMAIL } from '@/config'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
+import { AccessBadge, AccessActionInline } from '@/components/PublicationAccess'
+import { accessNotice } from '@/lib/delivery'
 import AccessForm from './access-form'
 import {
   PUBLICATION_SECTIONS,
@@ -12,23 +14,14 @@ import {
 export const dynamic = 'force-dynamic'
 
 function PublicationCard({ doc }: { doc: Publication }) {
-  const isRequest = doc.ctaMode === 'request'
-  const hasLink = Boolean(doc.papermarkLink)
-
-  const ctaClasses =
-    'inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors cursor-pointer'
-
-  const arrow = (
-    <span className="ml-2 opacity-70 group-hover:translate-x-1 transition-transform">
-      &rarr;
-    </span>
-  )
-
   return (
     <article className="group border border-border p-8 sm:p-10 hover:border-accent transition-colors bg-card/30">
-      <span className="text-xs font-medium uppercase tracking-wider text-accent mb-3 block">
-        {doc.kicker || doc.productLine}
-      </span>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <span className="text-xs font-medium uppercase tracking-wider text-accent">
+          {doc.kicker || doc.productLine}
+        </span>
+        <AccessBadge visibility={doc.visibility} />
+      </div>
 
       <h3 className="font-serif text-xl text-foreground">
         <Link href={`/publications/${doc.slug}`} className="hover:text-accent transition-colors">
@@ -60,28 +53,8 @@ function PublicationCard({ doc }: { doc: Publication }) {
         <dd className="text-foreground/70">{doc.audience}</dd>
       </dl>
 
-      {isRequest ? (
-        <Link href="/access" className={ctaClasses}>
-          {doc.ctaLabel}
-          {arrow}
-        </Link>
-      ) : hasLink ? (
-        <a
-          href={doc.papermarkLink}
-          target="_blank"
-          rel="noreferrer"
-          className={ctaClasses}
-        >
-          {doc.ctaLabel}
-          {arrow}
-        </a>
-      ) : (
-        // No link assigned yet. Rendered as plain text rather than a dead
-        // anchor, so a reader is never sent to a broken destination.
-        <span className="inline-flex items-center text-sm font-medium text-muted-foreground">
-          {doc.ctaLabel} &mdash; link pending
-        </span>
-      )}
+      {/* Shared gate. Never renders papermark_link -- see PublicationAccess. */}
+      <AccessActionInline visibility={doc.visibility} openLinkUrl={doc.openLinkUrl} />
 
       {doc.attribution && (
         <p className="text-xs text-muted-foreground mt-8 pt-6 border-t border-border/60 max-w-xl leading-relaxed">
@@ -221,10 +194,8 @@ export default async function HomePage() {
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-              <span className="font-medium text-foreground">Access note:</span> Access is
-              restricted to authorised recipients. You may be asked to verify your email
-              before viewing or downloading documents. Subscriber copies may be watermarked
-              and tracked.
+              <span className="font-medium text-foreground">Access note:</span>{' '}
+              {accessNotice()}
             </p>
           </div>
         </section>

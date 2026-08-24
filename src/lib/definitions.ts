@@ -1,4 +1,5 @@
 import * as z from 'zod'
+import { SERIES_CODES, VISIBILITIES } from './entitlements'
 
 /**
  * Every value that crosses the trust boundary is narrowed here before it
@@ -52,7 +53,18 @@ export const SubscriberSchema = z.object({
   name: z.string().trim().min(1, { error: 'Enter your full name.' }).max(160),
   organization: z.string().trim().min(1, { error: 'Enter your organisation.' }).max(200),
   email,
+  // Required, per the brief: a phone number is how we reach a board member
+  // within one business day.
+  phone: z
+    .string()
+    .trim()
+    .min(7, { error: 'Enter a phone number we can reach you on.' })
+    .max(40),
+  roleTitle: z.string().trim().max(160).default(''),
+  // The public tier name the visitor chose. The internal level is derived from
+  // it on the server, never accepted from the form.
   subscriptionLevel: z.string().trim().max(120).default(''),
+  note: z.string().trim().max(600).default(''),
 })
 
 export const DocumentSchema = z.object({
@@ -86,6 +98,27 @@ export const DocumentSchema = z.object({
     ])
     .default(''),
   coverageAreas: z.string().trim().max(4000).default(''),
+  // Edition identity and audience.
+  code: z.string().trim().max(60).default(''),
+  series: z.enum(SERIES_CODES as [string, ...string[]]).or(z.literal('')).default(''),
+  summary: z.string().trim().max(600).default(''),
+  editionDate: z.union([z.literal(''), z.string().trim().max(10)]).default(''),
+  // Who may read it. Validated against the literal list, never trusted from the
+  // form, because this value alone decides whether a paid document is public.
+  visibility: z.enum(VISIBILITIES).default('L4'),
+  openLinkUrl: z
+    .union([
+      z.literal(''),
+      z
+        .string()
+        .trim()
+        .max(500)
+        .pipe(z.url({ protocol: /^https$/, error: 'Must be an https:// URL.' })),
+    ])
+    .default(''),
+  pageCount: z
+    .union([z.literal(''), z.coerce.number().int().min(1).max(2000)])
+    .default(''),
   sortOrder: z.coerce.number().int().min(0).max(9999).default(0),
   isPublished: z.coerce.boolean().default(true),
 })

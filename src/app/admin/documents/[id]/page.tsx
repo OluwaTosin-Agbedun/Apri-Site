@@ -19,6 +19,15 @@ const BLANK: DocumentDraft = {
   audience: '',
   attribution: '',
   coverageAreas: '',
+  code: '',
+  series: '',
+  summary: '',
+  editionDate: '',
+  // A new publication starts at the most restrictive audience. Widening it is a
+  // deliberate act; a default of OPEN would make an accidental publish public.
+  visibility: 'L4',
+  openLinkUrl: '',
+  pageCount: '',
   ctaLabel: 'Access Secure Note',
   ctaMode: 'link',
   papermarkLink: '',
@@ -41,12 +50,27 @@ type Row = {
   cta_label: string
   cta_mode: string
   coverage_areas: string
+  code: string | null
+  series: string
+  summary: string
+  edition_date: string | null
+  visibility: string
+  open_link_url: string | null
+  page_count: number | null
   papermark_link: string
   sort_order: number
   status: string
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** A date column rendered into a value an <input type="date"> accepts. */
+function dateInput(value: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toISOString().slice(0, 10)
+}
 
 export default async function EditDocumentPage({
   params,
@@ -77,7 +101,8 @@ export default async function EditDocumentPage({
   const rows = (await sql`
     select id, slug, section_label, kicker, title, strapline, product_line,
            description, frequency, audience, attribution, cta_label, cta_mode,
-           coverage_areas, papermark_link, sort_order, status
+           coverage_areas, code, series, summary, edition_date, visibility,
+           open_link_url, page_count, papermark_link, sort_order, status
     from documents
     where id = ${id}
     limit 1
@@ -99,6 +124,13 @@ export default async function EditDocumentPage({
     audience: row.audience,
     attribution: row.attribution,
     coverageAreas: row.coverage_areas,
+    code: row.code ?? '',
+    series: row.series,
+    summary: row.summary,
+    editionDate: dateInput(row.edition_date),
+    visibility: row.visibility || 'L4',
+    openLinkUrl: row.open_link_url ?? '',
+    pageCount: row.page_count === null ? '' : String(row.page_count),
     ctaLabel: row.cta_label,
     ctaMode: row.cta_mode,
     papermarkLink: row.papermark_link,

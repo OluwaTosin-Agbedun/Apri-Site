@@ -1,8 +1,8 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getPublicationBySlug } from '@/lib/publications'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
+import { AccessBadge, AccessAction } from '@/components/PublicationAccess'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,8 +19,6 @@ export default async function PublicationDetailPage({
   const coverageAreas = doc.coverageAreas
     ? doc.coverageAreas.split('\n').map((s) => s.trim()).filter(Boolean)
     : []
-  const isRequest = doc.ctaMode === 'request'
-  const hasLink = Boolean(doc.papermarkLink)
 
   return (
     <div className="min-h-screen bg-background">
@@ -28,9 +26,12 @@ export default async function PublicationDetailPage({
 
       <div className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
-          <span className="text-xs font-medium uppercase tracking-wider text-accent mb-4 block">
-            {doc.kicker || doc.productLine}
-          </span>
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <span className="text-xs font-medium uppercase tracking-wider text-accent">
+              {doc.kicker || doc.productLine}
+            </span>
+            <AccessBadge visibility={doc.visibility} />
+          </div>
 
           <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-6 leading-tight tracking-tight">
             {doc.title}
@@ -72,28 +73,13 @@ export default async function PublicationDetailPage({
           </dl>
         </section>
 
+        {/*
+          The action comes from the shared gate, which never emits
+          papermark_link. That column is the subscriber-library address; a paid
+          edition is reachable only after signing in.
+        */}
         <div className="mb-16">
-          {isRequest ? (
-            <Link
-              href="/access"
-              className="inline-flex items-center bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
-            >
-              {doc.ctaLabel}
-            </Link>
-          ) : hasLink ? (
-            <a
-              href={doc.papermarkLink}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
-            >
-              {doc.ctaLabel}
-            </a>
-          ) : (
-            <span className="inline-flex items-center text-sm font-medium text-muted-foreground">
-              {doc.ctaLabel} &mdash; link pending
-            </span>
-          )}
+          <AccessAction visibility={doc.visibility} openLinkUrl={doc.openLinkUrl} />
         </div>
 
         {doc.attribution && (

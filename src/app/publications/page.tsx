@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
+import { AccessBadge } from '@/components/PublicationAccess'
 import { getAllPublications } from '@/lib/publications'
 
 export const dynamic = 'force-dynamic'
@@ -35,9 +36,12 @@ export default async function PublicationsPage() {
               href={`/publications/${doc.slug}`}
               className="block group border border-border p-8 sm:p-10 hover:border-accent transition-colors bg-card/30"
             >
-              <span className="text-xs font-medium uppercase tracking-wider text-accent mb-3 block">
-                {doc.kicker || doc.productLine}
-              </span>
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <span className="text-xs font-medium uppercase tracking-wider text-accent">
+                  {doc.kicker || doc.productLine}
+                </span>
+                <AccessBadge visibility={doc.visibility} />
+              </div>
 
               <h2 className="font-serif text-xl text-foreground group-hover:text-accent transition-colors">
                 {doc.title}
