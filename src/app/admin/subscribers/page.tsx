@@ -35,24 +35,43 @@ export default async function AdminSubscribersPage() {
   const sql = getSql()
 
   const subscribers = (await sql`
-    select id, full_name, name, organization, email, public_tier, level,
-           seats, term_end, status, library_link_url, created_at
-    from subscribers
+    select s.id, s.full_name, s.name, s.organization, s.email, s.public_tier, s.level,
+           s.seats, s.term_end, s.status, s.library_link_url, s.created_at,
+           (select count(*)::int from publication_access pa
+             where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links
+    from subscribers s
     order by
-      case lower(status) when 'active' then 0 when 'pending' then 1 else 2 end,
-      created_at desc
+      -- Seats needing attention first: no longer active, but still holding
+      -- working links. Nothing else closes those in this deployment.
+      case when lower(s.status) <> 'active'
+            and exists (select 1 from publication_access pa
+                        where pa.subscriber_id = s.id and pa.revoke_state = 'live')
+           then 0 else 1 end,
+      case lower(s.status) when 'active' then 0 when 'pending' then 1 else 2 end,
+      s.created_at desc
     limit 500
-  `) as Row[]
+  `) as (Row & { live_links: number })[]
 
   const active = subscribers.filter((s) => s.status.toLowerCase() === 'active').length
   const pending = subscribers.filter((s) => s.status.toLowerCase() === 'pending').length
+
+  // Seats that have stopped paying but can still open their documents. Nothing
+  // closes these on a schedule in this deployment, so the count is stated in the
+  // page header rather than left to be noticed row by row.
+  const needRevoking = subscribers.filter(
+    (s) => s.status.toLowerCase() !== 'active' && Number(s.live_links ?? 0) > 0
+  ).length
 
   return (
     <AdminShell
       admin={admin}
       current="/admin/subscribers"
       title="Subscribers"
-      description={`${active} active, ${pending} awaiting activation. One row per named person.`}
+      description={
+        needRevoking > 0
+          ? `${active} active, ${pending} awaiting activation — and ${needRevoking} no longer active but still holding working links. Revoke those now.`
+          : `${active} active, ${pending} awaiting activation. One row per named person.`
+      }
       actions={
         <Link
           href="/admin/subscribers/new"
@@ -136,6 +155,7 @@ export default async function AdminSubscribersPage() {
                         status={status}
                         hasLevel={Boolean(sub.level)}
                         hasTermEnd={Boolean(sub.term_end)}
+                        liveLinks={Number(sub.live_links ?? 0)}
                         compact
                       />
                     </td>

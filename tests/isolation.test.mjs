@@ -137,6 +137,136 @@ describe('cross-subscriber isolation', () => {
   })
 })
 
+describe('three things sold, kept apart', () => {
+  /**
+   * The guard on the whole rule.
+   *
+   * A briefing client is a person record with no level. They can hold several
+   * publication_access rows -- board papers issued to them by name -- and must
+   * still see no library, because publication_access grants one person one
+   * document and must never widen into level-based access.
+   *
+   * If this ever fails, commissioning a single briefing has bought someone the
+   * entire subscription library.
+   */
+  test('a briefing client holding two board papers still sees no library', async () => {
+    const [client] = await sql.query(
+      `insert into subscribers (full_name, name, email, client_type, level,
+                                public_tier, status, term_start, term_end)
+       values ('Engagement Client','Engagement Client',$1,'engagement',null,
+               '','active', current_date - 30, current_date + 300)
+       returning id`,
+      [`${TAG}_engagement@example.invalid`]
+    )
+
+    const boardA = await makeEdition(TAG, {
+      suffix: 'bpA', visibility: 'L4', series: 'BP', editionDaysAgo: 5,
+    })
+    const boardB = await makeEdition(TAG, {
+      suffix: 'bpB', visibility: 'L4', series: 'BP', editionDaysAgo: 10,
+    })
+
+    for (const [i, ed] of [boardA, boardB].entries()) {
+      await makeOverride({
+        subscriberId: client.id,
+        publicationId: ed.id,
+        linkUrl: `https://docs.athenacentre.org/view/engagement-paper-${i}`,
+        papermarkLinkId: `${TAG}_pml_eng_${i}`,
+      })
+    }
+
+    // Two named documents are genuinely theirs.
+    const [{ granted }] = await sql.query(
+      `select count(*)::int as granted from publication_access
+       where subscriber_id = $1 and revoke_state = 'live'`, [client.id])
+    assert.equal(granted, 2, 'fixture sanity: the client holds two documents')
+
+    // And yet no level, so no library.
+    const [row] = await sql.query(
+      `select level, client_type from subscribers where id = $1`, [client.id])
+    assert.equal(row.level, null, 'an engagement client must hold no level')
+    assert.equal(row.client_type, 'engagement')
+
+    const library = await libraryFor(client.id, row.level, `${TAG}%`)
+    assert.equal(
+      library.length, 0,
+      'a briefing client was served a library — one engagement bought the whole catalogue'
+    )
+  })
+
+  test('the database refuses an engagement client holding a level', async () => {
+    await assert.rejects(
+      () => sql.query(
+        `insert into subscribers (full_name, name, email, client_type, level, status)
+         values ('Bad','Bad',$1,'engagement','L4','active')`,
+        [`${TAG}_badeng@example.invalid`]
+      ),
+      'an engagement client was allowed an access level'
+    )
+  })
+
+  test('the database refuses an active subscriber with no level', async () => {
+    await assert.rejects(
+      () => sql.query(
+        `insert into subscribers (full_name, name, email, client_type, level, status)
+         values ('Bad','Bad',$1,'subscriber',null,'active')`,
+        [`${TAG}_badsub@example.invalid`]
+      ),
+      'an active subscriber was allowed with no level'
+    )
+  })
+
+  test('a pending subscriber may have no level yet', async () => {
+    // An enquiry arrives before anyone decides which tier it is; the level is
+    // set when payment lands.
+    const [row] = await sql.query(
+      `insert into subscribers (full_name, name, email, client_type, level, status)
+       values ('Enquiry','Enquiry',$1,'subscriber',null,'Pending')
+       returning id`,
+      [`${TAG}_pendingsub@example.invalid`]
+    )
+    assert.ok(row.id, 'a pending enquiry with no level was refused')
+  })
+
+  test('email is unique across both client types', async () => {
+    const shared = `${TAG}_both@example.invalid`
+    await sql.query(
+      `insert into subscribers (full_name, name, email, client_type, level, status,
+                                term_start, term_end)
+       values ('Both','Both',$1,'subscriber','L3','active',
+               current_date - 10, current_date + 300)`,
+      [shared]
+    )
+
+    // One person who subscribes and also commissions a briefing is one row.
+    await assert.rejects(
+      () => sql.query(
+        `insert into subscribers (full_name, name, email, client_type, level, status)
+         values ('Both Again','Both Again',$1,'engagement',null,'active')`,
+        [shared]
+      ),
+      'the same person was allowed two rows'
+    )
+  })
+
+  test('an open-edition lead is never a subscriber row', async () => {
+    const email = `${TAG}_lead@example.invalid`
+    await sql.query(
+      `insert into open_edition_leads (email) values ($1)
+       on conflict (lower(email)) do nothing`, [email])
+
+    const subs = await sql.query(
+      `select 1 from subscribers where lower(email) = $1`, [email])
+    assert.equal(subs.length, 0, 'a lead was written into the subscribers table')
+
+    const leads = await sql.query(
+      `select email from open_edition_leads where lower(email) = $1`, [email])
+    assert.equal(leads.length, 1, 'the lead was not recorded in its own table')
+
+    await sql.query(`delete from open_edition_leads where lower(email) = $1`, [email])
+  })
+})
+
 describe('lapsed and suspended access', () => {
   test('an active seat within term can sign in', async () => {
     assert.equal(await canSignIn(alice.id), true)

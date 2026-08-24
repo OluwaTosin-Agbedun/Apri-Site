@@ -100,7 +100,8 @@ export async function getEngagement(window: number): Promise<EngagementRow[]> {
     select id, full_name, name, organization, email, level,
            public_tier, seats, term_start, term_end
     from subscribers
-    where lower(status) = 'active'
+    where client_type = 'subscriber'
+      and lower(status) = 'active'
     order by created_at desc
   `) as SubscriberRow[]
 
@@ -342,6 +343,48 @@ export async function getEngagementSummary(): Promise<{
     unmatchedViews: counts?.unmatched ?? 0,
     lastPollAt,
   }
+}
+
+export type OpenEditionLead = {
+  email: string
+  firstSeenAt: string
+  lastSeenAt: string
+  viewCount: number
+  lastPublicationTitle: string | null
+}
+
+/**
+ * Readers of open publications, from the view events we already receive.
+ *
+ * These are leads, not subscribers. They verified an email at the Papermark
+ * gate and hold no person record. Read from their own table and never joined to
+ * subscribers, so nothing here can be mistaken for someone who has paid us.
+ */
+export async function getOpenEditionLeads(limit = 200): Promise<OpenEditionLead[]> {
+  const sql = getSql()
+
+  const rows = (await sql`
+    select l.email, l.first_seen_at, l.last_seen_at, l.view_count,
+           d.title as last_publication_title
+    from open_edition_leads l
+    left join documents d on d.id = l.last_publication_id
+    order by l.last_seen_at desc
+    limit ${limit}
+  `) as {
+    email: string
+    first_seen_at: string | Date
+    last_seen_at: string | Date
+    view_count: number
+    last_publication_title: string | null
+  }[]
+
+  return rows.map((r) => ({
+    email: r.email,
+    firstSeenAt: asIsoOrNull(r.first_seen_at) ?? '',
+    lastSeenAt: asIsoOrNull(r.last_seen_at) ?? '',
+    viewCount: Number(r.view_count ?? 0),
+    lastPublicationTitle: r.last_publication_title,
+  }))
 }
 
 /** Active seats whose term ends within `days`. Used by the weekly digest. */

@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic'
 
 const BLANK: SubscriberDraft = {
   id: null,
+  clientType: 'subscriber',
   fullName: '',
   organisation: '',
   roleTitle: '',
@@ -27,6 +28,7 @@ const BLANK: SubscriberDraft = {
 
 type Row = {
   id: string
+  client_type: string
   full_name: string | null
   name: string
   organization: string
@@ -82,19 +84,22 @@ export default async function EditSubscriberPage({
 
   const sql = getSql()
   const rows = (await sql`
-    select id, full_name, name, organization, role_title, email, phone,
-           public_tier, level, seats, term_start, term_end, status,
-           invoice_ref, library_link_url, note, last_viewed_at
-    from subscribers
-    where id = ${id}
+    select s.id, s.client_type, s.full_name, s.name, s.organization, s.role_title, s.email, s.phone,
+           s.public_tier, s.level, s.seats, s.term_start, s.term_end, s.status,
+           s.invoice_ref, s.library_link_url, s.note, s.last_viewed_at,
+           (select count(*)::int from publication_access pa
+             where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links
+    from subscribers s
+    where s.id = ${id}
     limit 1
-  `) as Row[]
+  `) as (Row & { live_links: number })[]
 
   const row = rows[0]
   if (!row) notFound()
 
   const draft: SubscriberDraft = {
     id: row.id,
+    clientType: row.client_type || 'subscriber',
     fullName: row.full_name || row.name || '',
     organisation: row.organization,
     roleTitle: row.role_title,
@@ -133,6 +138,7 @@ export default async function EditSubscriberPage({
           status={status}
           hasLevel={Boolean(row.level)}
           hasTermEnd={Boolean(row.term_end)}
+          liveLinks={Number(row.live_links ?? 0)}
         />
       </div>
 

@@ -108,7 +108,52 @@ export async function attribute(view: IncomingView): Promise<Attribution> {
 
   // 3. Kept, not discarded. An unmatched view is a signal that a link was
   // pasted in without its id, or that someone outside the list is reading.
+  //
+  // A verified address on an open edition is neither: it is a reader of public
+  // material, who holds no person record by design. Recorded as a lead in its
+  // own table so it can never be mistaken for someone who has paid us.
+  if (email && publicationId) {
+    await recordOpenEditionLead(email, publicationId)
+  }
+
   return { subscriberId: null, publicationId, matchedBy: 'none' }
+}
+
+/**
+ * Captures an open-edition reader's address.
+ *
+ * Written only when the publication is genuinely OPEN, so a paid edition whose
+ * link we failed to recognise stays in the unmatched queue as a provisioning
+ * problem rather than quietly becoming a marketing lead.
+ *
+ * Never joined to subscribers. Emails only.
+ */
+async function recordOpenEditionLead(
+  email: string,
+  publicationId: string
+): Promise<void> {
+  const sql = getSql()
+
+  try {
+    await sql`
+      insert into open_edition_leads (email, last_publication_id)
+      select ${email}, ${publicationId}
+      where exists (
+        select 1 from documents
+        where id = ${publicationId} and visibility = 'OPEN'
+      )
+      -- Someone already on our subscriber list is not a lead.
+      and not exists (
+        select 1 from subscribers where lower(email) = ${email}
+      )
+      on conflict (lower(email)) do update set
+        last_seen_at        = now(),
+        view_count          = open_edition_leads.view_count + 1,
+        last_publication_id = excluded.last_publication_id
+    `
+  } catch {
+    // A lead is a nice-to-have; never fail a view record over one.
+  }
 }
 
 async function publicationFromDocument(

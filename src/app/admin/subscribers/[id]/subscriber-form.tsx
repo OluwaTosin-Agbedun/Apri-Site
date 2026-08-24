@@ -14,6 +14,8 @@ import type { FormState } from '@/lib/definitions'
 
 export type SubscriberDraft = {
   id: string | null
+  /** 'subscriber' holds a level and gets a library; 'engagement' holds neither. */
+  clientType: string
   fullName: string
   organisation: string
   roleTitle: string
@@ -52,8 +54,14 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
   // The internal level follows from the public tier, so choosing a tier fills it
   // in. It stays editable because a negotiated seat may sit outside the standard
   // mapping, and the server validates whatever is submitted either way.
+  const [clientType, setClientType] = useState(draft.clientType || 'subscriber')
   const [level, setLevel] = useState(draft.level)
   const [seats, setSeats] = useState(String(draft.seats))
+
+  // A briefing client holds no level, so the subscription block is hidden
+  // rather than merely ignored -- leaving it on screen invites someone to fill
+  // it in and then wonder why it had no effect.
+  const isSubscriber = clientType !== 'engagement'
 
   // A blank or half-typed seats field must not make the L2 label flicker to the
   // wrong tier, so anything unparseable falls back to a single seat.
@@ -75,6 +83,32 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
 
   return (
     <form action={formAction} className="border border-border bg-card/30 p-8 space-y-6">
+      {/*
+        What this person is to us, chosen first because it decides whether the
+        subscription fields below apply at all.
+      */}
+      <div>
+        <label htmlFor="clientType" className={label}>This person is a</label>
+        <select
+          id="clientType"
+          name="clientType"
+          value={clientType}
+          onChange={(e) => setClientType(e.target.value)}
+          className={field}
+        >
+          <option value="subscriber">Subscriber — holds a level, gets a library</option>
+          <option value="engagement">
+            Briefing client — no level, receives documents individually
+          </option>
+        </select>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {clientType === 'engagement'
+            ? 'A briefing client holds no access level and sees no library. Issue their board papers from the Copies queue.'
+            : 'A subscriber sees every edition at or below their level.'}
+        </p>
+        {err('clientType')}
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <div>
           <label htmlFor="fullName" className={label}>Full name</label>
@@ -108,7 +142,7 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
         </div>
       </div>
 
-      <div className="pt-6 border-t border-border">
+      <div className={`pt-6 border-t border-border ${isSubscriber ? '' : 'hidden'}`}>
         <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
           Subscription
         </h3>

@@ -55,17 +55,62 @@ export const SubscriberSchema = z.object({
   email,
   // Required, per the brief: a phone number is how we reach a board member
   // within one business day.
+  // Accepts +234…, 0803… and 234… alike; normalised before storage.
   phone: z
     .string()
     .trim()
     .min(7, { error: 'Enter a phone number we can reach you on.' })
-    .max(40),
-  roleTitle: z.string().trim().max(160).default(''),
+    .max(40)
+    .refine((v) => (v.match(/\d/g) ?? []).length >= 7, {
+      error: 'That does not look like a phone number.',
+    }),
+  roleTitle: z
+    .string()
+    .trim()
+    .min(1, { error: 'Enter your role or title.' })
+    .max(160),
+  /**
+   * How many people would need access.
+   *
+   * Asked rather than inferred: it decides whether an enquiry is Individual or
+   * Professional Team, and guessing it from the tier name meant a two-person
+   * team and a fifty-person one were recorded identically.
+   */
+  seats: z.coerce
+    .number({ error: 'Enter how many people need access.' })
+    .int({ error: 'Enter a whole number.' })
+    .min(1, { error: 'At least one person needs access.' })
+    .max(500, { error: 'For more than 500 seats, please contact us directly.' })
+    .default(1),
   // The public tier name the visitor chose. The internal level is derived from
   // it on the server, never accepted from the form.
   subscriptionLevel: z.string().trim().max(120).default(''),
   note: z.string().trim().max(600).default(''),
 })
+
+/**
+ * Turns a typed phone number into one stored form.
+ *
+ * Accepts what a Nigerian visitor actually types -- `0803 123 4567`,
+ * `+234 803 123 4567`, `234-803-123-4567` -- and stores one shape, so two
+ * enquiries from the same person are recognisable as such.
+ *
+ * An explicit `+` is always preserved: assuming a country code would quietly
+ * corrupt a number from outside Nigeria, and this audience travels.
+ */
+export function normalisePhone(input: string): string {
+  const cleaned = input.replace(/[\s()\-.]/g, '')
+
+  if (cleaned.startsWith('+')) return cleaned
+  // 00 is the international prefix dialled from many countries.
+  if (cleaned.startsWith('00')) return `+${cleaned.slice(2)}`
+  // Local Nigerian form: 0803… -> +234803…
+  if (/^0\d{9,10}$/.test(cleaned)) return `+234${cleaned.slice(1)}`
+  // Already carries the country code without a plus.
+  if (/^234\d{7,11}$/.test(cleaned)) return `+${cleaned}`
+
+  return cleaned
+}
 
 export const DocumentSchema = z.object({
   slug: z

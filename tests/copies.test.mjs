@@ -397,6 +397,49 @@ describe('revocation on lapse', () => {
     assert.equal(due.length, 1, 'a lapsed subscriber with live links was not swept')
   })
 
+  /**
+   * The count that decides whether the Revoke button appears, and how many
+   * links it says it will withdraw. If it counted revoked rows too, the button
+   * would stay on screen forever and overstate what is still live.
+   */
+  test('the live-link count ignores already-revoked rows', async () => {
+    const seat = await makeSeat(TAG, { suffix: 'count', level: 'L2' })
+    const a = await makeEdition(TAG, { suffix: 'ct1', visibility: 'L2', editionDaysAgo: 3 })
+    const b = await makeEdition(TAG, { suffix: 'ct2', visibility: 'L2', editionDaysAgo: 4 })
+
+    for (const [i, ed] of [a, b].entries()) {
+      await makeOverride({
+        subscriberId: seat.id, publicationId: ed.id,
+        linkUrl: `https://docs.athenacentre.org/view/count-${i}`,
+        papermarkLinkId: `${TAG}_pml_count_${i}`,
+      })
+    }
+
+    const liveCount = async () => {
+      const [r] = await sql.query(
+        `select count(*)::int as n from publication_access
+         where subscriber_id = $1 and revoke_state = 'live'`, [seat.id])
+      return r.n
+    }
+
+    assert.equal(await liveCount(), 2, 'both links should count as live')
+
+    await sql.query(
+      `update publication_access set revoke_state = 'revoked', revoked_at = now()
+       where subscriber_id = $1 and publication_id = $2`, [seat.id, a.id])
+
+    assert.equal(await liveCount(), 1, 'a revoked link was still counted as live')
+
+    await sql.query(
+      `update publication_access set revoke_state = 'manual_required'
+       where subscriber_id = $1 and publication_id = $2`, [seat.id, b.id])
+
+    assert.equal(
+      await liveCount(), 0,
+      'a link awaiting manual withdrawal was counted as live'
+    )
+  })
+
   test('revocation never deletes the access record', async () => {
     const seat = await makeSeat(TAG, { suffix: 'keep', level: 'L2' })
     const ed = await makeEdition(TAG, { suffix: 'kp1', visibility: 'L2', editionDaysAgo: 3 })

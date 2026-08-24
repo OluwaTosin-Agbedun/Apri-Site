@@ -45,6 +45,11 @@ export type CopyGap = {
  * A gap only counts from when the subscriber could first have expected the
  * document — the later of the edition publishing and their term beginning — so
  * a new subscriber is not immediately shown as owed every past edition.
+ *
+ * Scoped to `client_type = 'subscriber'` with a level, an active status and a
+ * current term. Without that filter the queue would demand stamped editions for
+ * briefing clients, who hold no level and are owed no library, and it would
+ * never read empty — which is the one property that makes a work queue usable.
  */
 export async function getCopyGaps(): Promise<CopyGap[]> {
   const sql = getSql()
@@ -85,9 +90,11 @@ export async function getCopyGaps(): Promise<CopyGap[]> {
       and d.is_shared_copy = false
      left join publication_access pa
        on pa.subscriber_id = s.id and pa.publication_id = d.id
-     where lower(s.status) = 'active'
+     where s.client_type = 'subscriber'
        and s.level is not null
-       and (s.term_end is null or s.term_end >= current_date)
+       and lower(s.status) = 'active'
+       and s.term_end is not null
+       and s.term_end >= current_date
        -- Only editions from the subscriber's own term onward.
        and coalesce(d.edition_date, d.published_at::date, d.created_at::date)
            >= coalesce(s.term_start, s.created_at::date)

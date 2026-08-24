@@ -502,3 +502,66 @@ create table if not exists alert_holds (
 create index if not exists alert_holds_pending_idx
   on alert_holds (held_at)
   where released_at is null;
+
+-- ---------------------------------------------------------------------------
+-- Three things sold, kept apart in the data
+--
+-- APRI sells subscriptions (the level-gated library), commissioned briefings
+-- (an engagement, sometimes delivering a board paper, no library), and open
+-- publications (read at the Papermark gate, no person record at all).
+--
+-- Entitlement is granted by level, and only a subscriber holds one. An
+-- engagement client is a person record with no level: they can still receive a
+-- named document, because publication_access grants one person one document
+-- independently of level, but they get no library.
+--
+-- Email remains unique across the whole table. Someone who subscribes and also
+-- commissions a briefing is one row with engagement records against it, never
+-- two rows.
+-- ---------------------------------------------------------------------------
+alter table subscribers add column if not exists client_type text not null default 'subscriber';
+
+alter table subscribers drop constraint if exists subscribers_client_type_check;
+alter table subscribers add constraint subscribers_client_type_check
+  check (client_type in ('subscriber', 'engagement'));
+
+-- An engagement must never hold a level -- that is what stops the copies queue
+-- demanding stamped editions for a briefing client.
+--
+-- A subscriber must hold one to be active. Pending and declined enquiries have
+-- no level yet: the administrator sets it when payment lands, and
+-- activateSubscriber already refuses to activate without one. Requiring a level
+-- unconditionally would make it impossible to record an enquiry at all.
+alter table subscribers drop constraint if exists subscribers_level_by_type_check;
+alter table subscribers add constraint subscribers_level_by_type_check
+  check (
+    (client_type = 'engagement' and level is null)
+    or (client_type = 'subscriber'
+        and (level is not null or lower(status) <> 'active'))
+  );
+
+create index if not exists subscribers_client_type_idx
+  on subscribers (client_type, status)
+  where client_type = 'subscriber';
+
+-- ---------------------------------------------------------------------------
+-- Open-edition leads
+--
+-- Readers of open publications verify an email at the Papermark gate but hold
+-- no person record. Their addresses are kept here and nowhere else: a separate
+-- table, never joined into subscribers, so a lead can never be mistaken for
+-- someone who has paid us.
+-- ---------------------------------------------------------------------------
+create table if not exists open_edition_leads (
+  id             uuid        primary key default gen_random_uuid(),
+  email          text        not null,
+  first_seen_at  timestamptz not null default now(),
+  last_seen_at   timestamptz not null default now(),
+  view_count     integer     not null default 1,
+  last_publication_id uuid references documents (id) on delete set null
+);
+
+create unique index if not exists open_edition_leads_email_key
+  on open_edition_leads (lower(email));
+create index if not exists open_edition_leads_recent_idx
+  on open_edition_leads (last_seen_at desc);

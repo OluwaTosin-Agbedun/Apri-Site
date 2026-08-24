@@ -44,15 +44,11 @@ export const DOWNLOADS_ENABLED = false
  * restricted to that person, logged, and view-only.
  */
 export function accessNotice(): string {
-  const watermark = WATERMARKING_ENABLED
-    ? ' Documents are watermarked with the recipient’s name.'
-    : ''
-
   return (
-    'Access is issued to a named individual and verified by email. ' +
-    'It is restricted to that person, and every view is logged. ' +
-    'Documents are view-only and must not be redistributed.' +
-    watermark
+    'Access is restricted to named individuals. Email verification is required ' +
+    'before a document opens, every copy is individually identified to the ' +
+    'person it was issued to, and every view is logged. Documents are ' +
+    'view-only and must not be redistributed.'
   )
 }
 

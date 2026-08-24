@@ -32,6 +32,9 @@ const httpsOrBlank = z
   .default('')
 
 const SubscriberAdminSchema = z.object({
+  // What this person is to us. A subscriber holds a level and gets a library;
+  // an engagement client holds neither and receives documents one at a time.
+  clientType: z.enum(['subscriber', 'engagement']).default('subscriber'),
   fullName: z.string().trim().min(1, { error: 'A name is required.' }).max(160),
   organisation: z.string().trim().max(200).default(''),
   roleTitle: z.string().trim().max(160).default(''),
@@ -63,6 +66,7 @@ export async function saveSubscriber(
   await requireAdmin()
 
   const parsed = SubscriberAdminSchema.safeParse({
+    clientType: formData.get('clientType') ?? 'subscriber',
     fullName: formData.get('fullName'),
     organisation: formData.get('organisation') ?? '',
     roleTitle: formData.get('roleTitle') ?? '',
@@ -84,8 +88,19 @@ export async function saveSubscriber(
 
   // An active seat with no level would be entitled to nothing and would read as
   // a bug rather than a decision, so it is refused here.
-  if (d.status === 'active' && !d.level) {
+  if (d.clientType === 'subscriber' && d.status === 'active' && !d.level) {
     return { message: 'Set an access level before making a seat active.' }
+  }
+
+  // An engagement client holds no level, by design. They can still be issued a
+  // named document through the copies queue; what they must not have is a
+  // library, and a level is what would give them one. The database enforces
+  // this too, so a crafted POST cannot slip one past.
+  if (d.clientType === 'engagement' && d.level) {
+    return {
+      message:
+        'A briefing client holds no access level — they receive documents individually, not a library. Clear the level, or set this person to Subscriber.',
+    }
   }
 
   const sql = getSql()
@@ -101,6 +116,7 @@ export async function saveSubscriber(
           full_name = ${d.fullName}, name = ${d.fullName},
           organization = ${d.organisation}, role_title = ${d.roleTitle},
           email = ${d.email}, phone = ${d.phone},
+          client_type = ${d.clientType},
           public_tier = ${d.publicTier}, subscription_level = ${d.publicTier},
           level = ${level}, seats = ${d.seats},
           term_start = ${termStart}::date, term_end = ${termEnd}::date,
@@ -113,11 +129,12 @@ export async function saveSubscriber(
       await sql`
         insert into subscribers (
           full_name, name, organization, role_title, email, phone,
-          public_tier, subscription_level, level, seats,
+          client_type, public_tier, subscription_level, level, seats,
           term_start, term_end, status, invoice_ref, library_link_url, note
         ) values (
           ${d.fullName}, ${d.fullName}, ${d.organisation}, ${d.roleTitle},
-          ${d.email}, ${d.phone}, ${d.publicTier}, ${d.publicTier},
+          ${d.email}, ${d.phone}, ${d.clientType},
+          ${d.publicTier}, ${d.publicTier},
           ${level}, ${d.seats}, ${termStart}::date, ${termEnd}::date,
           ${d.status}, ${d.invoiceRef}, ${d.libraryLinkUrl || null}, ${d.note}
         )

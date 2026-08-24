@@ -79,7 +79,8 @@ async function loadAudience(
      from subscribers s
      left join publication_access pa
        on pa.subscriber_id = s.id and pa.publication_id = $1
-     where lower(s.status) = 'active'
+     where s.client_type = 'subscriber'
+       and lower(s.status) = 'active'
        and s.level = any($2::text[])
        and (s.term_end is null or s.term_end >= current_date)
      order by s.created_at`,
@@ -241,6 +242,7 @@ export async function releaseHeldAlert(
     left join publication_access pa
       on pa.subscriber_id = s.id and pa.publication_id = d.id
     where s.id = ${subscriberId}
+      and s.client_type = 'subscriber'
       and lower(s.status) = 'active'
       and (s.term_end is null or s.term_end >= current_date)
     limit 1

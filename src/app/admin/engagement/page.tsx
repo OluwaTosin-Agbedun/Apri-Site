@@ -6,6 +6,7 @@ import {
   getEngagementWindow,
   getEngagementSummary,
   getUnmatchedViews,
+  getOpenEditionLeads,
   REGULAR_SERIES,
   type EngagementRow,
 } from '@/lib/engagement'
@@ -25,10 +26,11 @@ export default async function EngagementPage() {
 
   const delivery = deliverySummary()
   const window = await getEngagementWindow()
-  const [rows, summary, unmatched] = await Promise.all([
+  const [rows, summary, unmatched, leads] = await Promise.all([
     getEngagement(window),
     getEngagementSummary(),
     getUnmatchedViews(25),
+    getOpenEditionLeads(100),
   ])
 
   const flagged = rows.filter((r) => r.flagged)
@@ -179,6 +181,53 @@ export default async function EngagementPage() {
                       </code>
                     </td>
                     <td className="p-4 text-xs text-muted-foreground">{v.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-12">
+        <h3 className="font-serif text-lg text-foreground mb-2">
+          Open-edition readers <span className="text-muted-foreground">(leads)</span>
+        </h3>
+        <p className="text-xs text-muted-foreground leading-relaxed mb-5 max-w-2xl">
+          People who verified an email to read a public edition. They are{' '}
+          <strong>leads, not subscribers</strong> &mdash; no account, no library, no person
+          record. Held in their own table and never mixed into the subscriber list.
+        </p>
+
+        <div className="border border-border bg-card/30 overflow-x-auto">
+          {leads.length === 0 ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              No open-edition readers recorded yet.
+            </div>
+          ) : (
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="border-b border-border bg-black/5 text-foreground/70">
+                <tr>
+                  <th className="font-medium p-4">Email</th>
+                  <th className="font-medium p-4">Last read</th>
+                  <th className="font-medium p-4">First seen</th>
+                  <th className="font-medium p-4 text-right">Opens</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {leads.map((lead) => (
+                  <tr key={lead.email} className="hover:bg-black/5 transition-colors">
+                    <td className="p-4 text-foreground/80">{lead.email}</td>
+                    <td className="p-4 text-foreground/70">
+                      {lead.lastPublicationTitle ?? '—'}
+                      <span className="block text-xs text-muted-foreground mt-0.5">
+                        {formatDate(lead.lastSeenAt)}
+                      </span>
+                    </td>
+                    <td className="p-4 text-foreground/70">{formatDate(lead.firstSeenAt)}</td>
+                    <td className="p-4 text-right tabular-nums text-foreground/70">
+                      {lead.viewCount}
+                    </td>
                   </tr>
                 ))}
               </tbody>

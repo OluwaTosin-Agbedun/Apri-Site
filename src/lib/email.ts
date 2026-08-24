@@ -58,6 +58,87 @@ export async function sendBriefingNotification(
   })
 }
 
+/**
+ * Tells us a subscription enquiry has arrived.
+ *
+ * This form previously stored the enquiry and notified nobody, so someone
+ * asking to pay us sat in a table until an administrator happened to look.
+ *
+ * Every field the form collects is included, because the seat count and level
+ * of interest are what decide which tier is being asked for -- and having to
+ * open the admin to find them defeats the point of the email.
+ */
+export async function sendAccessRequestNotification(d: {
+  name: string
+  organization: string
+  email: string
+  phone: string
+  roleTitle: string
+  seats: number
+  subscriptionLevel: string
+  note: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const seatLine =
+    d.seats === 1 ? '1 person' : `${d.seats} people`
+
+  await resend.emails.send({
+    from: `APRI System <${FROM}>`,
+    to: MANAGER,
+    subject: `Subscription enquiry: ${d.name} — ${d.organization} (${seatLine})`,
+    replyTo: d.email,
+    html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f7f6f3;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f6f3;padding:40px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e8e5df;border-radius:4px;max-width:600px;">
+
+        <tr><td style="padding:24px 40px;border-bottom:2px solid #b49f69;">
+          <p style="margin:0;font-size:13px;letter-spacing:2px;color:#b49f69;">SUBSCRIPTION ENQUIRY</p>
+        </td></tr>
+
+        <tr><td style="padding:32px 40px;">
+          <h1 style="margin:0 0 8px;font-size:20px;color:#1a1a1a;">${esc(d.name)}</h1>
+          <p style="margin:0 0 24px;font-size:15px;color:#555555;">
+            ${esc(d.organization)}${d.roleTitle ? ` &mdash; ${esc(d.roleTitle)}` : ''}
+          </p>
+
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin-bottom:24px;">
+            ${summaryRow('Email', d.email)}
+            ${summaryRow('Phone', d.phone)}
+            ${summaryRow('Seats needed', seatLine)}
+            ${d.subscriptionLevel ? summaryRow('Level of interest', `${d.subscriptionLevel} (advisory)`) : ''}
+            ${d.note ? summaryRow('Their note', d.note) : ''}
+          </table>
+
+          <p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#333333;">
+            Reply to this message to reach ${esc(d.name)} directly. The enquiry is also on
+            the Subscribers page in the admin, where it can be activated once payment lands.
+          </p>
+          <p style="margin:0;font-size:13px;color:#888888;">
+            We tell enquirers we reply within one business day.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:16px 40px;border-top:1px solid #e8e5df;background:#faf9f6;">
+          <p style="margin:0;font-size:11px;color:#aaa;">
+            Internal only. Contains an enquirer's contact details.
+          </p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+  })
+}
+
 function confirmationHtml(d: BriefingDetails): string {
   return `
 <!DOCTYPE html>

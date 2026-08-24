@@ -178,6 +178,15 @@ type LibraryRow = {
 export async function getLibraryFor(
   subscriber: CurrentSubscriber
 ): Promise<LibraryItem[]> {
+  /**
+   * The guard on the whole arrangement: no level, no library.
+   *
+   * Entitlement is granted by level, and only a subscriber holds one. A
+   * briefing client is a person record with no level. They may hold several
+   * publication_access rows -- board papers issued to them by name -- and they
+   * must still see no library, because publication_access grants one person one
+   * document and cannot widen into level-based access.
+   */
   if (!subscriber.hasAccess || !subscriber.level) return []
 
   const sql = getSql()

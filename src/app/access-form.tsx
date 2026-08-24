@@ -4,8 +4,23 @@ import { useActionState } from 'react'
 import { requestAccess } from '@/app/actions/public'
 import { PUBLIC_TIER_NAMES } from '@/lib/entitlements'
 
+/**
+ * The subscription enquiry form.
+ *
+ * Every field carries a real <label>. A placeholder disappears the moment
+ * someone starts typing -- exactly when they most need to know what the field
+ * was for -- and a screen reader announces nothing useful from one at all.
+ */
+
 const field =
   'w-full border border-border bg-background p-3 text-sm focus:outline-none focus:border-accent'
+const labelClass =
+  'block text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2'
+
+function Err({ messages }: { messages?: string[] }) {
+  if (!messages?.length) return null
+  return <p className="mt-2 text-xs text-red-700">{messages[0]}</p>
+}
 
 export default function AccessForm() {
   const [state, action, pending] = useActionState(requestAccess, undefined)
@@ -13,24 +28,66 @@ export default function AccessForm() {
   if (state?.ok) {
     return (
       <div className="border border-border bg-accent/5 p-6 w-full max-w-md">
-        <p className="font-serif text-foreground text-lg mb-2">Request Received</p>
+        <p className="font-serif text-foreground text-lg mb-2">Request received</p>
         <p className="text-sm text-foreground/80">{state.message}</p>
       </div>
     )
   }
 
   return (
-    <form action={action} className="w-full max-w-md border border-border bg-card/30 p-6 space-y-4">
-      <h3 className="font-serif text-lg text-foreground mb-4">Request Access</h3>
+    <form
+      action={action}
+      className="w-full max-w-md border border-border bg-card/30 p-6 space-y-5"
+    >
+      <div>
+        <h3 className="font-serif text-lg text-foreground">Subscription request</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          For ongoing access to the intelligence library. To commission a one-off
+          briefing instead, use{' '}
+          <a href="/request-briefing" className="text-accent hover:text-accent-hover">
+            Request a briefing
+          </a>
+          .
+        </p>
+      </div>
+
+      {/*
+        Honeypot. Hidden from sight and from assistive technology, and taken out
+        of the tab order, so no person can reach it. Anything arriving in it came
+        from a script filling every input on the page.
+      */}
+      <div className="hidden" aria-hidden="true">
+        <label htmlFor="websiteUrl">Website</label>
+        <input
+          id="websiteUrl"
+          name="websiteUrl"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+        />
+      </div>
 
       <div>
-        <input name="name" type="text" required placeholder="Full Name" className={field} />
-        {state?.errors?.name && (
-          <p className="mt-2 text-xs text-red-700">{state.errors.name[0]}</p>
-        )}
-      </div>
-      <div>
+        <label htmlFor="name" className={labelClass}>
+          Full name
+        </label>
         <input
+          id="name"
+          name="name"
+          type="text"
+          autoComplete="name"
+          required
+          className={field}
+        />
+        <Err messages={state?.errors?.name} />
+      </div>
+
+      <div>
+        <label htmlFor="email" className={labelClass}>
+          Work email
+        </label>
+        <input
+          id="email"
           name="email"
           type="email"
           inputMode="email"
@@ -38,79 +95,119 @@ export default function AccessForm() {
           autoCapitalize="none"
           spellCheck={false}
           required
-          placeholder="Work Email"
           className={field}
         />
-        {state?.errors?.email && (
-          <p className="mt-2 text-xs text-red-700">{state.errors.email[0]}</p>
-        )}
+        <Err messages={state?.errors?.email} />
       </div>
+
       <div>
-        {/* type=tel brings up the phone keypad on a mobile browser. */}
+        <label htmlFor="phone" className={labelClass}>
+          Phone
+        </label>
+        {/*
+          type=tel with inputMode=tel opens the numeric keypad on a phone. The
+          pattern is deliberately permissive -- it takes +234…, 0803… and spaced
+          or dashed forms -- because the server normalises to one shape, and a
+          strict pattern only rejects people who typed a real number.
+        */}
         <input
+          id="phone"
           name="phone"
           type="tel"
           inputMode="tel"
           autoComplete="tel"
+          pattern="[0-9+()\-.\s]{7,40}"
           required
-          placeholder="Phone"
+          placeholder="+234 803 123 4567"
           className={field}
         />
-        {state?.errors?.phone && (
-          <p className="mt-2 text-xs text-red-700">{state.errors.phone[0]}</p>
-        )}
+        <p className="mt-2 text-xs text-muted-foreground">
+          Local or international format both work.
+        </p>
+        <Err messages={state?.errors?.phone} />
       </div>
+
       <div>
+        <label htmlFor="organization" className={labelClass}>
+          Organisation
+        </label>
         <input
+          id="organization"
           name="organization"
           type="text"
           autoComplete="organization"
           required
-          placeholder="Organisation"
           className={field}
         />
-        {state?.errors?.organization && (
-          <p className="mt-2 text-xs text-red-700">{state.errors.organization[0]}</p>
-        )}
+        <Err messages={state?.errors?.organization} />
       </div>
+
       <div>
+        <label htmlFor="roleTitle" className={labelClass}>
+          Role or title
+        </label>
         <input
+          id="roleTitle"
           name="roleTitle"
           type="text"
           autoComplete="organization-title"
-          placeholder="Role"
+          required
           className={field}
         />
-        {state?.errors?.roleTitle && (
-          <p className="mt-2 text-xs text-red-700">{state.errors.roleTitle[0]}</p>
-        )}
+        <Err messages={state?.errors?.roleTitle} />
       </div>
+
       <div>
+        <label htmlFor="seats" className={labelClass}>
+          How many people would need access?
+        </label>
+        <input
+          id="seats"
+          name="seats"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={500}
+          step={1}
+          defaultValue={1}
+          required
+          className={field}
+        />
+        <p className="mt-2 text-xs text-muted-foreground">
+          Each person gets their own sign-in and their own individually identified copy.
+        </p>
+        <Err messages={state?.errors?.seats} />
+      </div>
+
+      <div>
+        <label htmlFor="subscriptionLevel" className={labelClass}>
+          Which level interests you?
+        </label>
         <select
+          id="subscriptionLevel"
           name="subscriptionLevel"
           className={`${field} appearance-none cursor-pointer`}
           defaultValue=""
         >
-          <option value="" disabled>
-            Level of interest (optional)
-          </option>
+          <option value="">No preference</option>
           {PUBLIC_TIER_NAMES.map((level) => (
             <option key={level} value={level}>
               {level}
             </option>
           ))}
         </select>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Optional, and only a guide &mdash; we will recommend the right level when we reply.
+        </p>
+        <Err messages={state?.errors?.subscriptionLevel} />
       </div>
+
       <div>
-        <input
-          name="note"
-          type="text"
-          placeholder="Anything we should know (optional)"
-          className={field}
-        />
-        {state?.errors?.note && (
-          <p className="mt-2 text-xs text-red-700">{state.errors.note[0]}</p>
-        )}
+        <label htmlFor="note" className={labelClass}>
+          Anything we should know?
+        </label>
+        <input id="note" name="note" type="text" className={field} />
+        <Err messages={state?.errors?.note} />
       </div>
 
       {state?.message && !state.ok && (
@@ -119,15 +216,18 @@ export default function AccessForm() {
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="w-full bg-accent text-white px-4 py-2.5 text-sm font-medium tracking-wide hover:bg-accent-hover disabled:opacity-50 transition-colors cursor-pointer"
-      >
-        {pending ? 'Submitting…' : 'Request Access'}
-      </button>
-
-      <p className="text-xs text-muted-foreground">We reply within one business day.</p>
+      <div className="flex flex-wrap items-center gap-4 pt-1">
+        <button
+          type="submit"
+          disabled={pending}
+          className="bg-accent text-white px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-accent-hover disabled:opacity-50 transition-colors cursor-pointer"
+        >
+          {pending ? 'Submitting…' : 'Request access'}
+        </button>
+        <p className="text-xs text-muted-foreground">
+          We reply within one business day.
+        </p>
+      </div>
     </form>
   )
 }
