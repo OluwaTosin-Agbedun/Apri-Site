@@ -93,33 +93,78 @@ const SELECT_COLUMNS = `
   series, code, edition_date, summary, sort_order, is_published
 `
 
+/**
+ * Reads for the public pages, which are prerendered.
+ *
+ * Those pages are cached rather than rendered per visitor, so this query runs
+ * during the build. That means an unreachable database no longer produces a slow
+ * page -- it fails the whole deployment, which is a far worse outcome and one
+ * that a transient Neon hiccup could cause.
+ *
+ * So a public read degrades to an empty result instead of throwing. The page
+ * already has an empty state, revalidation retries within five minutes, and no
+ * redeploy is needed to recover. A misconfiguration is still loud everywhere it
+ * matters: the admin pages and the actions below throw as before, so nobody can
+ * mistake a broken database for a site with no publications.
+ */
+async function publicRead(
+  run: () => Promise<Row[]>,
+  context: string
+): Promise<Row[]> {
+  try {
+    return await run()
+  } catch (error) {
+    // Surfaced in the build and function logs, never to a visitor. No query text
+    // or connection string is included.
+    console.warn(
+      `[publications] ${context} failed; rendering an empty list. ` +
+        `The page will retry on the next revalidation.`
+    )
+    return []
+  }
+}
+
 /** Published publications, for the public site. */
 export async function getPublishedPublications(): Promise<Publication[]> {
-  const sql = getSql()
-  const rows = (await sql.query(
-    `select ${SELECT_COLUMNS} from documents
-     where is_published = true
-     order by sort_order asc, created_at desc`
-  )) as Row[]
+  const rows = await publicRead(async () => {
+    const sql = getSql()
+    return (await sql.query(
+      `select ${SELECT_COLUMNS} from documents
+       where is_published = true
+       order by sort_order asc, created_at desc`
+    )) as Row[]
+  }, 'published list')
+
   return rows.map(toPublication)
 }
 
 /** Single publication by slug, for detail pages. */
 export async function getPublicationBySlug(slug: string): Promise<Publication | null> {
-  const sql = getSql()
-  const rows = (await sql.query(
-    `select ${SELECT_COLUMNS} from documents where slug = $1 limit 1`,
-    [slug]
-  )) as Row[]
+  const rows = await publicRead(async () => {
+    const sql = getSql()
+    return (await sql.query(
+      `select ${SELECT_COLUMNS} from documents where slug = $1 limit 1`,
+      [slug]
+    )) as Row[]
+  }, 'lookup by slug')
+
   return rows[0] ? toPublication(rows[0]) : null
 }
 
-/** Everything, published or not, for the CMS. */
+/**
+ * Everything, published or not.
+ *
+ * Used by the public publications index and by the CMS list. Degrades the same
+ * way for the same reason -- the index is prerendered too.
+ */
 export async function getAllPublications(): Promise<Publication[]> {
-  const sql = getSql()
-  const rows = (await sql.query(
-    `select ${SELECT_COLUMNS} from documents
-     order by sort_order asc, created_at desc`
-  )) as Row[]
+  const rows = await publicRead(async () => {
+    const sql = getSql()
+    return (await sql.query(
+      `select ${SELECT_COLUMNS} from documents
+       order by sort_order asc, created_at desc`
+    )) as Row[]
+  }, 'full list')
+
   return rows.map(toPublication)
 }
