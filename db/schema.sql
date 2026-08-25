@@ -565,3 +565,83 @@ create unique index if not exists open_edition_leads_email_key
   on open_edition_leads (lower(email));
 create index if not exists open_edition_leads_recent_idx
   on open_edition_leads (last_seen_at desc);
+
+-- ---------------------------------------------------------------------------
+-- How far back entitlement reaches
+--
+-- Activating someone with a backdated term_start otherwise makes the copies
+-- queue demand every edition published since that date, all at once. The
+-- boundary caps it: entitlement reaches back this many months from today, and
+-- no further, whatever the term start says.
+-- ---------------------------------------------------------------------------
+insert into app_settings (key, value)
+values ('entitlement_reach_months', '12')
+on conflict (key) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Level change history
+--
+-- A level change moves money and moves access, so it is recorded rather than
+-- inferred. Kept even if the subscriber row is later removed, because the
+-- question "who widened this person's access, and when" outlives the person's
+-- subscription.
+-- ---------------------------------------------------------------------------
+create table if not exists level_changes (
+  id            uuid        primary key default gen_random_uuid(),
+  subscriber_id uuid        references subscribers (id) on delete set null,
+  subscriber_email text     not null default '',
+  old_level     text,
+  new_level     text,
+  direction     text        not null,
+  changed_by    uuid        references admins (id) on delete set null,
+  changed_by_name text      not null default '',
+  created_at    timestamptz not null default now(),
+  constraint level_changes_direction_check
+    check (direction in ('upgrade', 'downgrade', 'set', 'cleared'))
+);
+
+create index if not exists level_changes_subscriber_idx
+  on level_changes (subscriber_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Link verification findings
+--
+-- Our security model rests on every subscriber link permitting exactly one
+-- address. The Papermark dashboard renders the allow-list in a textarea that
+-- hides everything past the first line, so a person cannot reliably confirm it.
+-- The API returns the list as an array, so the system checks instead.
+--
+-- A mismatch is a finding, not a warning. Note what is deliberately absent:
+-- there is no column for the offending address. Recording it would copy an
+-- address that should not be on the link into a second place, and the finding
+-- is actionable without it -- the link and the publication are named.
+-- ---------------------------------------------------------------------------
+create table if not exists link_findings (
+  id             uuid        primary key default gen_random_uuid(),
+  access_id      uuid        references publication_access (id) on delete cascade,
+  subscriber_id  uuid        references subscribers (id) on delete set null,
+  publication_id uuid        references documents (id) on delete set null,
+  papermark_link_id text     not null default '',
+  kind           text        not null,
+  detail         text        not null default '',
+  first_seen_at  timestamptz not null default now(),
+  last_seen_at   timestamptz not null default now(),
+  resolved_at    timestamptz,
+  alerted_at     timestamptz,
+  constraint link_findings_kind_check check (kind in (
+    'link-missing',
+    'allow-list-empty',
+    'allow-list-multiple',
+    'allow-list-mismatch',
+    'allow-list-wildcard',
+    'downloads-enabled',
+    'email-verification-off'
+  ))
+);
+
+create unique index if not exists link_findings_open_key
+  on link_findings (access_id, kind)
+  where resolved_at is null;
+create index if not exists link_findings_open_idx
+  on link_findings (last_seen_at desc)
+  where resolved_at is null;

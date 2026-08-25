@@ -11,6 +11,7 @@ import {
   type EngagementRow,
 } from '@/lib/engagement'
 import { deliverySummary } from '@/lib/delivery'
+import { isPapermarkConfigured } from '@/lib/papermark'
 import { levelLabelOrDash } from '@/lib/entitlements'
 import WindowForm from './window-form'
 
@@ -25,6 +26,15 @@ export default async function EngagementPage() {
   const admin = await requireAdmin()
 
   const delivery = deliverySummary()
+
+  // Read here rather than inferred from whether the job has run. Server-side
+  // only: these are never sent to the browser, just their presence.
+  const missingPollEnv = [
+    isPapermarkConfigured() ? null : 'PAPERMARK_API_TOKEN',
+    process.env.CRON_SECRET ? null : 'CRON_SECRET',
+  ].filter((v): v is string => v !== null)
+  const pollConfigured = missingPollEnv.length === 0
+
   const window = await getEngagementWindow()
   const [rows, summary, unmatched, leads] = await Promise.all([
     getEngagement(window),
@@ -236,13 +246,30 @@ export default async function EngagementPage() {
         </div>
       </section>
 
+      {/*
+        Two separate facts, kept separate. Whether the credentials are present is
+        not the same as whether the job has ever executed -- conflating them made
+        this read as "add the keys" long after the keys were added.
+      */}
       <p className="mt-8 text-xs text-muted-foreground leading-relaxed max-w-2xl">
         Opens are recorded by the Papermark webhook, with a daily catch-up poll behind it.
-        {summary.lastPollAt
-          ? ` Last poll ran ${formatDateTime(summary.lastPollAt)}.`
-          : ' The poll has not run yet — it needs PAPERMARK_API_TOKEN and CRON_SECRET.'}{' '}
-        Until Papermark is connected this page will show no opens, and every active seat
-        with enough editions behind it will read as flagged.
+        {summary.lastPollAt ? (
+          ` Last poll ran ${formatDateTime(summary.lastPollAt)}.`
+        ) : pollConfigured ? (
+          <>
+            {' '}
+            The credentials are in place, but the poll has never run &mdash; something has
+            to call it on a schedule. Until it does, opens arrive only from the webhook.
+          </>
+        ) : (
+          <>
+            {' '}
+            The poll cannot run yet: {missingPollEnv.join(' and ')}{' '}
+            {missingPollEnv.length === 1 ? 'is' : 'are'} not set in this environment.
+          </>
+        )}{' '}
+        {summary.totalViews === 0 &&
+          'No opens have been recorded yet, so every active seat with enough editions behind it reads as flagged.'}
       </p>
     </AdminShell>
   )

@@ -1,7 +1,7 @@
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import AccessForm from '@/app/access-form'
-import { accessNotice } from '@/lib/delivery'
+import { accessNotice, BRIEFINGS_SEPARATE_NOTICE } from '@/lib/delivery'
 
 export const metadata = {
   title: 'Subscription Access · APRI',
@@ -86,6 +86,9 @@ export default function AccessPage() {
             <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
               <span className="font-medium text-foreground">Access note:</span>{' '}
               {accessNotice()}
+            </p>
+            <p className="mt-3 text-sm text-muted-foreground leading-relaxed max-w-2xl">
+              {BRIEFINGS_SEPARATE_NOTICE}
             </p>
           </div>
         </section>

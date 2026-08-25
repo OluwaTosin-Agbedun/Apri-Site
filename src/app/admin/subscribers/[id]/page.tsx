@@ -2,8 +2,10 @@ import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/dal'
 import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
+import { getReachMonths } from '@/lib/provisioning'
 import SubscriberForm, { type SubscriberDraft } from './subscriber-form'
 import SeatActions from '../seat-actions'
+import GrantDocument, { type GrantablePublication } from './grant-document'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,6 +99,40 @@ export default async function EditSubscriberPage({
   const row = rows[0]
   if (!row) notFound()
 
+  const reachMonths = await getReachMonths()
+
+  // Published editions this person could be granted, and whether they already
+  // hold a live copy. Board papers included: an engagement client's paper is
+  // usually one of these.
+  const grantableRows = (await sql`
+    select d.id, d.code, d.title, d.series, d.edition_date,
+           exists (
+             select 1 from publication_access pa
+             where pa.publication_id = d.id
+               and pa.subscriber_id = ${id}
+               and pa.revoke_state = 'live'
+           ) as already_held
+    from documents d
+    where d.status = 'published'
+      and d.visibility <> 'OPEN'
+      and d.is_shared_copy = false
+    order by coalesce(d.edition_date, d.created_at::date) desc
+    limit 100
+  `) as {
+    id: string
+    code: string | null
+    title: string
+    series: string
+    edition_date: string | Date | null
+    already_held: boolean
+  }[]
+
+  const grantable: GrantablePublication[] = grantableRows.map((p) => ({
+    id: p.id,
+    label: [p.code, p.title].filter(Boolean).join(' · '),
+    alreadyHeld: p.already_held,
+  }))
+
   const draft: SubscriberDraft = {
     id: row.id,
     clientType: row.client_type || 'subscriber',
@@ -140,6 +176,32 @@ export default async function EditSubscriberPage({
           hasTermEnd={Boolean(row.term_end)}
           liveLinks={Number(row.live_links ?? 0)}
         />
+
+        {/*
+          Stated on the activation screen, because activating with a backdated
+          term is what decides how much work the copies queue is about to ask
+          for.
+        */}
+        <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground leading-relaxed max-w-xl">
+          Entitlement reaches back {reachMonths} month{reachMonths === 1 ? '' : 's'} from
+          today
+          {row.term_start
+            ? `, or to ${new Date(row.term_start).toLocaleDateString('en-GB')} if that is later.`
+            : ', or to their term start if that is later.'}{' '}
+          Editions published before that are not owed and will not appear in Copies needed.
+        </p>
+      </div>
+
+      <div className="mb-6 border border-border bg-card/30 p-6">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-4">
+          Documents
+        </h3>
+        <GrantDocument subscriberId={row.id} publications={grantable} />
+        <p className="mt-3 text-xs text-muted-foreground leading-relaxed max-w-xl">
+          A briefing client holds no level and so appears in no queue &mdash; this is how
+          they receive a named paper. It works for subscribers too, for anything granted
+          outside their level.
+        </p>
       </div>
 
       <SubscriberForm draft={draft} />

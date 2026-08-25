@@ -2,6 +2,38 @@ import 'server-only'
 import { getSql } from './db'
 import { visibilitiesForLevel, isLevel, type Level } from './entitlements'
 
+/** How far back entitlement reaches, in months, when the setting is unusable. */
+export const DEFAULT_REACH_MONTHS = 12
+
+/**
+ * The back-catalogue boundary.
+ *
+ * Entitlement reaches back this many months from today and no further, whatever
+ * a subscriber's term_start says. Without it, activating someone with a
+ * backdated term makes the queue demand every edition published since that date
+ * in one go -- which is not a work queue, it is a wall.
+ */
+export async function getReachMonths(): Promise<number> {
+  const sql = getSql()
+  const rows = (await sql`
+    select value from app_settings where key = 'entitlement_reach_months' limit 1
+  `) as { value: string }[]
+
+  const parsed = Number.parseInt(rows[0]?.value ?? '', 10)
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 120) return DEFAULT_REACH_MONTHS
+  return parsed
+}
+
+export async function setReachMonths(months: number): Promise<void> {
+  const clamped = Math.min(120, Math.max(1, Math.round(months)))
+  const sql = getSql()
+  await sql`
+    insert into app_settings (key, value)
+    values ('entitlement_reach_months', ${String(clamped)})
+    on conflict (key) do update set value = excluded.value
+  `
+}
+
 /**
  * Reconciliation: which stamped copies still need making.
  *
@@ -53,6 +85,7 @@ export type CopyGap = {
  */
 export async function getCopyGaps(): Promise<CopyGap[]> {
   const sql = getSql()
+  const reachMonths = await getReachMonths()
 
   // Levels are expanded here from the shared rule, then bound as a pair list,
   // so SQL never re-implements the ranking.
@@ -95,14 +128,19 @@ export async function getCopyGaps(): Promise<CopyGap[]> {
        and lower(s.status) = 'active'
        and s.term_end is not null
        and s.term_end >= current_date
-       -- Only editions from the subscriber's own term onward.
+       -- Only editions from the subscriber's own term onward, and never
+       -- further back than the boundary. A backdated term would otherwise
+       -- summon the whole back catalogue at once.
        and coalesce(d.edition_date, d.published_at::date, d.created_at::date)
-           >= coalesce(s.term_start, s.created_at::date)
+           >= greatest(
+                coalesce(s.term_start, s.created_at::date),
+                (current_date - ($3::int || ' months')::interval)::date
+              )
        -- The gap itself: no row at all. A revoked row is not a gap; that
        -- subscriber's access ended deliberately.
        and pa.id is null
      order by opened_at asc`,
-    [pairs.map((p) => p.level), pairs.map((p) => p.visibility)]
+    [pairs.map((p) => p.level), pairs.map((p) => p.visibility), reachMonths]
   )) as {
     subscriber_id: string
     subscriber_name: string | null

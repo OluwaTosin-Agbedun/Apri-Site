@@ -52,6 +52,16 @@ export function accessNotice(): string {
   )
 }
 
+/**
+ * Says plainly that a briefing is not part of a subscription.
+ *
+ * Shown on both the subscription page and inside the portal, because the two
+ * things are bought separately and a subscriber who assumes briefings are
+ * included discovers otherwise at the worst moment.
+ */
+export const BRIEFINGS_SEPARATE_NOTICE =
+  'Briefings are commissioned separately and are not part of a subscription.'
+
 /** The note at the foot of a subscriber's own library. */
 export function portalNotice(): string {
   const watermark = WATERMARKING_ENABLED

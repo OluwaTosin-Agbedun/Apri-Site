@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { requireSubscriber, getLibraryFor, touchLastViewed } from '@/lib/subscriber-dal'
 import { seriesLabel } from '@/lib/entitlements'
-import { portalNotice } from '@/lib/delivery'
+import { portalNotice, BRIEFINGS_SEPARATE_NOTICE } from '@/lib/delivery'
 import { subscriberSignOut } from '@/app/actions/subscriber-auth'
 import SiteFooter from '@/components/SiteFooter'
 
@@ -76,7 +76,7 @@ export default async function PortalPage() {
 
         <div className="mt-16 pt-8 border-t border-border">
           <p className="text-xs text-muted-foreground leading-relaxed">
-            {portalNotice()} Questions:{' '}
+            {BRIEFINGS_SEPARATE_NOTICE} {portalNotice()} Questions:{' '}
             <a
               href={`mailto:${CONTACT}`}
               className="text-accent hover:text-accent-hover transition-colors"

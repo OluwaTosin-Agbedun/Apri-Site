@@ -11,6 +11,12 @@ import { recordView, refreshLastViewed } from '@/lib/view-attribution'
 import { getUnalertedGaps, markGapsAlerted } from '@/lib/provisioning'
 import { revokeLapsedAccess } from '@/lib/revocation'
 import { sendCopyGapAlert } from '@/lib/copy-gap-email'
+import {
+  verifyAllowLists,
+  getUnalertedFindings,
+  markFindingsAlerted,
+} from '@/lib/link-verification'
+import { sendFindingAlert } from '@/lib/finding-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -181,10 +187,14 @@ async function reconcile(): Promise<{
   gapsAlerted: number
   linksRevoked: number
   revokeManual: number
+  linksChecked: number
+  securityFindings: number
 }> {
   let gapsAlerted = 0
   let linksRevoked = 0
   let revokeManual = 0
+  let linksChecked = 0
+  let securityFindings = 0
 
   try {
     // A gap open longer than a day is someone paying for something they cannot
@@ -206,7 +216,25 @@ async function reconcile(): Promise<{
     // As above.
   }
 
-  return { gapsAlerted, linksRevoked, revokeManual }
+  try {
+    // Every live link read back and checked: exactly one permitted address,
+    // matching the subscriber it belongs to, downloads off, verification on.
+    // A person cannot confirm this in the Papermark interface, so it is checked
+    // here on the same schedule as everything else.
+    const summary = await verifyAllowLists()
+    linksChecked = summary.checked
+
+    const unalerted = await getUnalertedFindings()
+    securityFindings = unalerted.length
+
+    if (unalerted.length > 0 && (await sendFindingAlert(unalerted))) {
+      await markFindingsAlerted(unalerted)
+    }
+  } catch {
+    // Reported as zero rather than failing the run.
+  }
+
+  return { gapsAlerted, linksRevoked, revokeManual, linksChecked, securityFindings }
 }
 
 /**

@@ -4,16 +4,19 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { setDocumentStatus } from '@/app/actions/documents'
-import { sendPublishAlert } from '@/app/actions/subscribers'
+import AlertPanel from './alert-panel'
 
 export default function RowActions({
   id,
   status,
   visibility,
+  title,
 }: {
   id: string
   status: string
   visibility: string
+  /** Shown on the alert panel, so the operator sees which edition they are sending. */
+  title: string
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -27,25 +30,6 @@ export default function RowActions({
       const result = await setDocumentStatus(id, next)
       if (result?.message && !result.ok) setError(result.message)
       else router.refresh()
-    })
-  }
-
-  /**
-   * Sends one email per entitled seat. Confirmed first because it is not
-   * reversible: an alert cannot be recalled once it has gone out.
-   */
-  function alertSubscribers() {
-    setError(null)
-    setNotice(null)
-    const ok = window.confirm(
-      'Email every entitled subscriber about this edition? This cannot be undone.'
-    )
-    if (!ok) return
-
-    startTransition(async () => {
-      const result = await sendPublishAlert(id)
-      if (result?.ok) setNotice(result.message ?? 'Alert sent.')
-      else setError(result?.message ?? 'Could not send the alert.')
     })
   }
 
@@ -71,15 +55,12 @@ export default function RowActions({
         )}
 
         {/* Only a published, paid edition has an audience to alert. */}
+        {/*
+          Alerting is its own two-step panel: the split has to be seen before
+          anything is sent, so it cannot live behind a single confirm dialog.
+        */}
         {status === 'published' && visibility !== 'OPEN' && (
-          <button
-            type="button"
-            onClick={alertSubscribers}
-            disabled={pending}
-            className={link}
-          >
-            Alert subscribers
-          </button>
+          <AlertPanel id={id} title={title} />
         )}
 
         {status !== 'archived' && (

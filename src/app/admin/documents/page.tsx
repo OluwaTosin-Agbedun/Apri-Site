@@ -150,6 +150,7 @@ export default async function AdminDocumentsPage() {
                       id={doc.id}
                       status={doc.status}
                       visibility={doc.visibility}
+                      title={doc.title}
                     />
                   </td>
                 </tr>

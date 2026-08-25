@@ -16,6 +16,7 @@ import {
   levelLabel,
   type Level,
 } from '@/lib/entitlements'
+import { applyLevelChange, type LevelChangeOutcome } from '@/lib/level-changes'
 import { fieldErrors, type FormState } from '@/lib/definitions'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -63,7 +64,9 @@ export async function saveSubscriber(
   _prev: FormState,
   formData: FormData
 ): Promise<FormState> {
-  await requireAdmin()
+  // Identity is needed, not just authorisation: a level change is recorded
+  // against whoever made it.
+  const admin = await requireAdmin()
 
   const parsed = SubscriberAdminSchema.safeParse({
     clientType: formData.get('clientType') ?? 'subscriber',
@@ -108,6 +111,17 @@ export async function saveSubscriber(
   const termStart = d.termStart || null
   const termEnd = d.termEnd || null
 
+  // Read before writing, so a level change can be detected and acted on. An
+  // upgrade widens the copies queue on its own; a downgrade leaves live links
+  // that nothing else would notice.
+  let previousLevel: string | null = null
+  if (id && UUID.test(id)) {
+    const before = (await sql`
+      select level from subscribers where id = ${id} limit 1
+    `) as { level: string | null }[]
+    previousLevel = before[0]?.level ?? null
+  }
+
   try {
     if (id) {
       if (!UUID.test(id)) return { message: 'Unknown subscriber.' }
@@ -144,7 +158,36 @@ export async function saveSubscriber(
     return { message: 'A subscriber with that email address already exists.' }
   }
 
+  // Consequences of a level change, applied after the row is written so the
+  // queue recomputes against the new level.
+  let outcome: LevelChangeOutcome = { direction: 'none', revocationsQueued: 0 }
+  if (id) {
+    outcome = await applyLevelChange({
+      subscriberId: id,
+      subscriberEmail: d.email,
+      oldLevel: previousLevel,
+      newLevel: level,
+      changedById: admin.id,
+      changedByName: admin.name,
+    })
+  }
+
   refresh()
+
+  if (outcome.direction === 'upgrade') {
+    return {
+      ok: true,
+      message:
+        'Saved. Access widened — any newly entitled editions will appear in Copies needed.',
+    }
+  }
+  if (outcome.revocationsQueued > 0) {
+    return {
+      ok: true,
+      message: `Saved. ${outcome.revocationsQueued} link${outcome.revocationsQueued === 1 ? '' : 's'} no longer covered by this level — listed under Revoke manually.`,
+    }
+  }
+
   return { ok: true, message: 'Saved.' }
 }
 

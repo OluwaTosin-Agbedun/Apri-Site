@@ -229,6 +229,74 @@ export async function getViewDetail(
 }
 
 // ---------------------------------------------------------------------------
+// Reading a link back, for allow-list verification
+// ---------------------------------------------------------------------------
+
+/**
+ * One share link as Papermark reports it.
+ *
+ * `allow_list` is a real array of strings in the API, which is why this check is
+ * worth having: the dashboard renders it in a textarea that hides everything
+ * past the first line, so a person reading the interface cannot reliably see
+ * what is in it. The API can.
+ */
+export type PapermarkLinkDetail = {
+  id: string
+  document_id?: string | null
+  allow_list?: string[]
+  deny_list?: string[]
+  allow_download?: boolean
+  email_protected?: boolean
+  email_authenticated?: boolean
+  enable_watermark?: boolean
+}
+
+export type LinkDetailResult =
+  | { ok: true; link: PapermarkLinkDetail }
+  | { ok: false; reason: 'not-configured' | 'missing' | 'failed' }
+
+/**
+ * Fetches one link's settings.
+ *
+ * Distinguishes "the link is gone" from "we could not ask", because those are
+ * different findings: a missing link means a subscriber's document has vanished,
+ * while a failed call means we simply do not know yet.
+ */
+export async function getLinkDetail(linkId: string): Promise<LinkDetailResult> {
+  if (!isPapermarkConfigured()) return { ok: false, reason: 'not-configured' }
+
+  try {
+    const response = await fetch(
+      `${BASE}/v1/links/${encodeURIComponent(linkId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiToken()}`,
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+      }
+    )
+
+    if (response.status === 404) return { ok: false, reason: 'missing' }
+    if (!response.ok) return { ok: false, reason: 'failed' }
+
+    const body = (await response.json()) as
+      | PapermarkLinkDetail
+      | { data: PapermarkLinkDetail }
+
+    const link =
+      body && typeof body === 'object' && 'data' in body
+        ? (body as { data: PapermarkLinkDetail }).data
+        : (body as PapermarkLinkDetail)
+
+    if (!link?.id) return { ok: false, reason: 'failed' }
+    return { ok: true, link }
+  } catch {
+    return { ok: false, reason: 'failed' }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Revocation
 // ---------------------------------------------------------------------------
 
@@ -300,7 +368,14 @@ export function resolveShareUrl(link: PapermarkLink | undefined): string | null 
   if (link.domainSlug && link.slug) {
     return `https://${link.domainSlug}/${link.slug}`
   }
-  if (link.id) return `https://www.papermark.com/view/${link.id}`
+
+  // Deliberately no papermark.com/view/{id} fallback.
+  //
+  // Provisioning rejects any link not on docs.athenacentre.org, because a
+  // papermark.com address changes once a custom domain is applied and breaks
+  // silently months later. Composing one here would write exactly the address
+  // we refuse to accept, so a link with no usable domain is reported as missing
+  // instead.
   return null
 }
 

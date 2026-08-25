@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { requireAdmin } from '@/lib/dal'
 import AdminShell from '@/components/AdminShell'
+import SecurityFindings from '@/components/SecurityFindings'
 import { getCopyGaps } from '@/lib/provisioning'
 import { getManualRevocations } from '@/lib/revocation'
 import { getHeldAlerts } from '@/lib/alerts'
@@ -38,6 +39,8 @@ export default async function CopiesPage() {
           : `${gaps.length} ${gaps.length === 1 ? 'copy' : 'copies'} to make${overdue.length > 0 ? `, ${overdue.length} overdue` : ''}.`
       }
     >
+      <SecurityFindings />
+
       <section className="mb-12">
         <h3 className="font-serif text-lg text-foreground mb-2">Copies needed</h3>
         <p className="text-xs text-muted-foreground leading-relaxed mb-5 max-w-2xl">

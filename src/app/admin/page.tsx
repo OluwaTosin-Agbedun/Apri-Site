@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getSql } from '@/lib/db'
 import { isSetupComplete, requireAdmin } from '@/lib/dal'
 import AdminShell from '@/components/AdminShell'
+import SecurityFindings from '@/components/SecurityFindings'
 
 export const metadata = { title: 'Overview · APRI' }
 export const dynamic = 'force-dynamic'
@@ -55,6 +56,8 @@ export default async function AdminDashboardPage() {
       title="Overview"
       description="Metrics and recent activity across the platform."
     >
+      <SecurityFindings />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
         {metrics.map((m) => (
           <div key={m.label} className="border border-border p-6 bg-card/30">
