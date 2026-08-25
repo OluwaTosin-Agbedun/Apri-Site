@@ -11,7 +11,14 @@ type Status = (typeof STATUSES)[number]
 function refresh() {
   revalidatePath('/admin/documents')
   revalidatePath('/admin')
-  revalidatePath('/') // Public page updates with no commit and no redeploy.
+
+  // The public pages are cached rather than rendered per visitor, so every
+  // surface that shows a publication has to be named here. A missed path means
+  // an editor publishes something and cannot see it, and concludes the CMS is
+  // broken.
+  revalidatePath('/')
+  revalidatePath('/publications')
+  revalidatePath('/publications/[slug]', 'page')
 }
 
 /**

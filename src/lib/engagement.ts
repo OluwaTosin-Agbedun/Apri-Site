@@ -1,6 +1,7 @@
 import 'server-only'
 import { getSql } from './db'
 import { LEVELS, visibilitiesForLevel, type Level, isLevel } from './entitlements'
+import { getReachMonths } from './provisioning'
 
 /**
  * Subscriber engagement, for the admin's renewal-risk view.
@@ -86,124 +87,151 @@ type SubscriberRow = {
 /**
  * Every active subscriber, worst-engaged first.
  *
- * One query per subscriber for their recent editions, rather than a single
- * clever join: each subscriber's candidate set depends on their own level and
- * their own term_start, so a shared query would need a lateral join that is
- * harder to read and no faster at this scale (tens of seats, not thousands).
+ * One query, not one per subscriber.
+ *
+ * The previous shape ran three queries inside a loop over subscribers -- their
+ * view stats, their recent editions, and how many of those they had opened. At
+ * fifty seats that is a hundred and fifty round trips to open one page, and the
+ * cost grew with every subscriber sold. A lateral join does the same work in a
+ * single statement.
+ *
+ * The entitlement rule is still not restated here: the (level, visibility) pairs
+ * are expanded from visibilitiesForLevel and bound as parameters, so SQL matches
+ * against a list it was handed rather than one it decides.
  */
 export async function getEngagement(window: number): Promise<EngagementRow[]> {
   const sql = getSql()
+  const reachMonths = await getReachMonths()
 
-  // Active only. A lapsed or suspended seat is not a renewal risk to chase --
-  // it is already a different conversation.
-  const subscribers = (await sql`
-    select id, full_name, name, organization, email, level,
-           public_tier, seats, term_start, term_end
-    from subscribers
-    where client_type = 'subscriber'
-      and lower(status) = 'active'
-    order by created_at desc
-  `) as SubscriberRow[]
+  const pairs: { level: Level; visibility: string }[] = []
+  for (const level of LEVELS) {
+    for (const visibility of visibilitiesForLevel(level)) {
+      pairs.push({ level, visibility })
+    }
+  }
 
-  const rows: EngagementRow[] = []
-
-  for (const s of subscribers) {
-    const level = isLevel(s.level) ? s.level : null
-
-    // Views of OPEN publications are excluded. Those are public reading, left
-    // out of entitlement everywhere else, so counting them here would let a
-    // subscriber who opens only the free monitor read as engaged while never
-    // touching a paid edition -- the exact false reassurance this page exists
-    // to avoid. A view with no publication attached is also excluded: we cannot
-    // tell which lane it belonged to.
-    const [stats] = (await sql`
-      select
-        max(v.viewed_at) as last_opened,
-        count(*) filter (where v.viewed_at > now() - interval '90 days') as opens_90
-      from document_views v
-      join documents d on d.id = v.publication_id
-      where v.subscriber_id = ${s.id}
-        and d.visibility <> 'OPEN'
-    `) as { last_opened: string | Date | null; opens_90: number }[]
-
-    let editionsConsidered = 0
-    let editionsOpened = 0
-
-    if (level) {
-      // Their entitlement as at now, from the shared rule -- not re-derived
-      // here, so the attention list and the portal can never disagree about
-      // what a level includes.
-      const visibilities = visibilitiesForLevel(level)
-
-      // The last `window` regular editions published after their term began.
-      // The term_start cut-off is what stops a subscriber who joined last week
-      // being flagged for editions that predate them.
-      //
-      // Two details that are easy to get wrong and both cause false alarms:
-      //
-      // 1. term_start is passed as a 'YYYY-MM-DD' string. The driver returns a
-      //    date column as a JS Date, and handing that straight back as a
-      //    parameter binds as NULL -- which makes `$3::date is null` true and
-      //    silently disables the whole cut-off.
-      //
-      // 2. created_at closes the coalesce chain. An edition with neither an
-      //    edition date nor a published-at would otherwise compare NULL
-      //    against the cut-off, be excluded for everybody, and leave the flag
-      //    permanently unreachable.
-      const editions = (await sql.query(
-        `select d.id
+  const rows = (await sql.query(
+    `with entitlement (level, visibility) as (
+       select * from unnest($1::text[], $2::text[])
+     ),
+     active as (
+       select s.id, s.created_at,
+              coalesce(nullif(s.full_name, ''), s.name) as full_name,
+              s.organization, s.email, s.level, s.public_tier, s.seats,
+              s.term_start, s.term_end
+       from subscribers s
+       where s.client_type = 'subscriber'
+         and lower(s.status) = 'active'
+         and s.level is not null
+     ),
+     -- The last N regular editions each subscriber was entitled to, bounded by
+     -- their own term start and by the back-catalogue reach.
+     recent as (
+       select a.id as subscriber_id, e.id as publication_id
+       from active a
+       left join lateral (
+         select d.id
          from documents d
+         join entitlement en
+           on en.level = a.level and en.visibility = d.visibility
          where d.status = 'published'
-           and d.visibility = any($1::text[])
-           and d.series = any($2::text[])
-           and ($3::date is null
-                or coalesce(d.edition_date, d.published_at::date, d.created_at::date) >= $3::date)
+           and d.visibility <> 'OPEN'
+           and d.series = any($3::text[])
+           and coalesce(d.edition_date, d.published_at::date, d.created_at::date)
+               >= greatest(
+                    coalesce(a.term_start, a.created_at::date),
+                    (current_date - ($4::int || ' months')::interval)::date
+                  )
          order by coalesce(d.edition_date, d.published_at::date, d.created_at::date) desc,
                   d.created_at desc
-         limit $4`,
-        [visibilities, REGULAR_SERIES as unknown as string[], asDateParam(s.term_start), window]
-      )) as { id: string }[]
+         limit $5
+       ) e on true
+     ),
+     considered as (
+       select subscriber_id, count(publication_id)::int as n
+       from recent group by subscriber_id
+     ),
+     opened as (
+       select r.subscriber_id, count(distinct r.publication_id)::int as n
+       from recent r
+       join document_views v
+         on v.subscriber_id = r.subscriber_id
+        and v.publication_id = r.publication_id
+       group by r.subscriber_id
+     ),
+     -- Views of OPEN publications are excluded: public reading must not make a
+     -- subscriber who never opens a paid edition look engaged.
+     stats as (
+       select v.subscriber_id,
+              max(v.viewed_at) as last_opened,
+              count(*) filter (where v.viewed_at > now() - interval '90 days')::int as opens_90
+       from document_views v
+       join documents d on d.id = v.publication_id
+       where d.visibility <> 'OPEN'
+       group by v.subscriber_id
+     )
+     select a.id, a.full_name, a.organization, a.email, a.level, a.public_tier,
+            a.seats, a.term_end,
+            coalesce(c.n, 0) as editions_considered,
+            coalesce(o.n, 0) as editions_opened,
+            st.last_opened,
+            coalesce(st.opens_90, 0) as opens_90
+     from active a
+     left join considered c on c.subscriber_id = a.id
+     left join opened o     on o.subscriber_id = a.id
+     left join stats st     on st.subscriber_id = a.id
+     order by a.created_at desc`,
+    [
+      pairs.map((p) => p.level),
+      pairs.map((p) => p.visibility),
+      REGULAR_SERIES as unknown as string[],
+      reachMonths,
+      window,
+    ]
+  )) as {
+    id: string
+    full_name: string | null
+    organization: string
+    email: string
+    level: string | null
+    public_tier: string
+    seats: number
+    term_end: string | Date | null
+    editions_considered: number
+    editions_opened: number
+    last_opened: string | Date | null
+    opens_90: number
+  }[]
 
-      editionsConsidered = editions.length
-
-      if (editions.length > 0) {
-        const [opened] = (await sql.query(
-          `select count(distinct publication_id)::int as n
-           from document_views
-           where subscriber_id = $1 and publication_id = any($2::uuid[])`,
-          [s.id, editions.map((e) => e.id)]
-        )) as { n: number }[]
-
-        editionsOpened = opened?.n ?? 0
-      }
-    }
+  const result: EngagementRow[] = rows.map((r) => {
+    const editionsConsidered = Number(r.editions_considered ?? 0)
+    const editionsOpened = Number(r.editions_opened ?? 0)
 
     // Never flag someone with fewer than `window` entitled editions: with one
     // edition behind them, "opened none of the last two" is an artefact of the
     // calendar, not a signal about them.
     const enoughToJudge = editionsConsidered >= window
-    const flagged = enoughToJudge && editionsOpened === 0
 
-    rows.push({
-      id: s.id,
-      fullName: s.full_name || s.name || '',
-      organisation: s.organization,
-      email: s.email,
-      level,
-      publicTier: s.public_tier,
-      seats: Number(s.seats ?? 1),
-      termEnd: asIsoOrNull(s.term_end),
-      daysUntilTermEnd: daysUntil(s.term_end),
-      lastOpenedAt: asIsoOrNull(stats?.last_opened),
-      opensLast90Days: Number(stats?.opens_90 ?? 0),
+    return {
+      id: r.id,
+      fullName: r.full_name || '',
+      organisation: r.organization,
+      email: r.email,
+      level: isLevel(r.level) ? r.level : null,
+      publicTier: r.public_tier,
+      seats: Number(r.seats ?? 1),
+      termEnd: asIsoOrNull(r.term_end),
+      daysUntilTermEnd: daysUntil(r.term_end),
+      lastOpenedAt: asIsoOrNull(r.last_opened),
+      opensLast90Days: Number(r.opens_90 ?? 0),
       editionsConsidered,
       editionsOpened,
-      flagged,
+      flagged: enoughToJudge && editionsOpened === 0,
       exemptReason: enoughToJudge ? null : 'too-few-editions',
-    })
-  }
+    }
+  })
 
-  return rows.sort(compareWorstFirst)
+  return result.sort(compareWorstFirst)
 }
 
 /**

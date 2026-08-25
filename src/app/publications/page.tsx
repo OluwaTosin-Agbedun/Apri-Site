@@ -4,7 +4,16 @@ import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge } from '@/components/PublicationAccess'
 import { getAllPublications } from '@/lib/publications'
 
-export const dynamic = 'force-dynamic'
+/**
+ * Cached, then revalidated -- not rendered for every visitor.
+ *
+ * force-dynamic meant one function invocation and a database round trip per
+ * page view, which is the wrong cost for a public page whose content changes a
+ * few times a month. Publishing calls revalidatePath, so an edit still appears
+ * at once; the five-minute window is only a backstop for anything that changes
+ * outside the CMS.
+ */
+export const revalidate = 300
 
 export const metadata = {
   title: 'Publications · APRI',

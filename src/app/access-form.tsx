@@ -22,7 +22,16 @@ function Err({ messages }: { messages?: string[] }) {
   return <p className="mt-2 text-xs text-red-700">{messages[0]}</p>
 }
 
-export default function AccessForm() {
+export default function AccessForm({
+  /**
+   * Pre-selected when the visitor arrived by clicking a specific tier.
+   * Validated on the server before it reaches here, so it is always either one
+   * of the five names or empty.
+   */
+  defaultLevel = '',
+}: {
+  defaultLevel?: string
+}) {
   const [state, action, pending] = useActionState(requestAccess, undefined)
 
   if (state?.ok) {
@@ -187,7 +196,7 @@ export default function AccessForm() {
           id="subscriptionLevel"
           name="subscriptionLevel"
           className={`${field} appearance-none cursor-pointer`}
-          defaultValue=""
+          defaultValue={defaultLevel}
         >
           <option value="">No preference</option>
           {PUBLIC_TIER_NAMES.map((level) => (
@@ -210,13 +219,52 @@ export default function AccessForm() {
         <Err messages={state?.errors?.note} />
       </div>
 
+      {/*
+        Sits above the button and gates it. The links open in a new tab so a
+        reader can check the terms without losing what they have typed.
+      */}
+      <div className="pt-1">
+        <label htmlFor="acceptedTerms" className="flex items-start gap-3 cursor-pointer">
+          <input
+            id="acceptedTerms"
+            name="acceptedTerms"
+            type="checkbox"
+            value="on"
+            required
+            className="mt-0.5 h-4 w-4 shrink-0 accent-accent cursor-pointer"
+          />
+          <span className="text-xs text-foreground/80 leading-relaxed">
+            I accept the{' '}
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
+              terms of use
+            </a>{' '}
+            and the{' '}
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
+              privacy notice
+            </a>
+            .
+          </span>
+        </label>
+        <Err messages={state?.errors?.acceptedTerms} />
+      </div>
+
       {state?.message && !state.ok && (
         <p className="text-sm text-red-700 border border-red-200 bg-red-50 p-3">
           {state.message}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-4 pt-1">
+      <div className="flex flex-wrap items-center gap-4">
         <button
           type="submit"
           disabled={pending}

@@ -142,13 +142,52 @@ export default function BriefingForm({ initialType }: { initialType?: string }) 
         {err('description')}
       </div>
 
+      {/*
+        Sits above the button and gates it. The links open in a new tab so a
+        reader can check the terms without losing what they have typed.
+      */}
+      <div className="pt-2">
+        <label htmlFor="acceptedTerms" className="flex items-start gap-3 cursor-pointer">
+          <input
+            id="acceptedTerms"
+            name="acceptedTerms"
+            type="checkbox"
+            value="on"
+            required
+            className="mt-0.5 h-4 w-4 shrink-0 accent-accent cursor-pointer"
+          />
+          <span className="text-xs text-foreground/80 leading-relaxed">
+            I accept the{' '}
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
+              terms of use
+            </a>{' '}
+            and the{' '}
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
+              privacy notice
+            </a>
+            .
+          </span>
+        </label>
+        {err('acceptedTerms')}
+      </div>
+
       {state?.message && !state.ok && (
         <p className="text-sm text-red-700 border border-red-200 bg-red-50 p-3">
           {state.message}
         </p>
       )}
 
-      <div className="pt-2">
+      <div>
         <button
           type="submit"
           disabled={pending}

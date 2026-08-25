@@ -61,7 +61,7 @@ export default function SiteHeader() {
                 href="/portal"
                 className="text-sm tracking-wide text-accent hover:text-accent-hover transition-colors"
               >
-                Subscriber sign in
+                Sign in
               </Link>
             )}
           </nav>
@@ -95,7 +95,7 @@ export default function SiteHeader() {
                 onClick={() => setIsOpen(false)}
                 className="text-sm tracking-wide text-accent hover:text-accent-hover transition-colors"
               >
-                Subscriber sign in
+                Sign in
               </Link>
             )}
           </nav>

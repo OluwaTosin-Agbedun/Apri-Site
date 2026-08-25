@@ -639,6 +639,16 @@ create table if not exists link_findings (
   ))
 );
 
+-- ---------------------------------------------------------------------------
+-- Terms acceptance
+--
+-- Recorded, not merely required. An acceptance nobody wrote down is not
+-- evidence of anything -- if a subscriber later asks what they agreed to and
+-- when, the answer has to exist.
+-- ---------------------------------------------------------------------------
+alter table subscribers add column if not exists terms_accepted_at timestamptz;
+alter table briefing_requests add column if not exists terms_accepted_at timestamptz;
+
 create unique index if not exists link_findings_open_key
   on link_findings (access_id, kind)
   where resolved_at is null;

@@ -39,11 +39,10 @@ export default async function SignInPage({
 
       <main className="flex-1 max-w-md w-full mx-auto px-6 py-16">
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-4 leading-tight tracking-tight">
-          Subscriber sign in
+          Sign in
         </h1>
         <p className="text-sm text-foreground/70 leading-relaxed mb-8">
-          Enter the email address on your subscription and we will send you a link to open
-          your intelligence library.
+          Enter the email address on your subscription.
         </p>
 
         {/*

@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { headers } from 'next/headers'
+import { getSql } from '@/lib/db'
 import { signInWithToken } from '@/lib/magic-link'
 
 export const dynamic = 'force-dynamic'
@@ -17,6 +19,10 @@ export const dynamic = 'force-dynamic'
  * expired, already used, never existed, or a seat suspended since it was sent.
  * Distinguishing them would turn this URL into a probe for valid tokens.
  */
+/** Attempts allowed from one address inside the window. */
+const MAX_ATTEMPTS = 10
+const WINDOW_MINUTES = 15
+
 export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get('token')
 
@@ -24,8 +30,63 @@ export async function GET(request: Request) {
 
   if (!token) return failed
 
+  // Throttled per address.
+  //
+  // Not because the token is guessable -- it is 256 bits of randomness, and no
+  // number of attempts gets anywhere. It is because every attempt costs a
+  // database round trip, so an unthrottled endpoint is a cheap way to exhaust
+  // the connection pool from a single machine.
+  const ip = await clientIp()
+  if (ip && (await tooManyAttempts(ip))) {
+    return NextResponse.redirect(new URL('/portal/sign-in?expired=1', request.url))
+  }
+
   const signedIn = await signInWithToken(token)
-  if (!signedIn) return failed
+
+  // Only failures are recorded. A subscriber who signs in successfully should
+  // never be counted toward a limit meant for someone probing.
+  if (!signedIn) {
+    await recordAttempt(ip)
+    return failed
+  }
 
   return NextResponse.redirect(new URL('/portal', request.url))
+}
+
+async function clientIp(): Promise<string> {
+  const h = await headers()
+  const forwarded = h.get('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0]!.trim().slice(0, 64)
+  return h.get('x-real-ip')?.slice(0, 64) ?? ''
+}
+
+async function tooManyAttempts(ip: string): Promise<boolean> {
+  try {
+    const sql = getSql()
+    const [{ recent }] = (await sql`
+      select count(*)::int as recent
+      from login_attempts
+      where email_key = 'verify'
+        and ip = ${ip}
+        and successful = false
+        and created_at > now() - (${WINDOW_MINUTES} || ' minutes')::interval
+    `) as { recent: number }[]
+    return recent >= MAX_ATTEMPTS
+  } catch {
+    // A throttle that cannot be read must not lock out a legitimate subscriber.
+    return false
+  }
+}
+
+async function recordAttempt(ip: string): Promise<void> {
+  if (!ip) return
+  try {
+    const sql = getSql()
+    await sql`
+      insert into login_attempts (email_key, ip, successful)
+      values ('verify', ${ip}, false)
+    `
+  } catch {
+    // Best effort.
+  }
 }

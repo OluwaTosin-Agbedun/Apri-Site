@@ -35,7 +35,28 @@ const SUBSCRIPTION_LEVELS = [
   },
 ]
 
-export default function AccessPage() {
+/**
+ * Read on the server and passed to the form as a prop, rather than read in the
+ * browser with useSearchParams. That keeps the form free of a hook that would
+ * need a Suspense boundary, and means the right level is selected in the first
+ * paint rather than after a hydration pass.
+ *
+ * Validated against the five names: anything else is ignored, so a crafted
+ * query string cannot inject an option into the form.
+ */
+export default async function AccessPage({
+  searchParams,
+}: {
+  // Next 16: searchParams is a promise.
+  searchParams: Promise<{ level?: string | string[] }>
+}) {
+  const params = await searchParams
+  const requested = Array.isArray(params.level) ? params.level[0] : params.level
+  const defaultLevel =
+    requested && SUBSCRIPTION_LEVELS.some((l) => l.title === requested)
+      ? requested
+      : ''
+
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
@@ -54,33 +75,46 @@ export default function AccessPage() {
 
         <section className="mb-16">
           <h2 className="font-serif text-2xl text-foreground mb-8">Subscription Levels</h2>
+
+          {/*
+            Each block is the call to action for its own level. Someone who has
+            read a tier and decided should be able to act on that tier, rather
+            than scroll past the remaining four and then pick it again from a
+            dropdown -- so the level travels with the click.
+          */}
           <div className="space-y-6">
             {SUBSCRIPTION_LEVELS.map((level, index) => (
-              <article
+              <a
                 key={level.title}
-                className="border border-border p-8 sm:p-10 bg-card/30"
+                href={`/access?level=${encodeURIComponent(level.title)}#subscribe`}
+                className="group block border border-border p-8 sm:p-10 bg-card/30 hover:border-accent transition-colors"
               >
                 <div className="flex items-baseline gap-4 mb-3">
                   <span className="text-xs text-accent tabular-nums">
                     {String(index + 1).padStart(2, '0')}
                   </span>
-                  <h3 className="font-serif text-xl text-foreground">{level.title}</h3>
+                  <h3 className="font-serif text-xl text-foreground group-hover:text-accent transition-colors">
+                    {level.title}
+                  </h3>
                 </div>
                 <p className="text-sm text-foreground/70 leading-relaxed max-w-2xl ml-8">
                   {level.description}
                 </p>
-              </article>
+                <span className="inline-flex items-center text-sm font-medium text-accent mt-6 ml-8 group-hover:translate-x-1 transition-transform">
+                  Subscribe to {level.title} &rarr;
+                </span>
+              </a>
             ))}
           </div>
         </section>
 
-        <section className="mb-16 pt-16 border-t border-border">
+        <section id="subscribe" className="mb-16 pt-16 border-t border-border scroll-mt-24">
           <h2 className="font-serif text-2xl text-foreground mb-4">Request Access</h2>
           <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-2xl">
             Submit your details below and a secure access link will be issued if approved.
           </p>
 
-          <AccessForm />
+          <AccessForm defaultLevel={defaultLevel} />
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">

@@ -12,9 +12,21 @@ import { SignJWT, jwtVerify } from 'jose'
  */
 const COOKIE_NAME = 'apri_subscriber'
 
-// Longer than the 8-hour admin session on purpose. A board member opening a
-// briefing from an SMS two days later should not be bounced to a sign-in form.
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 14 // 14 days
+/**
+ * Deliberately long: a subscriber signs in once and stays signed in.
+ *
+ * The link is meant to be a one-off after activation, not a toll paid on every
+ * visit. Ninety days spans a quarterly reading rhythm, so someone who signed in
+ * when they were activated is still signed in when the next Quarterly Brief
+ * lands.
+ *
+ * Much longer than the 8-hour admin session, and that asymmetry is intentional:
+ * an admin can change money and access, a subscriber can only read what is
+ * already theirs. Suspending a seat still takes effect immediately, because the
+ * row is re-read from the database on every request rather than trusted from the
+ * cookie -- so a long session never means a long goodbye.
+ */
+const MAX_AGE_SECONDS = 60 * 60 * 24 * 90 // 90 days
 
 export type SubscriberSessionPayload = {
   subscriberId: string

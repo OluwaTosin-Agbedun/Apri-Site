@@ -98,6 +98,7 @@ export async function requestAccess(
     seats: formData.get('seats') ?? 1,
     subscriptionLevel: formData.get('subscriptionLevel') ?? '',
     note: formData.get('note') ?? '',
+    acceptedTerms: formData.get('acceptedTerms'),
   })
 
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
@@ -136,10 +137,12 @@ export async function requestAccess(
     await sql`
       insert into subscribers (
         name, full_name, organization, email, phone, role_title,
-        subscription_level, public_tier, level, seats, note, status
+        subscription_level, public_tier, level, seats, note, status,
+        terms_accepted_at
       ) values (
         ${name}, ${name}, ${organization}, ${email}, ${phone}, ${roleTitle},
-        ${subscriptionLevel}, ${subscriptionLevel}, ${level}, ${seats}, ${note}, 'Pending'
+        ${subscriptionLevel}, ${subscriptionLevel}, ${level}, ${seats}, ${note}, 'Pending',
+        now()
       )
     `
   } catch {
@@ -157,6 +160,7 @@ export async function requestAccess(
         subscription_level = ${subscriptionLevel},
         seats = ${seats},
         note = ${note},
+        terms_accepted_at = now(),
         updated_at = now()
       where lower(email) = ${email}
         and lower(status) in ('pending', 'declined')
@@ -213,6 +217,7 @@ export async function requestBriefing(
     description: formData.get('description'),
     audienceSize: formData.get('audienceSize'),
     location: formData.get('location'),
+    acceptedTerms: formData.get('acceptedTerms'),
   })
 
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
@@ -223,11 +228,13 @@ export async function requestBriefing(
   await sql`
     insert into briefing_requests (
       name, organization, role_title, email, phone, briefing_type,
-      format, timeline, sector, description, audience_size, location, status
+      format, timeline, sector, description, audience_size, location, status,
+      terms_accepted_at
     ) values (
       ${d.name}, ${d.organization}, ${d.roleTitle}, ${d.email}, ${d.phone},
       ${d.briefingType}, ${d.format}, ${d.timeline}, ${d.sector},
-      ${d.description}, ${d.audienceSize}, ${d.location}, 'New'
+      ${d.description}, ${d.audienceSize}, ${d.location}, 'New',
+      now()
     )
   `
 

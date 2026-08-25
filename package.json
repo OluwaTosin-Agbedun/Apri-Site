@@ -11,7 +11,9 @@
     "test": "node --env-file=.env.local --test \"tests/*.test.mjs\"",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "install:hooks": "node scripts/install-hooks.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

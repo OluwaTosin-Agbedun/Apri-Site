@@ -139,7 +139,7 @@ export default function SeatActions({
             disabled={pending}
             className="bg-foreground text-background px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-50 transition-colors cursor-pointer"
           >
-            {pending ? 'Sending…' : 'Send a fresh sign-in link'}
+            {pending ? 'Sending…' : 'Send a new sign-in link'}
           </button>
         )}
 
@@ -166,6 +166,18 @@ export default function SeatActions({
         is no scheduled sweep in this deployment, so the only thing that closes
         a lapsed subscriber's access is this button.
       */}
+      {/*
+        Says when this is actually needed, because the welcome email at
+        activation already carries a working link and the session then lasts 90
+        days. Sending another is for a lost email or a new device, not routine.
+      */}
+      {isActive && (
+        <p className="mt-3 text-xs text-muted-foreground leading-relaxed max-w-xl">
+          Activation already sent them a working link, and signing in lasts 90 days. Send
+          another only if they lost the email or are on a new device.
+        </p>
+      )}
+
       {liveLinks > 0 && !isActive && (
         <p className="mt-4 text-xs text-red-700 leading-relaxed max-w-xl">
           This seat is <strong>{status}</strong> but still has {liveLinks} working{' '}

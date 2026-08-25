@@ -11,7 +11,16 @@ import {
   type Publication,
 } from '@/lib/publications'
 
-export const dynamic = 'force-dynamic'
+/**
+ * Cached, then revalidated -- not rendered for every visitor.
+ *
+ * force-dynamic meant one function invocation and a database round trip per
+ * page view, which is the wrong cost for a public page whose content changes a
+ * few times a month. Publishing calls revalidatePath, so an edit still appears
+ * at once; the five-minute window is only a backstop for anything that changes
+ * outside the CMS.
+ */
+export const revalidate = 300
 
 function PublicationCard({ doc }: { doc: Publication }) {
   return (
@@ -84,8 +93,15 @@ export default async function HomePage() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-start gap-4">
+            {/*
+              Goes to sign-in, not to the enquiry form. Only an activated
+              subscriber inside their term can actually get in -- the sign-in
+              page issues a link only for those, and answers everyone else with
+              the same neutral message either way. So this is safe to offer
+              publicly: it grants nothing on its own.
+            */}
             <Link
-              href="/#access"
+              href="/portal/sign-in"
               className="bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
             >
               Access Subscriber Library

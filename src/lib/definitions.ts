@@ -15,6 +15,20 @@ const email = z
   .max(254)
   .pipe(z.email({ error: 'Enter a valid email address.' }))
 
+/**
+ * The terms tick-box.
+ *
+ * An unchecked checkbox sends nothing at all, so an absent value is a refusal
+ * rather than a malformed one -- hence the explicit message. Checked server-side
+ * as well as marked `required` in the markup: the browser attribute is a
+ * convenience, not a control.
+ */
+const acceptedTerms = z
+  .union([z.literal('on'), z.literal('true'), z.literal('yes')], {
+    error: 'Please accept the terms of use and privacy notice.',
+  })
+  .transform(() => true)
+
 const password = z
   .string()
   .min(12, { error: 'Use at least 12 characters.' })
@@ -86,6 +100,7 @@ export const SubscriberSchema = z.object({
   // it on the server, never accepted from the form.
   subscriptionLevel: z.string().trim().max(120).default(''),
   note: z.string().trim().max(600).default(''),
+  acceptedTerms,
 })
 
 /**
@@ -181,6 +196,7 @@ export const BriefingRequestSchema = z.object({
   description: z.string().trim().max(4000).default(''),
   audienceSize: z.string().trim().max(60).default(''),
   location: z.string().trim().max(200).default(''),
+  acceptedTerms,
 })
 
 export type FormState =
