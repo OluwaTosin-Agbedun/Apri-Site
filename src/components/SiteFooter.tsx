@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 export default function SiteFooter() {
   return (
-    <footer className="pt-8 border-t border-border/40 text-xs text-muted-foreground">
+    <footer className="pt-10 border-t border-hairline text-xs text-muted-foreground">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p>&copy; {new Date().getFullYear()} Athena Centre. All rights reserved.</p>
 

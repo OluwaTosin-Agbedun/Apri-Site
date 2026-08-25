@@ -24,7 +24,7 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
+      <div className="max-w-4xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-14">
           <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-4 leading-tight tracking-tight">
             Privacy
@@ -206,7 +206,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function P({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-sm text-foreground/80 leading-relaxed max-w-2xl">{children}</p>
+    <p className="text-sm text-foreground/80 leading-relaxed max-w-4xl">{children}</p>
   )
 }
 
@@ -216,14 +216,14 @@ function Definition({ term, children }: { term: string; children: React.ReactNod
       <p className="text-xs font-medium uppercase tracking-wider text-accent mb-2">
         {term}
       </p>
-      <p className="text-sm text-foreground/80 leading-relaxed max-w-2xl">{children}</p>
+      <p className="text-sm text-foreground/80 leading-relaxed max-w-4xl">{children}</p>
     </div>
   )
 }
 
 function Bullet({ children }: { children: React.ReactNode }) {
   return (
-    <li className="flex gap-3 text-sm text-foreground/80 leading-relaxed max-w-2xl">
+    <li className="flex gap-3 text-sm text-foreground/80 leading-relaxed max-w-4xl">
       <span className="text-accent shrink-0">&mdash;</span>
       <span>{children}</span>
     </li>

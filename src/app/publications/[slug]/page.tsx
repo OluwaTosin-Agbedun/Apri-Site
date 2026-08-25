@@ -42,7 +42,7 @@ export default async function PublicationDetailPage({
             <AccessBadge visibility={doc.visibility} />
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-6 leading-tight tracking-tight">
+          <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             {doc.title}
           </h1>
 
@@ -54,7 +54,7 @@ export default async function PublicationDetailPage({
         </header>
 
         <section className="mb-16">
-          <p className="text-sm text-foreground/80 leading-relaxed max-w-2xl">
+          <p className="text-sm text-foreground/80 leading-relaxed max-w-4xl">
             {doc.description}
           </p>
         </section>

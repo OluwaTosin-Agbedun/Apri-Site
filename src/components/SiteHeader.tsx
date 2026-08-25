@@ -40,12 +40,12 @@ export default function SiteHeader() {
     }`
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-sm">
+    <header className="sticky top-0 z-40 border-b border-hairline bg-background/90 backdrop-blur-md">
       <div className="max-w-5xl lg:max-w-6xl mx-auto px-6">
-        <div className="flex items-center justify-between h-20">
+        <div className="flex items-center justify-between h-24">
           <Link href="/" className="group" onClick={() => setIsOpen(false)}>
-            <span className="font-serif text-base text-foreground tracking-tight">APRI</span>
-            <span className="hidden sm:inline text-xs text-muted-foreground ml-3 pl-3 border-l border-border">
+            <span className="font-serif text-lg text-foreground tracking-tight">APRI</span>
+            <span className="hidden sm:inline text-xs text-muted-foreground ml-3 pl-3 border-l border-accent/40">
               Athena Political &amp; Regulatory Intelligence
             </span>
           </Link>

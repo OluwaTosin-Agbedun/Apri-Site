@@ -23,7 +23,7 @@ export default async function RequestBriefingPage({
 
       <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
-          <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-6 leading-tight tracking-tight">
+          <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Request a Briefing
           </h1>
           <p className="text-lg text-foreground/80 leading-relaxed mb-4 max-w-2xl">

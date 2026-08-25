@@ -24,7 +24,7 @@ export const revalidate = 300
 
 function PublicationCard({ doc }: { doc: Publication }) {
   return (
-    <article className="group border border-border p-8 sm:p-10 hover:border-accent transition-colors bg-card/30">
+    <article className="group panel-interactive p-8 sm:p-10 lg:p-12">
       <div className="flex items-start justify-between gap-4 mb-3">
         <span className="text-xs font-medium uppercase tracking-wider text-accent">
           {doc.kicker || doc.productLine}
@@ -44,7 +44,7 @@ function PublicationCard({ doc }: { doc: Publication }) {
         </p>
       )}
 
-      <p className="text-sm text-foreground/70 leading-relaxed mt-5 mb-5 max-w-2xl">
+      <p className="text-sm text-foreground/70 leading-relaxed mt-5 mb-5 max-w-4xl">
         {doc.description}
       </p>
 
@@ -83,11 +83,20 @@ export default async function HomePage() {
 
       <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         {/* Hero */}
-        <header className="mb-24">
-          <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-6 leading-tight tracking-tight">
+        <header className="mb-28 sm:mb-36">
+          {/*
+            One line on a wide screen, and no forced break.
+
+            The size is set so the full name fits the measure rather than being
+            snapped in two by a <br>: a hard break puts the fold in the same
+            place at every width, which is what made it read like a typeset
+            document. It still wraps on a narrow screen, where it has to.
+          */}
+          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Athena Political &amp; Regulatory Intelligence
           </h1>
-          <p className="text-lg sm:text-xl text-foreground/80 leading-relaxed mb-10 max-w-2xl">
+
+          <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed mb-12 max-w-4xl">
             Independent political, regulatory and political-economy intelligence for
             organisations operating, investing and making strategic decisions in Nigeria.
           </p>
@@ -102,13 +111,13 @@ export default async function HomePage() {
             */}
             <Link
               href="/portal/sign-in"
-              className="bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
+              className="btn-primary"
             >
               Access Subscriber Library
             </Link>
             <Link
               href="/services"
-              className="border border-border px-8 py-3.5 text-sm font-medium tracking-wide text-foreground hover:border-accent transition-colors"
+              className="btn-secondary"
             >
               Request a Briefing
             </Link>
@@ -117,14 +126,19 @@ export default async function HomePage() {
 
         {/* Publications */}
         <section id="publications" className="mb-24 scroll-mt-28">
-          <div className="mb-12">
-            <h2 className="font-serif text-2xl text-foreground mb-4">
+          <div className="mb-14">
+            <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-6 tracking-tight">
               Publications &amp; Briefings
             </h2>
-            <p className="text-sm text-foreground/70 leading-relaxed max-w-2xl">
-              APRI publishes written intelligence products on Nigeria&rsquo;s political,
-              regulatory and political economy environment, issued to subscribers and
-              authorised readers.
+            {/*
+              "political-economy" is hyphenated wherever it modifies a noun,
+              which it does here and in the hero. It was unhyphenated in one
+              place and hyphenated in the other.
+            */}
+            <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-8">
+              APRI publishes written intelligence on Nigeria&rsquo;s political, regulatory
+              and political-economy environment, issued to subscribers and authorised
+              readers.
             </p>
           </div>
 
@@ -140,7 +154,7 @@ export default async function HomePage() {
 
                 return (
                   <div key={section}>
-                    <h3 className="text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground mb-6 pb-3 border-b border-border">
+                    <h3 className="eyebrow mb-8 pb-4 border-b border-hairline block">
                       {section}
                     </h3>
                     <div className="space-y-6">
@@ -155,9 +169,13 @@ export default async function HomePage() {
           )}
         </section>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 mb-24">
+        <div className="rule-soft mb-24" />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 lg:gap-24 mb-28">
           <section>
-            <h2 className="font-serif text-xl text-foreground mb-6">What APRI Tracks</h2>
+            <h2 className="font-serif text-xl sm:text-2xl text-foreground section-head mb-8 tracking-tight">
+              What APRI Tracks
+            </h2>
             <ul className="space-y-4 text-sm text-foreground/80">
               {[
                 'Political Power & Coalition Stability',
@@ -175,7 +193,9 @@ export default async function HomePage() {
           </section>
 
           <section>
-            <h2 className="font-serif text-xl text-foreground mb-6">Designed For</h2>
+            <h2 className="font-serif text-xl sm:text-2xl text-foreground section-head mb-8 tracking-tight">
+              Designed For
+            </h2>
             <p className="text-sm text-foreground/80 leading-relaxed mb-8">
               Boards, CEOs, strategy teams, risk officers, government relations teams,
               investors and regulated businesses.
@@ -192,7 +212,7 @@ export default async function HomePage() {
         {/* Subscription Access */}
         <section id="access" className="mb-24 pt-16 border-t border-border scroll-mt-28">
           <h2 className="font-serif text-2xl text-foreground mb-4">Subscription Access</h2>
-          <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-2xl">
+          <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-4xl">
             Access to the APRI subscriber library is granted to authorised recipients.
             Submit your details below and a secure access link will be issued if approved.
           </p>
@@ -209,7 +229,7 @@ export default async function HomePage() {
           </div>
 
           <div className="mt-10 pt-8 border-t border-border">
-            <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-4xl">
               <span className="font-medium text-foreground">Access note:</span>{' '}
               {accessNotice()}
             </p>
@@ -221,7 +241,7 @@ export default async function HomePage() {
           <h2 className="font-serif text-xl text-foreground mb-6">
             About Athena Political &amp; Regulatory Intelligence
           </h2>
-          <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-2xl">
+          <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-4xl">
             Athena Political &amp; Regulatory Intelligence helps business leaders understand
             how shifts in political power, public policy, regulation and institutional
             behaviour may affect their operating environment, investment decisions and

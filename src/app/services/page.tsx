@@ -58,7 +58,7 @@ function RequestLink({
 
 function ServiceCard({ service, index }: { service: ServiceItem; index: number }) {
   return (
-    <article className="group border border-border p-8 sm:p-10 hover:border-accent transition-colors bg-card/30">
+    <article className="group panel-interactive p-8 sm:p-10 lg:p-12">
       <div className="flex items-baseline gap-4 mb-3">
         <span className="text-xs text-accent tabular-nums">
           {String(index + 1).padStart(2, '0')}
@@ -111,7 +111,7 @@ export default function ServicesPage() {
 
       <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-24">
-          <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-6 leading-tight tracking-tight">
+          <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Services &amp; Briefings
           </h1>
           <p className="text-lg text-foreground/80 leading-relaxed mb-10 max-w-2xl">
@@ -121,7 +121,7 @@ export default function ServicesPage() {
 
           <p className="text-sm text-foreground/70 leading-relaxed mb-6 max-w-2xl">
             APRI provides private briefings for organisations that need to interpret
-            Nigeria&rsquo;s political, regulatory and political economy environment in
+            Nigeria&rsquo;s political, regulatory and political-economy environment in
             relation to strategy, enterprise risk, investment decisions, sector exposure or
             board oversight.
           </p>

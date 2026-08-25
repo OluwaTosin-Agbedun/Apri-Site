@@ -5,11 +5,17 @@
   --font-serif: var(--font-playfair), 'Playfair Display', serif;
 
   --color-background: #ffffff;
-  --color-foreground: #1a1a1a;
-  --color-muted: #f4f4f5;
-  --color-muted-foreground: #71717a;
-  --color-border: #e4e4e7;
-  --color-accent: #b49f69; /* Muted Brass */
+  --color-foreground: #16161a;
+  --color-muted: #f6f6f7;
+  --color-muted-foreground: #6b6b74;
+
+  /* Two weights of line. The hairline separates without drawing attention; the
+     border defines an edge that should be seen. A single grey doing both jobs
+     is what made every panel read with the same emphasis. */
+  --color-hairline: #ededf0;
+  --color-border: #dededf;
+
+  --color-accent: #b49f69; /* Muted brass */
   --color-accent-hover: #9c8a5a;
 
   --color-card: #ffffff;
@@ -18,4 +24,108 @@
 
 body {
   @apply bg-background text-foreground font-sans antialiased selection:bg-accent/20;
+  /* Optical refinements that separate a designed page from a rendered
+     document: real ligatures, and numerals that align in a column. */
+  font-feature-settings: 'kern' 1, 'liga' 1;
+  text-rendering: optimizeLegibility;
+}
+
+/* Playfair at display sizes needs tighter tracking and a shorter leading than
+   its defaults, or a headline reads as body copy set large. */
+.font-serif {
+  font-feature-settings: 'kern' 1, 'liga' 1, 'onum' 0;
+}
+
+@layer components {
+  /**
+   * The small brass label that sits above a heading.
+   *
+   * Does the work a rule and a colour band would do elsewhere: it tells the eye
+   * a new section has started, without adding a shape to a page whose
+   * background must stay white.
+   */
+  .eyebrow {
+    @apply inline-block text-[0.6875rem] font-medium uppercase text-accent;
+    letter-spacing: 0.18em;
+  }
+
+  /**
+   * A section heading with a brass rule beneath it.
+   *
+   * The rule is short and heavy rather than full-width and hairline: a
+   * full-width line divides a document into pages, a short one anchors a
+   * section on a page.
+   */
+  .section-head::after {
+    content: '';
+    @apply block bg-accent mt-4;
+    width: 2.25rem;
+    height: 2px;
+  }
+
+  /**
+   * A panel that lifts on hover.
+   *
+   * The resting state is almost flat -- a hairline and the faintest shadow --
+   * so a column of these reads as a set rather than a stack of boxes. The lift
+   * on hover is what makes them feel like objects rather than table rows.
+   */
+  /* Written out rather than @applied from .panel: Tailwind v4 only lets @apply
+     take real utilities, not a component class declared alongside it. */
+  .panel,
+  .panel-interactive {
+    @apply border border-hairline bg-card transition-all duration-200;
+    box-shadow: 0 1px 2px rgb(22 22 26 / 0.03);
+  }
+
+  .panel-interactive:hover {
+    @apply border-border;
+    box-shadow:
+      0 2px 4px rgb(22 22 26 / 0.04),
+      0 12px 28px -8px rgb(22 22 26 / 0.10);
+    transform: translateY(-2px);
+  }
+
+  /**
+   * The primary action.
+   *
+   * Taller and more letterspaced than a default button, because at this scale
+   * a button is read as a statement rather than clicked reflexively.
+   */
+  .btn-primary {
+    @apply inline-flex items-center justify-center bg-foreground text-background
+           px-8 py-4 text-sm font-medium transition-all duration-200;
+    letter-spacing: 0.02em;
+    box-shadow: 0 1px 2px rgb(22 22 26 / 0.08);
+  }
+
+  .btn-primary:hover {
+    @apply bg-foreground/90;
+    box-shadow: 0 4px 12px -2px rgb(22 22 26 / 0.18);
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center border border-border bg-background
+           text-foreground px-8 py-4 text-sm font-medium transition-all duration-200;
+    letter-spacing: 0.02em;
+  }
+
+  .btn-secondary:hover {
+    @apply border-accent text-accent;
+    transform: translateY(-1px);
+  }
+
+  /* A hairline that fades at both ends, so a divider does not read as a table
+     border running off the edge of the page. */
+  .rule-soft {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--color-hairline) 12%,
+      var(--color-hairline) 88%,
+      transparent
+    );
+  }
 }

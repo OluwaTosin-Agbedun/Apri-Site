@@ -28,12 +28,12 @@ export default async function PublicationsPage() {
 
       <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
-          <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-6 leading-tight tracking-tight">
+          <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Publications
           </h1>
-          <p className="text-lg text-foreground/80 leading-relaxed max-w-2xl">
+          <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
             APRI publishes written intelligence products on Nigeria&rsquo;s political,
-            regulatory and political economy environment, issued to subscribers and
+            regulatory and political-economy environment, issued to subscribers and
             authorised readers.
           </p>
         </header>
@@ -43,7 +43,7 @@ export default async function PublicationsPage() {
             <Link
               key={doc.id}
               href={`/publications/${doc.slug}`}
-              className="block group border border-border p-8 sm:p-10 hover:border-accent transition-colors bg-card/30"
+              className="group panel-interactive block p-8 sm:p-10 lg:p-12"
             >
               <div className="flex items-start justify-between gap-4 mb-3">
                 <span className="text-xs font-medium uppercase tracking-wider text-accent">
@@ -62,7 +62,7 @@ export default async function PublicationsPage() {
                 </p>
               )}
 
-              <p className="text-sm text-foreground/70 leading-relaxed mt-4 max-w-2xl">
+              <p className="text-sm text-foreground/70 leading-relaxed mt-4 max-w-4xl">
                 {doc.description}
               </p>
 
