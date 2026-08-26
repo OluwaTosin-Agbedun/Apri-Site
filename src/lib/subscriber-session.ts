@@ -1,6 +1,6 @@
-import 'server-only'
-import { cookies } from 'next/headers'
-import { SignJWT, jwtVerify } from 'jose'
+import "server-only"
+import { cookies } from "next/headers"
+import { SignJWT, jwtVerify } from "jose"
 
 /**
  * Subscriber sessions, kept entirely separate from admin sessions.
@@ -10,7 +10,7 @@ import { SignJWT, jwtVerify } from 'jose'
  * rejects any payload that does not carry a subscriberId, and the admin
  * verifier rejects any payload without an adminId.
  */
-const COOKIE_NAME = 'apri_subscriber'
+const COOKIE_NAME = "apri_subscriber"
 
 /**
  * Deliberately long: a subscriber signs in once and stays signed in.
@@ -29,23 +29,24 @@ const COOKIE_NAME = 'apri_subscriber'
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 90 // 90 days
 
 export type SubscriberSessionPayload = {
-  subscriberId: string
+  principalId: string
+  principalType: "subscriber" | "briefing"
 }
 
 function getKey(): Uint8Array {
   const secret = process.env.SESSION_SECRET
   if (!secret || secret.length < 32) {
     throw new Error(
-      'SESSION_SECRET is missing or too short (need at least 32 characters). ' +
-        'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"'
+      "SESSION_SECRET is missing or too short (need at least 32 characters). " +
+        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
     )
   }
   return new TextEncoder().encode(secret)
 }
 
 async function encrypt(payload: SubscriberSessionPayload): Promise<string> {
-  return new SignJWT({ ...payload, aud: 'subscriber' })
-    .setProtectedHeader({ alg: 'HS256' })
+  return new SignJWT({ ...payload, aud: "subscriber" })
+    .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE_SECONDS}s`)
     .sign(getKey())
@@ -56,31 +57,37 @@ async function encrypt(payload: SubscriberSessionPayload): Promise<string> {
  * truncated cookie is simply "not signed in".
  */
 export async function decrypt(
-  token?: string
+  token?: string,
 ): Promise<SubscriberSessionPayload | null> {
   if (!token) return null
   try {
     const { payload } = await jwtVerify(token, getKey(), {
-      algorithms: ['HS256'], // Pinned, to prevent algorithm confusion.
-      audience: 'subscriber', // An admin token cannot satisfy this.
+      algorithms: ["HS256"], // Pinned, to prevent algorithm confusion.
+      audience: "subscriber", // An admin token cannot satisfy this.
     })
-    const subscriberId = payload.subscriberId
-    if (typeof subscriberId !== 'string') return null
-    return { subscriberId }
+    const principalId = payload.principalId ?? payload.subscriberId
+    const principalType = payload.principalType ?? "subscriber"
+    if (typeof principalId !== "string") return null
+    if (principalType !== "subscriber" && principalType !== "briefing")
+      return null
+    return { principalId, principalType }
   } catch {
     return null
   }
 }
 
-export async function createSubscriberSession(subscriberId: string): Promise<void> {
-  const token = await encrypt({ subscriberId })
+export async function createSubscriberSession(
+  principalId: string,
+  principalType: "subscriber" | "briefing" = "subscriber",
+): Promise<void> {
+  const token = await encrypt({ principalId, principalType })
   const cookieStore = await cookies()
 
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true, // Unreadable from JavaScript, so XSS cannot steal it.
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
     maxAge: MAX_AGE_SECONDS,
   })
 }

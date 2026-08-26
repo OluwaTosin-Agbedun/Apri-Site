@@ -1,9 +1,10 @@
-import { requireAdmin } from '@/lib/dal'
-import { getSql } from '@/lib/db'
-import AdminShell from '@/components/AdminShell'
+import { requireAdmin } from "@/lib/dal"
+import { getSql } from "@/lib/db"
+import AdminShell from "@/components/AdminShell"
+import Link from "next/link"
 
-export const metadata = { title: 'Briefing Requests · APRI' }
-export const dynamic = 'force-dynamic'
+export const metadata = { title: "Briefing Requests · APRI" }
+export const dynamic = "force-dynamic"
 
 type Row = {
   id: string
@@ -53,43 +54,53 @@ export default async function AdminBriefingsPage() {
             <article key={r.id} className="border border-border bg-card/30 p-6">
               <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
                 <div>
-                  <p className="font-medium text-foreground">
+                  <Link
+                    href={`/admin/briefings/${r.id}`}
+                    className="font-medium text-foreground hover:text-accent"
+                  >
                     {r.name}
                     {r.role_title && (
-                      <span className="text-foreground/60 font-normal"> · {r.role_title}</span>
+                      <span className="text-foreground/60 font-normal">
+                        {" "}
+                        · {r.role_title}
+                      </span>
                     )}
+                  </Link>
+                  <p className="text-sm text-foreground/70 mt-0.5">
+                    {r.organization}
                   </p>
-                  <p className="text-sm text-foreground/70 mt-0.5">{r.organization}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <span
                     className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                      r.status === 'New'
-                        ? 'bg-accent/10 text-accent'
-                        : 'bg-muted text-muted-foreground border border-border'
+                      r.status === "New"
+                        ? "bg-accent/10 text-accent"
+                        : "bg-muted text-muted-foreground border border-border"
                     }`}
                   >
                     {r.status}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {new Date(r.created_at).toLocaleDateString('en-GB')}
+                    {new Date(r.created_at).toLocaleDateString("en-GB")}
                   </span>
                 </div>
               </div>
 
               {r.briefing_type && (
-                <p className="text-sm text-foreground mb-4">{r.briefing_type}</p>
+                <p className="text-sm text-foreground mb-4">
+                  {r.briefing_type}
+                </p>
               )}
 
               <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 text-xs mb-5">
                 {[
-                  ['Email', r.email],
-                  ['Phone', r.phone],
-                  ['Format', r.format],
-                  ['Timeline', r.timeline],
-                  ['Sector', r.sector],
-                  ['Audience', r.audience_size],
-                  ['Location', r.location],
+                  ["Email", r.email],
+                  ["Phone", r.phone],
+                  ["Format", r.format],
+                  ["Timeline", r.timeline],
+                  ["Sector", r.sector],
+                  ["Audience", r.audience_size],
+                  ["Location", r.location],
                 ].map(([k, v]) =>
                   v ? (
                     <div key={k}>
@@ -98,7 +109,7 @@ export default async function AdminBriefingsPage() {
                       </dt>
                       <dd className="text-foreground/80 break-words">{v}</dd>
                     </div>
-                  ) : null
+                  ) : null,
                 )}
               </dl>
 

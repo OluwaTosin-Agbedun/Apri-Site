@@ -1,22 +1,32 @@
-import Link from 'next/link'
-import { requireSubscriber, getLibraryFor, touchLastViewed } from '@/lib/subscriber-dal'
-import { seriesLabel } from '@/lib/entitlements'
-import { portalNotice, BRIEFINGS_SEPARATE_NOTICE } from '@/lib/delivery'
-import { subscriberSignOut } from '@/app/actions/subscriber-auth'
-import SiteFooter from '@/components/SiteFooter'
+import Link from "next/link"
+import {
+  requirePortalPrincipal,
+  getLibraryFor,
+  touchLastViewed,
+} from "@/lib/subscriber-dal"
+import { seriesLabel } from "@/lib/entitlements"
+import { portalNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
+import { subscriberSignOut } from "@/app/actions/subscriber-auth"
+import SiteFooter from "@/components/SiteFooter"
+import PapermarkEmbed from "@/components/PapermarkEmbed"
+import { subscriberLibraryEmbedUrl } from "@/lib/papermark-embed"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 export const metadata = {
-  title: 'Your Library · APRI',
+  title: "Your Library · APRI",
   // A subscriber's library must never be indexed or cached by a crawler.
   robots: { index: false, follow: false },
 }
 
-const CONTACT = 'intelligence@athenacentre.org'
+const CONTACT = "intelligence@athenacentre.org"
 
 export default async function PortalPage() {
-  const subscriber = await requireSubscriber()
+  const subscriber = await requirePortalPrincipal()
+
+  if (subscriber.type === "briefing") {
+    return <BriefingPortal client={subscriber} />
+  }
 
   // Lapsed and suspended seats reach here on purpose: the brief requires a
   // locked library that explains itself, not a 404 that looks like a fault.
@@ -28,6 +38,14 @@ export default async function PortalPage() {
   await touchLastViewed(subscriber.id)
 
   const grouped = groupBySeries(library)
+  const embedUrl = subscriberLibraryEmbedUrl({
+    authenticatedSubscriberId: subscriber.id,
+    subscriberId: subscriber.id,
+    status: subscriber.status,
+    termEnd: subscriber.termEnd,
+    libraryLinkUrl: subscriber.libraryLinkUrl,
+    customDomain: process.env.PAPERMARK_CUSTOM_DOMAIN,
+  })
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -44,15 +62,35 @@ export default async function PortalPage() {
         </h1>
         <p className="text-sm text-foreground/60 mb-10">
           {library.length === 0
-            ? 'No editions published yet.'
-            : `${library.length} ${library.length === 1 ? 'edition' : 'editions'} available.`}
+            ? "No editions published yet."
+            : `${library.length} ${
+                library.length === 1 ? "edition" : "editions"
+              } available.`}
         </p>
+
+        {embedUrl ? (
+          <section className="mb-10" aria-labelledby="private-library-heading">
+            <h2 id="private-library-heading" className="sr-only">
+              Private Papermark library
+            </h2>
+            <PapermarkEmbed src={embedUrl} />
+            <p className="mt-3 text-xs text-muted-foreground">
+              This library is unique to you. Downloads are controlled by its Papermark settings.
+            </p>
+          </section>
+        ) : (
+          <div className="border border-border bg-card/30 p-8 mb-10" role="alert">
+            <p className="text-sm text-foreground/70">
+              Your private library is not available. Please contact APRI so we can verify its secure Papermark link.
+            </p>
+          </div>
+        )}
 
         {library.length === 0 ? (
           <div className="border border-border bg-card/30 p-8">
             <p className="text-sm text-foreground/70 leading-relaxed">
-              Your subscription is active. New editions will appear here as they are
-              published, and we will email you each time one is issued.
+              Your subscription is active. New editions will appear here as they
+              are published, and we will email you each time one is issued.
             </p>
           </div>
         ) : (
@@ -76,7 +114,7 @@ export default async function PortalPage() {
 
         <div className="mt-16 pt-8 border-t border-border">
           <p className="text-xs text-muted-foreground leading-relaxed">
-            {BRIEFINGS_SEPARATE_NOTICE} {portalNotice()} Questions:{' '}
+            {BRIEFINGS_SEPARATE_NOTICE} {portalNotice()} Questions:{" "}
             <a
               href={`mailto:${CONTACT}`}
               className="text-accent hover:text-accent-hover transition-colors"
@@ -95,6 +133,48 @@ export default async function PortalPage() {
   )
 }
 
+function BriefingPortal({
+  client,
+}: {
+  client: Extract<Awaited<ReturnType<typeof requirePortalPrincipal>>, {
+    type: "briefing"
+  }>
+}) {
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <PortalHeader
+        name={client.fullName}
+        organisation={client.organisation}
+        tier="Private briefing"
+        termEnd={null}
+      />
+      <main className="flex-1 max-w-3xl w-full mx-auto px-5 sm:px-6 py-10 sm:py-14">
+        <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-3">
+          Your private briefing
+        </h1>
+        <p className="text-sm text-foreground/60 mb-8">
+          This link is unique to you. Please do not share it.
+        </p>
+        {client.hasAccess ? (
+          <a
+            href={client.privateLinkUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block border border-border bg-card/30 p-6 hover:border-accent transition-colors"
+          >
+            <span className="font-serif text-lg">Open your briefing</span>
+            <span className="float-right text-accent" aria-hidden>
+              &rarr;
+            </span>
+          </a>
+        ) : (
+          <LockedLibrary name={client.fullName} />
+        )}
+      </main>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 
 type Item = Awaited<ReturnType<typeof getLibraryFor>>[number]
@@ -104,20 +184,26 @@ type Item = Awaited<ReturnType<typeof getLibraryFor>>[number]
  * document directly in a new tab -- no interstitial, per the brief.
  */
 function PublicationRow({ item }: { item: Item }) {
-  const meta = [formatDate(item.editionDate), item.code].filter(Boolean).join(' · ')
+  const meta = [formatDate(item.editionDate), item.code]
+    .filter(Boolean)
+    .join(" · ")
 
   if (!item.linkUrl) {
     return (
       <div className="block border border-border bg-card/30 p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h3 className="font-serif text-lg text-foreground leading-snug">{item.title}</h3>
+            <h3 className="font-serif text-lg text-foreground leading-snug">
+              {item.title}
+            </h3>
             {item.summary && (
               <p className="text-sm text-foreground/60 leading-relaxed mt-2">
                 {item.summary}
               </p>
             )}
-            {meta && <p className="text-xs text-muted-foreground mt-3">{meta}</p>}
+            {meta && (
+              <p className="text-xs text-muted-foreground mt-3">{meta}</p>
+            )}
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border">
@@ -140,7 +226,9 @@ function PublicationRow({ item }: { item: Item }) {
             {item.title}
           </h3>
           {item.summary && (
-            <p className="text-sm text-foreground/60 leading-relaxed mt-2">{item.summary}</p>
+            <p className="text-sm text-foreground/60 leading-relaxed mt-2">
+              {item.summary}
+            </p>
           )}
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-3">
             {meta && <span>{meta}</span>}
@@ -174,13 +262,16 @@ function PortalHeader({
   tier: string
   termEnd: string | null
 }) {
-  const line = [organisation, tier].filter(Boolean).join(' · ')
+  const line = [organisation, tier].filter(Boolean).join(" · ")
 
   return (
     <header className="border-b border-border">
       <div className="max-w-3xl mx-auto px-5 sm:px-6 py-5 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <Link href="/" className="font-serif text-base text-foreground tracking-tight">
+          <Link
+            href="/"
+            className="font-serif text-base text-foreground tracking-tight"
+          >
             APRI
           </Link>
           <p className="text-xs text-muted-foreground mt-1 truncate">
@@ -212,7 +303,10 @@ function LockedLibrary({ name }: { name: string }) {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border">
         <div className="max-w-md mx-auto px-6 h-20 flex items-center justify-between">
-          <Link href="/" className="font-serif text-base text-foreground tracking-tight">
+          <Link
+            href="/"
+            className="font-serif text-base text-foreground tracking-tight"
+          >
             APRI
           </Link>
           <form action={subscriberSignOut}>
@@ -231,11 +325,12 @@ function LockedLibrary({ name }: { name: string }) {
           Your access has ended
         </h1>
         <p className="text-sm text-foreground/70 leading-relaxed mb-4">
-          {name ? `Thank you, ${name}. ` : ''}Your subscription term has come to an end, so
-          your library is closed for now.
+          {name ? `Thank you, ${name}. ` : ""}Your subscription term has come to
+          an end, so your library is closed for now.
         </p>
         <p className="text-sm text-foreground/70 leading-relaxed mb-8">
-          We would be glad to continue. Get in touch and we will arrange renewal.
+          We would be glad to continue. Get in touch and we will arrange
+          renewal.
         </p>
 
         <a
@@ -259,7 +354,7 @@ function LockedLibrary({ name }: { name: string }) {
 function groupBySeries(items: Item[]): [string, Item[]][] {
   const map = new Map<string, Item[]>()
   for (const item of items) {
-    const key = item.series || 'Other'
+    const key = item.series || "Other"
     const list = map.get(key)
     if (list) list.push(item)
     else map.set(key, [item])
@@ -268,12 +363,12 @@ function groupBySeries(items: Item[]): [string, Item[]][] {
 }
 
 function formatDate(value: string | null): string {
-  if (!value) return ''
+  if (!value) return ""
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
   })
 }

@@ -1,7 +1,7 @@
-import 'server-only'
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { getSql } from './db'
-import { createSubscriberSession } from './subscriber-session'
+import "server-only"
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
+import { getSql } from "./db"
+import { createSubscriberSession } from "./subscriber-session"
 
 /**
  * One-time sign-in tokens for subscribers.
@@ -19,7 +19,7 @@ const TOKEN_BYTES = 32 // 256 bits of entropy.
 const TTL_MINUTES = 15
 
 export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex')
+  return createHash("sha256").update(token).digest("hex")
 }
 
 /**
@@ -32,7 +32,7 @@ export function hashToken(token: string): string {
  */
 export async function issueToken(subscriberId: string): Promise<string> {
   const sql = getSql()
-  const token = randomBytes(TOKEN_BYTES).toString('base64url')
+  const token = randomBytes(TOKEN_BYTES).toString("base64url")
 
   await sql`
     update auth_tokens
@@ -52,6 +52,19 @@ export async function issueToken(subscriberId: string): Promise<string> {
   return token
 }
 
+export async function issueBriefingToken(
+  briefingRequestId: string,
+): Promise<string> {
+  const sql = getSql()
+  const token = randomBytes(TOKEN_BYTES).toString("base64url")
+  await sql`update auth_tokens set consumed_at = now()
+    where briefing_request_id = ${briefingRequestId} and consumed_at is null`
+  await sql`insert into auth_tokens (briefing_request_id, token_hash, expires_at)
+    values (${briefingRequestId}, ${hashToken(token)},
+            now() + (${TTL_MINUTES} || ' minutes')::interval)`
+  return token
+}
+
 /**
  * Verifies and consumes a token, returning the subscriber id or null.
  *
@@ -60,7 +73,12 @@ export async function issueToken(subscriberId: string): Promise<string> {
  * forwarded or prefetched URL is spent exactly once. Postgres, not application
  * logic, is what makes it single-use.
  */
-export async function consumeToken(token: string): Promise<string | null> {
+export async function consumeToken(
+  token: string,
+): Promise<{
+  id: string
+  type: "subscriber" | "briefing"
+} | null> {
   if (!token || token.length < 16 || token.length > 200) return null
 
   const sql = getSql()
@@ -72,8 +90,12 @@ export async function consumeToken(token: string): Promise<string | null> {
     where token_hash = ${hash}
       and consumed_at is null
       and expires_at > now()
-    returning subscriber_id, token_hash
-  `) as { subscriber_id: string; token_hash: string }[]
+    returning subscriber_id, briefing_request_id, token_hash
+  `) as {
+    subscriber_id: string | null
+    briefing_request_id: string | null
+    token_hash: string
+  }[]
 
   const row = rows[0]
   if (!row) return null
@@ -84,11 +106,15 @@ export async function consumeToken(token: string): Promise<string | null> {
   if (!constantTimeEquals(row.token_hash, hash)) return null
 
   return row.subscriber_id
+    ? { id: row.subscriber_id, type: "subscriber" }
+    : row.briefing_request_id
+      ? { id: row.briefing_request_id, type: "briefing" }
+      : null
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
-  const bufferA = Buffer.from(a, 'utf8')
-  const bufferB = Buffer.from(b, 'utf8')
+  const bufferA = Buffer.from(a, "utf8")
+  const bufferB = Buffer.from(b, "utf8")
   if (bufferA.length !== bufferB.length) return false
   return timingSafeEqual(bufferA, bufferB)
 }
@@ -101,15 +127,27 @@ function constantTimeEquals(a: string, b: string): boolean {
  * `'use server'` module would publish it as a POST endpoint for no reason.
  */
 export async function signInWithToken(token: string): Promise<boolean> {
-  const subscriberId = await consumeToken(token)
-  if (!subscriberId) return false
+  const principal = await consumeToken(token)
+  if (!principal) return false
 
   const sql = getSql()
 
   // Eligibility is re-checked at the moment of use. A seat suspended in the
   // fifteen minutes since the link was sent must not still let its holder in.
+  if (principal.type === "briefing") {
+    const rows = (await sql`
+      select id from briefing_requests
+      where id = ${principal.id} and status = 'Active'
+        and private_link_url is not null and private_link_url <> ''
+      limit 1
+    `) as { id: string }[]
+    if (!rows[0]) return false
+    await createSubscriberSession(principal.id, "briefing")
+    return true
+  }
+
   const rows = (await sql`
-    select id, status, term_end from subscribers where id = ${subscriberId} limit 1
+    select id, status, term_end from subscribers where id = ${principal.id} limit 1
   `) as { id: string; status: string; term_end: string | null }[]
 
   const subscriber = rows[0]
@@ -119,9 +157,9 @@ export async function signInWithToken(token: string): Promise<boolean> {
   const termCurrent =
     !subscriber.term_end || new Date(subscriber.term_end) >= startOfToday()
 
-  if (status !== 'active' || !termCurrent) return false
+  if (status !== "active" || !termCurrent) return false
 
-  await createSubscriberSession(subscriber.id)
+  await createSubscriberSession(subscriber.id, "subscriber")
   return true
 }
 

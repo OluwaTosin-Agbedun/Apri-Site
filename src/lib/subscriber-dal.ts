@@ -1,15 +1,15 @@
-import 'server-only'
-import { cache } from 'react'
-import { redirect } from 'next/navigation'
-import { getSql } from './db'
-import { readSubscriberSession } from './subscriber-session'
+import "server-only"
+import { cache } from "react"
+import { redirect } from "next/navigation"
+import { getSql } from "./db"
+import { readSubscriberSession } from "./subscriber-session"
 import {
   isLevel,
   isVisibility,
   visibilitiesForLevel,
   type Level,
   type Visibility,
-} from './entitlements'
+} from "./entitlements"
 
 /**
  * The confidentiality boundary for the subscriber surface.
@@ -22,6 +22,7 @@ import {
  */
 
 export type CurrentSubscriber = {
+  type: "subscriber"
   id: string
   fullName: string
   organisation: string
@@ -60,8 +61,9 @@ function toSubscriber(row: SubscriberRow): CurrentSubscriber {
   const termCurrent = !termEnd || new Date(termEnd) >= startOfToday()
 
   return {
+    type: "subscriber",
     id: row.id,
-    fullName: row.full_name || row.name || '',
+    fullName: row.full_name || row.name || "",
     organisation: row.organization,
     email: row.email,
     roleTitle: row.role_title,
@@ -70,7 +72,7 @@ function toSubscriber(row: SubscriberRow): CurrentSubscriber {
     termEnd,
     status,
     libraryLinkUrl: row.library_link_url,
-    hasAccess: status === 'active' && termCurrent,
+    hasAccess: status === "active" && termCurrent,
   }
 }
 
@@ -93,18 +95,62 @@ export const getCurrentSubscriber = cache(
     if (!session) return null
 
     const sql = getSql()
+    if (session.principalType !== "subscriber") return null
     const rows = (await sql`
       select id, full_name, name, organization, email, role_title,
              level, public_tier, term_end, status, library_link_url
       from subscribers
-      where id = ${session.subscriberId}
+      where id = ${session.principalId}
       limit 1
     `) as SubscriberRow[]
 
     const row = rows[0]
     return row ? toSubscriber(row) : null
-  }
+  },
 )
+
+export type CurrentBriefingClient = {
+  type: "briefing"
+  id: string
+  fullName: string
+  organisation: string
+  email: string
+  privateLinkUrl: string
+  hasAccess: boolean
+}
+
+export async function requirePortalPrincipal(): Promise<CurrentSubscriber | CurrentBriefingClient> {
+  const session = await readSubscriberSession()
+  if (!session) redirect("/portal/sign-in")
+  if (session.principalType === "subscriber") {
+    const subscriber = await getCurrentSubscriber()
+    if (!subscriber) redirect("/portal/sign-in")
+    return subscriber
+  }
+  const sql = getSql()
+  const rows = (await sql`
+    select id, name, organization, email, status, private_link_url
+    from briefing_requests where id = ${session.principalId} limit 1
+  `) as {
+    id: string
+    name: string
+    organization: string
+    email: string
+    status: string
+    private_link_url: string | null
+  }[]
+  const row = rows[0]
+  if (!row) redirect("/portal/sign-in")
+  return {
+    type: "briefing",
+    id: row.id,
+    fullName: row.name,
+    organisation: row.organization,
+    email: row.email,
+    privateLinkUrl: row.private_link_url ?? "",
+    hasAccess: row.status === "Active" && Boolean(row.private_link_url),
+  }
+}
 
 /**
  * Use in any portal page or action that must not be public.
@@ -115,7 +161,7 @@ export const getCurrentSubscriber = cache(
  */
 export async function requireSubscriber(): Promise<CurrentSubscriber> {
   const subscriber = await getCurrentSubscriber()
-  if (!subscriber) redirect('/portal/sign-in')
+  if (!subscriber) redirect("/portal/sign-in")
   return subscriber
 }
 
@@ -176,7 +222,7 @@ type LibraryRow = {
  * failure stamping exists to prevent. A missing copy must read as missing.
  */
 export async function getLibraryFor(
-  subscriber: CurrentSubscriber
+  subscriber: CurrentSubscriber,
 ): Promise<LibraryItem[]> {
   /**
    * The guard on the whole arrangement: no level, no library.
@@ -206,7 +252,7 @@ export async function getLibraryFor(
        and d.visibility <> 'OPEN'
        and d.visibility = any($2::text[])
      order by d.edition_date desc nulls last, d.sort_order asc, d.created_at desc`,
-    [subscriber.id, visibilitiesForLevel(subscriber.level)]
+    [subscriber.id, visibilitiesForLevel(subscriber.level)],
   )) as LibraryRow[]
 
   return rows.map((row) => ({
@@ -217,7 +263,7 @@ export async function getLibraryFor(
     title: row.title,
     summary: row.summary || row.description,
     editionDate: row.edition_date,
-    visibility: isVisibility(row.visibility) ? row.visibility : 'L4',
+    visibility: isVisibility(row.visibility) ? row.visibility : "L4",
     pageCount: row.page_count,
     linkUrl: resolveLink(row),
   }))
@@ -242,7 +288,7 @@ function resolveLink(row: LibraryRow): string | null {
 }
 
 function https(value: string | null): value is string {
-  return Boolean(value && value.startsWith('https://'))
+  return Boolean(value && value.startsWith("https://"))
 }
 
 /** Records that the subscriber opened their library. Never fails the request. */

@@ -1,7 +1,7 @@
-import 'server-only'
-import { Resend } from 'resend'
-import { seriesLabel } from './entitlements'
-import { emailNotice } from './delivery'
+import "server-only"
+import { Resend } from "resend"
+import { seriesLabel } from "./entitlements"
+import { emailNotice } from "./delivery"
 
 /**
  * Transactional email for the subscriber portal.
@@ -23,11 +23,15 @@ function getResend(): Resend | null {
   return _resend
 }
 
-const FROM = process.env.RESEND_FROM_EMAIL ?? 'briefings@apri.athenacentre.org'
-const CONTACT = process.env.BRIEFING_MANAGER_EMAIL ?? 'intelligence@athenacentre.org'
+const FROM = process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
+const CONTACT =
+  process.env.BRIEFING_MANAGER_EMAIL ?? "intelligence@athenacentre.org"
 
 function appUrl(): string {
-  return (process.env.APP_URL ?? 'https://apri.athenacentre.org').replace(/\/$/, '')
+  return (process.env.APP_URL ?? "https://apri.athenacentre.org").replace(
+    /\/$/,
+    "",
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -43,12 +47,12 @@ export async function sendSignInLink(args: {
   if (!resend) return
 
   const url = `${appUrl()}/portal/verify?token=${encodeURIComponent(args.token)}`
-  const greeting = args.fullName ? `, ${args.fullName}` : ''
+  const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   await resend.emails.send({
     from: `APRI <${FROM}>`,
     to: args.email,
-    subject: 'Your APRI sign-in link',
+    subject: "Your APRI sign-in link",
     html: shell(`
       <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Sign in to your APRI library</h1>
 
@@ -57,7 +61,7 @@ export async function sendSignInLink(args: {
         The link works once and expires in 15 minutes.
       </p>
 
-      ${button('Open my library', url)}
+      ${button("Open my library", url)}
 
       <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#888888;">
         If you did not request this, you can ignore this message &mdash; nothing has changed
@@ -83,13 +87,13 @@ export async function sendLapsedNotice(args: {
   const resend = getResend()
   if (!resend) return
 
-  const greeting = args.fullName ? `, ${args.fullName}` : ''
+  const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   await resend.emails.send({
     from: `APRI <${FROM}>`,
     to: args.email,
     replyTo: CONTACT,
-    subject: 'Your APRI access',
+    subject: "Your APRI access",
     html: shell(`
       <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Your APRI access has ended</h1>
 
@@ -122,13 +126,13 @@ export async function sendWelcome(args: {
   if (!resend) return
 
   const url = `${appUrl()}/portal/verify?token=${encodeURIComponent(args.token)}`
-  const greeting = args.fullName ? `, ${args.fullName}` : ''
+  const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   await resend.emails.send({
     from: `APRI <${FROM}>`,
     to: args.email,
     replyTo: CONTACT,
-    subject: 'Your APRI subscription is active',
+    subject: "Your APRI subscription is active",
     html: shell(`
       <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Welcome to APRI</h1>
 
@@ -138,17 +142,37 @@ export async function sendWelcome(args: {
       </p>
 
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin:0 0 24px;">
-        ${args.publicTier ? row('Subscription', args.publicTier) : ''}
-        ${args.termEnd ? row('Access until', formatDate(args.termEnd)) : ''}
+        ${args.publicTier ? row("Subscription", args.publicTier) : ""}
+        ${args.termEnd ? row("Access until", formatDate(args.termEnd)) : ""}
       </table>
 
-      ${button('Open my library', url)}
+      ${button("Open my library", url)}
 
       <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#888888;">
         This link is personal to you and works once. Whenever you return, request a fresh
         link from the sign-in page using this email address. ${esc(emailNotice())}
       </p>
     `),
+  })
+}
+
+export async function sendBriefingWelcome(args: {
+  email: string
+  fullName: string
+  token: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+  const url = `${appUrl()}/portal/verify?token=${encodeURIComponent(args.token)}`
+  const greeting = args.fullName ? `, ${args.fullName}` : ""
+  await resend.emails.send({
+    from: `APRI <${FROM}>`,
+    to: args.email,
+    replyTo: CONTACT,
+    subject: "Your private APRI briefing is ready",
+    html: shell(
+      `<h1 style="margin:0 0 20px;font-size:22px;font-weight:normal">Your briefing is ready</h1><p style="font-size:15px;line-height:1.7">Good day${esc(greeting)}. Use this secure, one-time link to enter your portal and open your private briefing.</p>${button("Open my briefing", url)}<p style="font-size:13px;color:#888">The sign-in link expires in 15 minutes and works once. Your briefing link is private; please do not forward it.</p>`,
+    ),
   })
 }
 
@@ -175,10 +199,10 @@ export async function sendEditionAlert(alert: EditionAlert): Promise<void> {
   if (!resend) return
 
   const target = alert.linkUrl ?? `${appUrl()}/portal`
-  const label = alert.linkUrl ? 'Read it now' : 'Open my library'
+  const label = alert.linkUrl ? "Read it now" : "Open my library"
   const kicker = [seriesLabel(alert.series), formatDate(alert.editionDate)]
     .filter(Boolean)
-    .join(' · ')
+    .join(" · ")
 
   await resend.emails.send({
     from: `APRI <${FROM}>`,
@@ -189,7 +213,7 @@ export async function sendEditionAlert(alert: EditionAlert): Promise<void> {
       ${
         kicker
           ? `<p style="margin:0 0 12px;font-size:12px;letter-spacing:1.5px;color:#b49f69;font-family:Arial,Helvetica,sans-serif;text-transform:uppercase;">${esc(kicker)}</p>`
-          : ''
+          : ""
       }
 
       <h1 style="margin:0 0 16px;font-size:22px;color:#1a1a1a;font-weight:normal;">${esc(alert.title)}</h1>
@@ -197,7 +221,7 @@ export async function sendEditionAlert(alert: EditionAlert): Promise<void> {
       ${
         alert.summary
           ? `<p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#333333;">${esc(alert.summary)}</p>`
-          : ''
+          : ""
       }
 
       ${button(label, target)}
@@ -258,20 +282,20 @@ function row(label: string, value: string): string {
 }
 
 function formatDate(value: string | null): string {
-  if (!value) return ''
+  if (!value) return ""
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
   })
 }
 
 function esc(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
 }

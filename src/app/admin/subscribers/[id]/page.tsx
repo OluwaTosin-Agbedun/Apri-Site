@@ -1,31 +1,31 @@
-import { notFound } from 'next/navigation'
-import { requireAdmin } from '@/lib/dal'
-import { getSql } from '@/lib/db'
-import AdminShell from '@/components/AdminShell'
-import { getReachMonths } from '@/lib/provisioning'
-import SubscriberForm, { type SubscriberDraft } from './subscriber-form'
-import SeatActions from '../seat-actions'
-import GrantDocument, { type GrantablePublication } from './grant-document'
+import { notFound } from "next/navigation"
+import { requireAdmin } from "@/lib/dal"
+import { getSql } from "@/lib/db"
+import AdminShell from "@/components/AdminShell"
+import { getReachMonths } from "@/lib/provisioning"
+import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
+import SeatActions from "../seat-actions"
+import GrantDocument, { type GrantablePublication } from "./grant-document"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 const BLANK: SubscriberDraft = {
   id: null,
-  clientType: 'subscriber',
-  fullName: '',
-  organisation: '',
-  roleTitle: '',
-  email: '',
-  phone: '',
-  publicTier: '',
-  level: '',
+  clientType: "subscriber",
+  fullName: "",
+  organisation: "",
+  roleTitle: "",
+  email: "",
+  phone: "",
+  publicTier: "",
+  level: "",
   seats: 1,
-  termStart: '',
-  termEnd: '',
-  status: 'pending',
-  invoiceRef: '',
-  libraryLinkUrl: '',
-  note: '',
+  termStart: "",
+  termEnd: "",
+  status: "pending",
+  invoiceRef: "",
+  libraryLinkUrl: "",
+  note: "",
 }
 
 type Row = {
@@ -53,22 +53,22 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** A date column rendered into a value an <input type="date"> accepts. */
 function dateInput(value: string | null): string {
-  if (!value) return ''
+  if (!value) return ""
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
+  if (Number.isNaN(date.getTime())) return ""
   return date.toISOString().slice(0, 10)
 }
 
 export default async function EditSubscriberPage({
   params,
-}: {
   // Next 16: params is a promise.
+}: {
   params: Promise<{ id: string }>
 }) {
   const admin = await requireAdmin()
   const { id } = await params
 
-  if (id === 'new') {
+  if (id === "new") {
     return (
       <AdminShell
         admin={admin}
@@ -129,26 +129,26 @@ export default async function EditSubscriberPage({
 
   const grantable: GrantablePublication[] = grantableRows.map((p) => ({
     id: p.id,
-    label: [p.code, p.title].filter(Boolean).join(' · '),
+    label: [p.code, p.title].filter(Boolean).join(" · "),
     alreadyHeld: p.already_held,
   }))
 
   const draft: SubscriberDraft = {
     id: row.id,
-    clientType: row.client_type || 'subscriber',
-    fullName: row.full_name || row.name || '',
+    clientType: row.client_type || "subscriber",
+    fullName: row.full_name || row.name || "",
     organisation: row.organization,
     roleTitle: row.role_title,
     email: row.email,
     phone: row.phone,
     publicTier: row.public_tier,
-    level: row.level ?? '',
+    level: row.level ?? "",
     seats: row.seats,
     termStart: dateInput(row.term_start),
     termEnd: dateInput(row.term_end),
     status: row.status.toLowerCase(),
     invoiceRef: row.invoice_ref,
-    libraryLinkUrl: row.library_link_url ?? '',
+    libraryLinkUrl: row.library_link_url ?? "",
     note: row.note,
   }
 
@@ -158,10 +158,10 @@ export default async function EditSubscriberPage({
     <AdminShell
       admin={admin}
       current="/admin/subscribers"
-      title={draft.fullName || 'Subscriber'}
+      title={draft.fullName || "Subscriber"}
       description={
         row.last_viewed_at
-          ? `Status: ${status}. Last opened their library on ${new Date(row.last_viewed_at).toLocaleDateString('en-GB')}.`
+          ? `Status: ${status}. Last opened their library on ${new Date(row.last_viewed_at).toLocaleDateString("en-GB")}.`
           : `Status: ${status}. Has not opened their library yet.`
       }
     >
@@ -174,6 +174,7 @@ export default async function EditSubscriberPage({
           status={status}
           hasLevel={Boolean(row.level)}
           hasTermEnd={Boolean(row.term_end)}
+          hasLibraryLink={Boolean(row.library_link_url)}
           liveLinks={Number(row.live_links ?? 0)}
         />
 
@@ -183,12 +184,13 @@ export default async function EditSubscriberPage({
           for.
         */}
         <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground leading-relaxed max-w-xl">
-          Entitlement reaches back {reachMonths} month{reachMonths === 1 ? '' : 's'} from
-          today
+          Entitlement reaches back {reachMonths} month
+          {reachMonths === 1 ? "" : "s"} from today
           {row.term_start
-            ? `, or to ${new Date(row.term_start).toLocaleDateString('en-GB')} if that is later.`
-            : ', or to their term start if that is later.'}{' '}
-          Editions published before that are not owed and will not appear in Copies needed.
+            ? `, or to ${new Date(row.term_start).toLocaleDateString("en-GB")} if that is later.`
+            : ", or to their term start if that is later."}{" "}
+          Editions published before that are not owed and will not appear in
+          Copies needed.
         </p>
       </div>
 
@@ -198,9 +200,9 @@ export default async function EditSubscriberPage({
         </h3>
         <GrantDocument subscriberId={row.id} publications={grantable} />
         <p className="mt-3 text-xs text-muted-foreground leading-relaxed max-w-xl">
-          A briefing client holds no level and so appears in no queue &mdash; this is how
-          they receive a named paper. It works for subscribers too, for anything granted
-          outside their level.
+          A briefing client holds no level and so appears in no queue &mdash;
+          this is how they receive a named paper. It works for subscribers too,
+          for anything granted outside their level.
         </p>
       </div>
 

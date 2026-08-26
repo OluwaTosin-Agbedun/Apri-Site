@@ -1,5 +1,5 @@
-import 'server-only'
-import { Resend } from 'resend'
+import "server-only"
+import { Resend } from "resend"
 
 let _resend: Resend | null = null
 
@@ -9,10 +9,9 @@ function getResend(): Resend | null {
   return _resend
 }
 
-const FROM =
-  process.env.RESEND_FROM_EMAIL ?? 'briefings@apri.athenacentre.org'
+const FROM = process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
 const MANAGER =
-  process.env.BRIEFING_MANAGER_EMAIL ?? 'intelligence@athenacentre.org'
+  process.env.BRIEFING_MANAGER_EMAIL ?? "intelligence@athenacentre.org"
 
 interface BriefingDetails {
   name: string
@@ -30,7 +29,7 @@ interface BriefingDetails {
 }
 
 export async function sendBriefingConfirmation(
-  d: BriefingDetails
+  d: BriefingDetails,
 ): Promise<void> {
   const resend = getResend()
   if (!resend) return
@@ -38,13 +37,13 @@ export async function sendBriefingConfirmation(
   await resend.emails.send({
     from: `APRI Briefings <${FROM}>`,
     to: d.email,
-    subject: 'Your Briefing Request Has Been Received — APRI',
+    subject: "Your Briefing Request Has Been Received — APRI",
     html: confirmationHtml(d),
   })
 }
 
 export async function sendBriefingNotification(
-  d: BriefingDetails
+  d: BriefingDetails,
 ): Promise<void> {
   const resend = getResend()
   if (!resend) return
@@ -81,8 +80,7 @@ export async function sendAccessRequestNotification(d: {
   const resend = getResend()
   if (!resend) return
 
-  const seatLine =
-    d.seats === 1 ? '1 person' : `${d.seats} people`
+  const seatLine = d.seats === 1 ? "1 person" : `${d.seats} people`
 
   await resend.emails.send({
     from: `APRI System <${FROM}>`,
@@ -105,15 +103,24 @@ export async function sendAccessRequestNotification(d: {
         <tr><td style="padding:32px 40px;">
           <h1 style="margin:0 0 8px;font-size:20px;color:#1a1a1a;">${esc(d.name)}</h1>
           <p style="margin:0 0 24px;font-size:15px;color:#555555;">
-            ${esc(d.organization)}${d.roleTitle ? ` &mdash; ${esc(d.roleTitle)}` : ''}
+            ${esc(d.organization)}${
+              d.roleTitle ? ` &mdash; ${esc(d.roleTitle)}` : ""
+            }
           </p>
 
           <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin-bottom:24px;">
-            ${summaryRow('Email', d.email)}
-            ${summaryRow('Phone', d.phone)}
-            ${summaryRow('Seats needed', seatLine)}
-            ${d.subscriptionLevel ? summaryRow('Level of interest', `${d.subscriptionLevel} (advisory)`) : ''}
-            ${d.note ? summaryRow('Their note', d.note) : ''}
+            ${summaryRow("Email", d.email)}
+            ${summaryRow("Phone", d.phone)}
+            ${summaryRow("Seats needed", seatLine)}
+            ${
+              d.subscriptionLevel
+                ? summaryRow(
+                    "Level of interest",
+                    `${d.subscriptionLevel} (advisory)`,
+                  )
+                : ""
+            }
+            ${d.note ? summaryRow("Their note", d.note) : ""}
           </table>
 
           <p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#333333;">
@@ -136,6 +143,21 @@ export async function sendAccessRequestNotification(d: {
   </table>
 </body>
 </html>`,
+  })
+}
+
+export async function sendAccessRequestConfirmation(d: {
+  name: string
+  email: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+  await resend.emails.send({
+    from: `APRI <${FROM}>`,
+    to: d.email,
+    replyTo: MANAGER,
+    subject: "Your APRI subscription request has been received",
+    html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><h1 style="font-size:22px">Thank you, ${esc(d.name)}</h1><p>We have received your APRI subscription request. Our team will review it and reply within one business day.</p><p>If you did not submit this request, please ignore this email.</p></body></html>`,
   })
 }
 
@@ -168,15 +190,15 @@ function confirmationHtml(d: BriefingDetails): string {
 
           <!-- Request summary -->
           <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin-bottom:24px;">
-            ${summaryRow('Organisation', d.organization)}
-            ${d.roleTitle ? summaryRow('Role / Title', d.roleTitle) : ''}
-            ${d.briefingType ? summaryRow('Briefing Type', d.briefingType) : ''}
-            ${d.format ? summaryRow('Preferred Format', d.format) : ''}
-            ${d.timeline ? summaryRow('Timeline', d.timeline) : ''}
-            ${d.sector ? summaryRow('Sector', d.sector) : ''}
-            ${d.audienceSize ? summaryRow('Audience Size', d.audienceSize) : ''}
-            ${d.location ? summaryRow('Location', d.location) : ''}
-            ${d.description ? summaryRow('Description', d.description) : ''}
+            ${summaryRow("Organisation", d.organization)}
+            ${d.roleTitle ? summaryRow("Role / Title", d.roleTitle) : ""}
+            ${d.briefingType ? summaryRow("Briefing Type", d.briefingType) : ""}
+            ${d.format ? summaryRow("Preferred Format", d.format) : ""}
+            ${d.timeline ? summaryRow("Timeline", d.timeline) : ""}
+            ${d.sector ? summaryRow("Sector", d.sector) : ""}
+            ${d.audienceSize ? summaryRow("Audience Size", d.audienceSize) : ""}
+            ${d.location ? summaryRow("Location", d.location) : ""}
+            ${d.description ? summaryRow("Description", d.description) : ""}
           </table>
 
           <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#333333;">
@@ -224,7 +246,9 @@ function notificationHtml(d: BriefingDetails): string {
         <tr><td style="padding:32px 40px;">
           <h1 style="margin:0 0 8px;font-size:20px;color:#1a1a1a;">${esc(d.name)}</h1>
           <p style="margin:0 0 24px;font-size:15px;color:#555555;">
-            ${esc(d.organization)}${d.roleTitle ? ` &mdash; ${esc(d.roleTitle)}` : ''}
+            ${esc(d.organization)}${
+              d.roleTitle ? ` &mdash; ${esc(d.roleTitle)}` : ""
+            }
           </p>
 
           <!-- Contact -->
@@ -235,28 +259,36 @@ function notificationHtml(d: BriefingDetails): string {
                 <a href="mailto:${esc(d.email)}" style="color:#b49f69;">${esc(d.email)}</a>
               </td>
             </tr>
-            ${d.phone ? `<tr>
+            ${
+              d.phone
+                ? `<tr>
               <td style="padding:8px 0;font-size:13px;color:#888;width:120px;vertical-align:top;">Phone</td>
               <td style="padding:8px 0;font-size:14px;color:#1a1a1a;">${esc(d.phone)}</td>
-            </tr>` : ''}
+            </tr>`
+                : ""
+            }
           </table>
 
           <!-- Request details -->
           <h2 style="margin:0 0 16px;font-size:14px;letter-spacing:1px;color:#b49f69;border-bottom:1px solid #e8e5df;padding-bottom:8px;">REQUEST DETAILS</h2>
 
           <table width="100%" cellpadding="0" cellspacing="0">
-            ${detailRow('Briefing Type', d.briefingType)}
-            ${detailRow('Format', d.format)}
-            ${detailRow('Timeline', d.timeline)}
-            ${detailRow('Sector', d.sector)}
-            ${detailRow('Audience Size', d.audienceSize)}
-            ${detailRow('Location', d.location)}
+            ${detailRow("Briefing Type", d.briefingType)}
+            ${detailRow("Format", d.format)}
+            ${detailRow("Timeline", d.timeline)}
+            ${detailRow("Sector", d.sector)}
+            ${detailRow("Audience Size", d.audienceSize)}
+            ${detailRow("Location", d.location)}
           </table>
 
-          ${d.description ? `
+          ${
+            d.description
+              ? `
           <h2 style="margin:24px 0 12px;font-size:14px;letter-spacing:1px;color:#b49f69;border-bottom:1px solid #e8e5df;padding-bottom:8px;">DESCRIPTION</h2>
           <p style="margin:0;font-size:14px;line-height:1.7;color:#333;white-space:pre-wrap;">${esc(d.description)}</p>
-          ` : ''}
+          `
+              : ""
+          }
 
           <p style="margin:24px 0 0;font-size:13px;color:#888;">
             Reply directly to this email to respond to ${esc(d.name)} at ${esc(d.email)}.
@@ -285,7 +317,7 @@ function summaryRow(label: string, value: string): string {
 }
 
 function detailRow(label: string, value: string): string {
-  if (!value) return ''
+  if (!value) return ""
   return `<tr>
     <td style="padding:8px 0;font-size:13px;color:#888;width:120px;vertical-align:top;">${esc(label)}</td>
     <td style="padding:8px 0;font-size:14px;color:#1a1a1a;">${esc(value)}</td>
@@ -294,8 +326,8 @@ function detailRow(label: string, value: string): string {
 
 function esc(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
 }

@@ -1,12 +1,12 @@
-import Link from 'next/link'
-import { requireAdmin } from '@/lib/dal'
-import { getSql } from '@/lib/db'
-import AdminShell from '@/components/AdminShell'
-import { levelLabelOrDash } from '@/lib/entitlements'
-import SeatActions from './seat-actions'
+import Link from "next/link"
+import { requireAdmin } from "@/lib/dal"
+import { getSql } from "@/lib/db"
+import AdminShell from "@/components/AdminShell"
+import { levelLabelOrDash } from "@/lib/entitlements"
+import SeatActions from "./seat-actions"
 
-export const metadata = { title: 'Subscribers · APRI' }
-export const dynamic = 'force-dynamic'
+export const metadata = { title: "Subscribers · APRI" }
+export const dynamic = "force-dynamic"
 
 type Row = {
   id: string
@@ -24,10 +24,10 @@ type Row = {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  active: 'bg-accent/10 text-accent',
-  pending: 'bg-muted text-muted-foreground border border-border',
-  lapsed: 'bg-muted text-foreground/50 border border-border',
-  suspended: 'bg-red-50 text-red-700 border border-red-200',
+  active: "bg-accent/10 text-accent",
+  pending: "bg-muted text-muted-foreground border border-border",
+  lapsed: "bg-muted text-foreground/50 border border-border",
+  suspended: "bg-red-50 text-red-700 border border-red-200",
 }
 
 export default async function AdminSubscribersPage() {
@@ -40,6 +40,7 @@ export default async function AdminSubscribersPage() {
            (select count(*)::int from publication_access pa
              where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links
     from subscribers s
+    where s.client_type = 'subscriber'
     order by
       -- Seats needing attention first: no longer active, but still holding
       -- working links. Nothing else closes those in this deployment.
@@ -52,14 +53,18 @@ export default async function AdminSubscribersPage() {
     limit 500
   `) as (Row & { live_links: number })[]
 
-  const active = subscribers.filter((s) => s.status.toLowerCase() === 'active').length
-  const pending = subscribers.filter((s) => s.status.toLowerCase() === 'pending').length
+  const active = subscribers.filter(
+    (s) => s.status.toLowerCase() === "active",
+  ).length
+  const pending = subscribers.filter(
+    (s) => s.status.toLowerCase() === "pending",
+  ).length
 
   // Seats that have stopped paying but can still open their documents. Nothing
   // closes these on a schedule in this deployment, so the count is stated in the
   // page header rather than left to be noticed row by row.
   const needRevoking = subscribers.filter(
-    (s) => s.status.toLowerCase() !== 'active' && Number(s.live_links ?? 0) > 0
+    (s) => s.status.toLowerCase() !== "active" && Number(s.live_links ?? 0) > 0,
   ).length
 
   return (
@@ -103,9 +108,12 @@ export default async function AdminSubscribersPage() {
             <tbody className="divide-y divide-border">
               {subscribers.map((sub) => {
                 const status = sub.status.toLowerCase()
-                const name = sub.full_name || sub.name || '—'
+                const name = sub.full_name || sub.name || "—"
                 return (
-                  <tr key={sub.id} className="hover:bg-black/5 transition-colors">
+                  <tr
+                    key={sub.id}
+                    className="hover:bg-black/5 transition-colors"
+                  >
                     <td className="p-4">
                       <Link
                         href={`/admin/subscribers/${sub.id}`}
@@ -117,11 +125,16 @@ export default async function AdminSubscribersPage() {
                         {sub.email}
                       </span>
                     </td>
-                    <td className="p-4 text-foreground/70">{sub.organization || '—'}</td>
                     <td className="p-4 text-foreground/70">
-                      {sub.public_tier || '—'}
+                      {sub.organization || "—"}
+                    </td>
+                    <td className="p-4 text-foreground/70">
+                      {sub.public_tier || "—"}
                       {sub.seats > 1 && (
-                        <span className="text-xs text-muted-foreground"> ({sub.seats} seats)</span>
+                        <span className="text-xs text-muted-foreground">
+                          {" "}
+                          ({sub.seats} seats)
+                        </span>
                       )}
                     </td>
                     <td className="p-4 text-foreground/70">
@@ -129,21 +142,23 @@ export default async function AdminSubscribersPage() {
                     </td>
                     <td className="p-4 text-foreground/70">
                       {sub.term_end
-                        ? new Date(sub.term_end).toLocaleDateString('en-GB')
-                        : '—'}
+                        ? new Date(sub.term_end).toLocaleDateString("en-GB")
+                        : "—"}
                     </td>
                     <td className="p-4">
                       {sub.library_link_url ? (
                         <span className="text-xs text-accent">Set</span>
                       ) : (
-                        <span className="text-xs text-muted-foreground">Not set</span>
+                        <span className="text-xs text-muted-foreground">
+                          Not set
+                        </span>
                       )}
                     </td>
                     <td className="p-4">
                       <span
                         className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                           STATUS_STYLE[status] ??
-                          'bg-muted text-muted-foreground border border-border'
+                          "bg-muted text-muted-foreground border border-border"
                         }`}
                       >
                         {status}
@@ -155,6 +170,7 @@ export default async function AdminSubscribersPage() {
                         status={status}
                         hasLevel={Boolean(sub.level)}
                         hasTermEnd={Boolean(sub.term_end)}
+                        hasLibraryLink={Boolean(sub.library_link_url)}
                         liveLinks={Number(sub.live_links ?? 0)}
                         compact
                       />
@@ -168,9 +184,9 @@ export default async function AdminSubscribersPage() {
       </div>
 
       <p className="mt-6 text-xs text-muted-foreground leading-relaxed max-w-2xl">
-        Activating a seat sets it live and emails the subscriber a working sign-in link. It
-        needs an access level and a term end date first. Access closes on its own after the
-        term end date.
+        Activating a seat sets it live and emails the subscriber a working
+        sign-in link. It needs an access level and a term end date first. Access
+        closes on its own after the term end date.
       </p>
     </AdminShell>
   )

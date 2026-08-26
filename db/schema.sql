@@ -649,6 +649,29 @@ create table if not exists link_findings (
 alter table subscribers add column if not exists terms_accepted_at timestamptz;
 alter table briefing_requests add column if not exists terms_accepted_at timestamptz;
 
+-- Briefing clients remain briefing requests throughout their lifecycle. They
+-- are never copied into subscribers merely to obtain portal access.
+alter table briefing_requests add column if not exists private_link_url text;
+alter table briefing_requests add column if not exists updated_at timestamptz not null default now();
+alter table briefing_requests add column if not exists activated_at timestamptz;
+alter table briefing_requests add column if not exists last_viewed_at timestamptz;
+
+alter table briefing_requests drop constraint if exists briefing_requests_status_check;
+alter table briefing_requests add constraint briefing_requests_status_check
+  check (status in ('New', 'In Progress', 'Scheduled', 'Active', 'Closed'));
+
+-- A magic link belongs to exactly one portal principal. Existing subscriber
+-- tokens remain valid; new briefing tokens point directly at briefing_requests.
+alter table auth_tokens alter column subscriber_id drop not null;
+alter table auth_tokens add column if not exists briefing_request_id uuid
+  references briefing_requests (id) on delete cascade;
+alter table auth_tokens drop constraint if exists auth_tokens_one_principal_check;
+alter table auth_tokens add constraint auth_tokens_one_principal_check check (
+  (subscriber_id is not null and briefing_request_id is null)
+  or (subscriber_id is null and briefing_request_id is not null)
+);
+create index if not exists auth_tokens_briefing_idx
+  on auth_tokens (briefing_request_id, created_at desc);
 create unique index if not exists link_findings_open_key
   on link_findings (access_id, kind)
   where resolved_at is null;
