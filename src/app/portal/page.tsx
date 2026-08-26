@@ -8,8 +8,6 @@ import { seriesLabel } from "@/lib/entitlements"
 import { portalNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
 import { subscriberSignOut } from "@/app/actions/subscriber-auth"
 import SiteFooter from "@/components/SiteFooter"
-import PapermarkEmbed from "@/components/PapermarkEmbed"
-import { subscriberLibraryEmbedUrl } from "@/lib/papermark-embed"
 
 export const dynamic = "force-dynamic"
 
@@ -68,22 +66,6 @@ export default async function PortalPage() {
               } available.`}
         </p>
 
-        {embedUrl ? (
-          <section className="mb-10" aria-labelledby="private-library-heading">
-            <h2 id="private-library-heading" className="sr-only">
-              Private Papermark library
-            </h2>
-            <PapermarkEmbed src={embedUrl} />
-            <p className="mt-3 text-xs text-muted-foreground">
-              This library is unique to you. Downloads are controlled by its Papermark settings.
-            </p>
-          </section>
-        ) : (
-          <div className="border border-border bg-card/30 p-8 mb-10" role="alert">
-            <p className="text-sm text-foreground/70">
-              Your private library is not available. Please contact APRI so we can verify its secure Papermark link.
-            </p>
-          </div>
         )}
 
         {library.length === 0 ? (

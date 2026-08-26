@@ -345,9 +345,7 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
             placeholder="https://www.papermark.com/view/…"
           />
           <p className="mt-2 text-xs text-muted-foreground">
-            Paste the subscriber&apos;s private Papermark multi-file share link. It will be
-            embedded securely inside their portal. Enable downloading in the link&apos;s
-            Papermark settings if the subscriber should download the files.
+
           </p>
           {err("libraryLinkUrl")}
         </div>

@@ -79,7 +79,6 @@ import {
 } from "@/lib/entitlements"
 import { applyLevelChange, type LevelChangeOutcome } from "@/lib/level-changes"
 import { fieldErrors, type FormState } from "@/lib/definitions"
-import { papermarkEmbedUrl } from "@/lib/papermark-embed"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -147,18 +146,6 @@ export async function saveSubscriber(
 
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
   const d = parsed.data
-  if (d.libraryLinkUrl && !papermarkEmbedUrl(d.libraryLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
-    return {
-      errors: {
-        libraryLinkUrl: [
-          "Use an HTTPS Papermark share link or the configured APRI Papermark custom domain.",
-        ],
-      },
-    }
-  }
-  if (d.clientType === "subscriber" && d.status === "active" && !d.level) {
-    return { message: "Set an access level before making a seat active." }
-  }
   if (d.clientType === "engagement" && d.level) {
     return {
       message:
@@ -300,9 +287,7 @@ export async function activateSubscriber(id: string): Promise<FormState> {
         "Set the subscriber's unique private Papermark library link before activating.",
     }
   }
-  if (!papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
-    return { message: "Replace the private library link with a valid Papermark share link before activating." }
-  }
+
   const duplicates = await sql`
     select 1 from subscribers
     where library_link_url = ${row.library_link_url} and id <> ${id}
