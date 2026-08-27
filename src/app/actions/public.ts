@@ -74,7 +74,7 @@ import {
   normalisePhone,
   type FormState,
 } from "@/lib/definitions"
-import { levelForPublicTier } from "@/lib/entitlements"
+import { levelForPublicTier, seatsForSubscriptionRequest } from "@/lib/entitlements"
 const MAX_REQUESTS = 3
 const WINDOW_MINUTES = 60
 const ACCEPTED: FormState = {
@@ -122,14 +122,28 @@ export async function requestAccess(
   const decoy = formData.get("websiteUrl")
   if (typeof decoy === "string" && decoy.trim() !== "") return ACCEPTED
 
+  const requestedTier = String(formData.get("subscriptionLevel") ?? "")
+  const enforcedSeats = seatsForSubscriptionRequest(requestedTier, formData.get("seats"))
+  if (enforcedSeats === null) {
+    return {
+      errors: {
+        [requestedTier ? "seats" : "subscriptionLevel"]: [
+          requestedTier
+            ? "Enter how many people need access."
+            : "Select a subscription access level.",
+        ],
+      },
+    }
+  }
+
   const parsed = SubscriberSchema.safeParse({
     name: formData.get("name"),
     organization: formData.get("organization"),
     email: formData.get("email"),
     phone: formData.get("phone"),
     roleTitle: formData.get("roleTitle") ?? "",
-    seats: formData.get("seats") ?? 1,
-    subscriptionLevel: formData.get("subscriptionLevel") ?? "",
+    seats: enforcedSeats,
+    subscriptionLevel: requestedTier,
     note: formData.get("note") ?? "",
     acceptedTerms: formData.get("acceptedTerms"),
   })
@@ -141,13 +155,12 @@ export async function requestAccess(
     organization,
     email,
     roleTitle,
-    seats: requestedSeats,
     subscriptionLevel,
     note,
   } = parsed.data
   const phone = normalisePhone(parsed.data.phone)
   const seats =
-    subscriptionLevel === "Individual Access" ? 1 : requestedSeats
+    subscriptionLevel === "Individual Access" ? 1 : enforcedSeats
 
   const sql = getSql()
   const ip = await clientIp()
@@ -185,6 +198,7 @@ export async function requestAccess(
         level = ${level},
         seats = ${seats},
         note = ${note},
+        status = 'Pending',
         terms_accepted_at = now(),
         updated_at = now()
       where lower(email) = ${email}

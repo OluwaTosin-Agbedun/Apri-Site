@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useTransition } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { deleteDocument, setDocumentStatus } from "@/app/actions/documents"
-import AlertPanel from "./alert-panel"
+import { useState, useTransition } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { deleteDocument, setDocumentStatus } from '@/app/actions/documents'
+import AlertPanel from './alert-panel'
 
 export default function RowActions({
   id,
@@ -33,12 +33,7 @@ export default function RowActions({
   }
 
   function remove() {
-    const confirmed = window.confirm(
-      `Delete "${title}" from APRI?\n\nThis removes the APRI publication and its APRI access records. It does not delete the original document or share link in Papermark.`,
-    )
-    if (!confirmed) return
-
-    setError(null)
+    if (!window.confirm(`Delete “${title}” from APRI and remove its APRI associations?\n\nThe original Papermark document and link will not be deleted.`)) return
     startTransition(async () => {
       const result = await deleteDocument(id)
       if (result?.message && !result.ok) setError(result.message)
@@ -46,8 +41,7 @@ export default function RowActions({
     })
   }
 
-  const link =
-    "text-xs font-medium text-accent hover:text-accent-hover cursor-pointer disabled:opacity-40"
+  const link = 'text-xs font-medium text-accent hover:text-accent-hover cursor-pointer disabled:opacity-40'
 
   return (
     <div className="flex flex-col items-end gap-1.5">
@@ -77,16 +71,7 @@ export default function RowActions({
             Archive
           </button>
         )}
-        {canDelete && (
-          <button
-            type="button"
-            onClick={remove}
-            disabled={pending}
-            className="text-xs font-medium text-red-700 hover:text-red-800 cursor-pointer disabled:opacity-40"
-          >
-            Delete
-          </button>
-        )}
+        <button type="button" onClick={remove} disabled={pending} className="text-xs font-medium text-red-700 hover:text-red-800 disabled:opacity-40">Delete</button>
       </div>
       {error && <p className="text-xs text-red-700 max-w-[18rem] text-right">{error}</p>}
     </div>

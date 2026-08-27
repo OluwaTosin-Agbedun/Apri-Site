@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
 import Link from "next/link"
+import BriefingDeleteControl from "./briefing-delete-control"
 
 export const metadata = { title: "Briefing Requests · APRI" }
 export const dynamic = "force-dynamic"
@@ -118,6 +119,13 @@ export default async function AdminBriefingsPage() {
                   {r.description}
                 </p>
               )}
+              <div className="mt-5 pt-4 border-t border-border/60 flex justify-end">
+                <BriefingDeleteControl
+                  id={r.id}
+                  email={r.email}
+                  canDelete={admin.role === "owner"}
+                />
+              </div>
             </article>
           ))}
         </div>

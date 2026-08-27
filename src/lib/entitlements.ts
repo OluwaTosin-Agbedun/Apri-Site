@@ -49,6 +49,17 @@ export function seatsForPublicTier(tierName: string): number {
   return PUBLIC_TIERS.find((t) => t.name === tierName)?.defaultSeats ?? 1
 }
 
+export function seatsForSubscriptionRequest(
+  tierName: string,
+  submitted: FormDataEntryValue | null
+): number | null {
+  if (tierName === 'Individual Access') return 1
+  if (!tierName) return null
+  if (typeof submitted !== 'string' || submitted.trim() === '') return null
+  const seats = Number(submitted)
+  return Number.isInteger(seats) && seats >= 1 && seats <= 500 ? seats : null
+}
+
 export function isLevel(value: unknown): value is Level {
   return typeof value === 'string' && (LEVELS as readonly string[]).includes(value)
 }

@@ -9,7 +9,7 @@ function getResend(): Resend | null {
   return _resend
 }
 
-const FROM = process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
+const FROM = process.env.BRIEFING_FROM_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
 const MANAGER =
   process.env.BRIEFING_MANAGER_EMAIL ?? "intelligence@athenacentre.org"
 

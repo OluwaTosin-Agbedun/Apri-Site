@@ -4,8 +4,7 @@ import { getCurrentAdmin } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import {
   PapermarkError,
-  listDocuments,
-  listFolders,
+  listDocumentsInFolder,
   listLinks,
   resolveShareUrl,
 } from "@/lib/papermark"
@@ -39,18 +38,14 @@ export async function POST() {
   }
 
   let documents
+  const folderId = process.env.PAPERMARK_OPEN_EDITIONS_FOLDER_ID?.trim()
+  if (!folderId) {
+    return NextResponse.json({ error: 'PAPERMARK_OPEN_EDITIONS_FOLDER_ID is not configured for 07 Open Editions.' }, { status: 503 })
+  }
   try {
-    const folders = await listFolders()
-    const openFolder = folders.find(
-      (folder) =>
-        folder.name.trim().toLowerCase() === OPEN_FOLDER_NAME.toLowerCase(),
-    )
-    if (!openFolder) {
-      throw new PapermarkError(
-        `Papermark folder "${OPEN_FOLDER_NAME}" was not found. Create it or restore that exact name before fetching.`,
-      )
-    }
-    documents = await listDocuments(openFolder.id)
+    // This is the only document-list API call in APRI. It always carries the
+    // configured ID for the Papermark folder named exactly 07 Open Editions.
+    documents = await listDocumentsInFolder(folderId)
   } catch (error) {
     const message =
       error instanceof PapermarkError
@@ -100,13 +95,11 @@ export async function POST() {
     if (!row) {
       await sql`
         insert into documents (
-          slug, title, papermark_document_id, papermark_link,
-          status, is_published, cta_label, cta_mode, synced_at,
-          visibility, open_link_url
+          slug, title, papermark_document_id, papermark_link, audience,
+          status, is_published, visibility, cta_label, cta_mode, synced_at
         ) values (
-          ${slugify(title, doc.id)}, ${title}, ${doc.id}, ${shareUrl ?? ""},
-          'draft', false, 'Read now', 'link', now(),
-          'OPEN', ${shareUrl}
+          ${slugify(title, doc.id)}, ${title}, ${doc.id}, ${shareUrl ?? ''}, '',
+          'draft', false, 'OPEN', 'Access Secure Note', 'link', now()
         )
         on conflict (papermark_document_id)
           where papermark_document_id is not null

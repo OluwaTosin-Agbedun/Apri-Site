@@ -63,23 +63,25 @@
 // ---------------------------------------------------------------------------
 import { revalidatePath } from "next/cache"
 import * as z from "zod"
-import { requireAdmin, requireOwner } from "@/lib/dal"
+import { requireAdmin } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import { issueToken } from "@/lib/magic-link"
 import { sendWelcome } from "@/lib/subscriber-email"
 import { sendPublishAlert as sendAlert, previewAlert } from "@/lib/alerts"
 import {
   PUBLIC_TIER_NAMES,
+  levelForPublicTier,
   isEntitled,
   isLevel,
   isVisibility,
-  levelForPublicTier,
   levelLabel,
+  LEVELS,
   type Level,
 } from "@/lib/entitlements"
 import { applyLevelChange, type LevelChangeOutcome } from "@/lib/level-changes"
 import { fieldErrors, type FormState } from "@/lib/definitions"
 import { papermarkEmbedUrl } from "@/lib/papermark-embed"
+import { normalisePapermarkUrl } from "@/lib/papermark-embed"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -94,20 +96,18 @@ function normaliseSecureLink(value: unknown): unknown {
 }
 
 const httpsOrBlank = z
-  .preprocess(
-    normaliseSecureLink,
-    z.union([
-      z.literal(""),
-      z
-        .string()
-        .trim()
-        .max(500)
-        .pipe(z.url({ protocol: /^https$/, error: "Must be an https:// URL." })),
-    ]),
-  )
+  .union([
+    z.literal(""),
+    z
+      .string()
+      .trim()
+      .max(500)
+      .pipe(z.url({ protocol: /^https$/, error: "Must be an https:// URL." })),
+  ])
   .default("")
 
 const SubscriberAdminSchema = z.object({
+  clientType: z.enum(["subscriber", "engagement"]).default("subscriber"),
   fullName: z.string().trim().min(1, { error: "A name is required." }).max(160),
   organisation: z.string().trim().max(200).default(""),
   roleTitle: z.string().trim().max(160).default(""),
@@ -122,9 +122,11 @@ const SubscriberAdminSchema = z.object({
   publicTier: z
     .enum(PUBLIC_TIER_NAMES as [string, ...string[]])
     .or(z.literal("")),
+  level: z.enum(LEVELS).or(z.literal("")),
   seats: z.coerce.number().int().min(1).max(500).default(1),
   termStart: z.union([z.literal(""), z.string().trim().max(10)]).default(""),
   termEnd: z.union([z.literal(""), z.string().trim().max(10)]).default(""),
+  status: z.enum(["pending", "active", "lapsed", "suspended"]),
   invoiceRef: z.string().trim().max(120).default(""),
   libraryLinkUrl: httpsOrBlank,
   note: z.string().trim().max(600).default(""),
@@ -138,22 +140,27 @@ export async function saveSubscriber(
   if (id && !UUID.test(id)) return { message: "Unknown subscriber." }
 
   const parsed = SubscriberAdminSchema.safeParse({
+    clientType: formData.get("clientType") ?? "subscriber",
     fullName: formData.get("fullName"),
     organisation: formData.get("organisation") ?? "",
     roleTitle: formData.get("roleTitle") ?? "",
     email: formData.get("email"),
     phone: formData.get("phone") ?? "",
     publicTier: formData.get("publicTier") ?? "",
+    level: formData.get("level") ?? "",
     seats: formData.get("seats") ?? 1,
     termStart: formData.get("termStart") ?? "",
     termEnd: formData.get("termEnd") ?? "",
+    status: formData.get("status") ?? "pending",
     invoiceRef: formData.get("invoiceRef") ?? "",
-    libraryLinkUrl: formData.get("libraryLinkUrl") ?? "",
+    libraryLinkUrl: normalisePapermarkUrl(String(formData.get("libraryLinkUrl") ?? "")),
     note: formData.get("note") ?? "",
   })
 
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
   const d = parsed.data
+  const level = levelForPublicTier(d.publicTier)
+  const seats = d.publicTier === "Individual Access" ? 1 : d.seats
   if (d.libraryLinkUrl && !papermarkEmbedUrl(d.libraryLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return {
       errors: {
@@ -163,10 +170,7 @@ export async function saveSubscriber(
       },
     }
   }
-
   const sql = getSql()
-  const level = levelForPublicTier(d.publicTier)
-  const seats = d.publicTier === "Individual Access" ? 1 : d.seats
   const termStart = d.termStart || null
   const termEnd = d.termEnd || null
   if (d.libraryLinkUrl) {
@@ -203,7 +207,6 @@ export async function saveSubscriber(
           full_name = ${d.fullName}, name = ${d.fullName},
           organization = ${d.organisation}, role_title = ${d.roleTitle},
           email = ${d.email}, phone = ${d.phone},
-          client_type = 'subscriber',
           public_tier = ${d.publicTier}, subscription_level = ${d.publicTier},
           level = ${level}, seats = ${seats},
           term_start = ${termStart}::date, term_end = ${termEnd}::date,
@@ -270,9 +273,7 @@ export async function activateSubscriber(id: string): Promise<FormState> {
 
   const rows = (await sql`
     select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url
-    from subscribers
-    where id = ${id} and client_type = 'subscriber'
-    limit 1
+    from subscribers where id = ${id} limit 1
   `) as {
     id: string
     full_name: string | null
@@ -289,9 +290,12 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   const row = rows[0]
   if (!row) return { message: "That subscriber no longer exists." }
 
+  if (!row.public_tier) {
+    return { message: "Set Subscription access level before activating." }
+  }
   if (!isLevel(row.level)) {
     return {
-      message: "Set a subscription access level on this record before activating it.",
+      message: "Save a valid Subscription access level before activating.",
     }
   }
   if (!row.term_end) {
@@ -306,7 +310,6 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   if (!papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return { message: "Replace the private library link with a valid Papermark share link before activating." }
   }
-
   const duplicates = await sql`
     select 1 from subscribers
     where library_link_url = ${row.library_link_url} and id <> ${id}
@@ -349,7 +352,7 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   }
 
   refresh()
-  const granted = row.public_tier || levelLabel(row.level, row.seats)
+  const granted = levelLabel(row.level, row.seats)
 
   return {
     ok: true,
@@ -360,20 +363,22 @@ export async function activateSubscriber(id: string): Promise<FormState> {
 }
 
 /** Permanently remove one subscriber and their dependent portal access records. */
-export async function deleteSubscriber(id: string): Promise<FormState> {
-  await requireAdmin()
+export async function deleteSubscriber(id: string, confirmationEmail: string): Promise<FormState> {
+  const admin = await requireAdmin()
+  if (admin.role !== "owner") return { message: "Only an owner can delete subscribers." }
   if (!UUID.test(id)) return { message: "Unknown subscriber." }
 
   const sql = getSql()
   const rows = await sql`
     delete from subscribers
     where id = ${id} and client_type = 'subscriber'
+      and lower(email) = ${confirmationEmail.trim().toLowerCase()}
     returning id
   `
-  if (!rows[0]) return { message: "That subscriber no longer exists." }
+  if (!rows[0]) return { message: "The confirmation email did not match." }
 
   refresh()
-  return { ok: true, message: "Subscriber deleted." }
+  return { ok: true, message: "Subscriber deleted from APRI. Revoke the Papermark link separately." }
 }
 
 export async function resendSignInLink(id: string): Promise<FormState> {
@@ -420,43 +425,6 @@ export async function resendSignInLink(id: string): Promise<FormState> {
     message: `A fresh sign-in link has been sent to ${row.email}.`,
   }
 }
-export async function deleteSubscriber(
-  id: string,
-  emailConfirmation: string,
-): Promise<FormState> {
-  await requireOwner()
-  if (!UUID.test(id)) return { message: "Unknown subscriber." }
-
-  const sql = getSql()
-  const rows = (await sql`
-    select email, library_link_url
-    from subscribers
-    where id = ${id} and client_type = 'subscriber'
-    limit 1
-  `) as { email: string; library_link_url: string | null }[]
-
-  const row = rows[0]
-  if (!row) return { message: "That subscriber no longer exists." }
-  if (emailConfirmation.trim().toLowerCase() !== row.email.toLowerCase()) {
-    return {
-      message: "The email confirmation did not match. Nothing was deleted.",
-    }
-  }
-
-  await sql`
-    delete from subscribers
-    where id = ${id} and client_type = 'subscriber'
-  `
-
-  refresh()
-  return {
-    ok: true,
-    message: row.library_link_url
-      ? "Subscriber deleted from APRI. Revoke their private link in Papermark too."
-      : "Subscriber deleted from APRI.",
-  }
-}
-
 export async function setPublicationAccess(
   subscriberId: string,
   publicationId: string,
@@ -515,6 +483,5 @@ function startOfToday(): Date {
 function refresh() {
   revalidatePath("/admin")
   revalidatePath("/admin/subscribers")
-  revalidatePath("/admin/subscribers/[id]", "page")
   revalidatePath("/portal")
 }

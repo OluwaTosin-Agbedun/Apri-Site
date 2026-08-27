@@ -2,7 +2,7 @@ import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge } from '@/components/PublicationAccess'
-import { getOpenPublications } from '@/lib/publications'
+import { getPublishedPublications } from '@/lib/publications'
 
 /**
  * Cached, then revalidated -- not rendered for every visitor.
@@ -20,7 +20,7 @@ export const metadata = {
 }
 
 export default async function PublicationsPage() {
-  const publications = await getOpenPublications()
+  const publications = await getPublishedPublications()
 
   return (
     <div className="min-h-screen bg-background">

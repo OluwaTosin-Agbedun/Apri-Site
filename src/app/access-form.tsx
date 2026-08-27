@@ -34,6 +34,13 @@ export default function AccessForm({
 }) {
   const [state, action, pending] = useActionState(requestAccess, undefined)
   const [subscriptionLevel, setSubscriptionLevel] = useState(defaultLevel)
+  const [seats, setSeats] = useState('')
+  const showSeats = Boolean(subscriptionLevel && subscriptionLevel !== 'Individual Access')
+
+  function changeLevel(value: string) {
+    setSubscriptionLevel(value)
+    if (value === 'Individual Access' || !value) setSeats('')
+  }
 
   if (state?.ok) {
     return (
@@ -169,16 +176,17 @@ export default function AccessForm({
 
       <div>
         <label htmlFor="subscriptionLevel" className={labelClass}>
-          Which subscription access level interests you?
+          Subscription access level
         </label>
         <select
           id="subscriptionLevel"
           name="subscriptionLevel"
           className={`${field} appearance-none cursor-pointer`}
           value={subscriptionLevel}
-          onChange={(event) => setSubscriptionLevel(event.target.value)}
+          onChange={(event) => changeLevel(event.target.value)}
+          required
         >
-          <option value="">No preference</option>
+          <option value="">Select an access level</option>
           {PUBLIC_TIER_NAMES.map((level) => (
             <option key={level} value={level}>
               {level}
@@ -186,22 +194,15 @@ export default function AccessForm({
           ))}
         </select>
         <p className="mt-2 text-xs text-muted-foreground">
-          Optional, and only a guide &mdash; we will recommend the right level when we reply.
+          Select the access level required for this subscription.
         </p>
         <Err messages={state?.errors?.subscriptionLevel} />
       </div>
 
-      {subscriptionLevel === "Individual Access" ? (
-        <div>
-          <input type="hidden" name="seats" value="1" />
-          <p className="text-sm text-foreground/80">
-            Individual Access includes one named person.
-          </p>
-        </div>
-      ) : (
+      {showSeats && (
         <div>
           <label htmlFor="seats" className={labelClass}>
-            How many people would need access?
+            How many people need access?
           </label>
           <input
             id="seats"
@@ -211,12 +212,13 @@ export default function AccessForm({
             min={1}
             max={500}
             step={1}
-            defaultValue={1}
+            value={seats}
+            onChange={(event) => setSeats(event.target.value)}
             required
             className={field}
           />
           <p className="mt-2 text-xs text-muted-foreground">
-            Each person receives their own sign-in.
+            Each person gets their own sign-in and individually identified access.
           </p>
           <Err messages={state?.errors?.seats} />
         </div>

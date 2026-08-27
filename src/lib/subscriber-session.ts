@@ -1,6 +1,10 @@
 import "server-only"
 import { cookies } from "next/headers"
 import { SignJWT, jwtVerify } from "jose"
+import {
+  portalPrincipalFromClaims,
+  type PortalPrincipal,
+} from "./portal-session-claims"
 
 /**
  * Subscriber sessions, kept entirely separate from admin sessions.
@@ -28,10 +32,7 @@ const COOKIE_NAME = "apri_subscriber"
  */
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 90 // 90 days
 
-export type SubscriberSessionPayload = {
-  principalId: string
-  principalType: "subscriber" | "briefing"
-}
+export type SubscriberSessionPayload = PortalPrincipal
 
 function getKey(): Uint8Array {
   const secret = process.env.SESSION_SECRET
@@ -65,12 +66,7 @@ export async function decrypt(
       algorithms: ["HS256"], // Pinned, to prevent algorithm confusion.
       audience: "subscriber", // An admin token cannot satisfy this.
     })
-    const principalId = payload.principalId ?? payload.subscriberId
-    const principalType = payload.principalType ?? "subscriber"
-    if (typeof principalId !== "string") return null
-    if (principalType !== "subscriber" && principalType !== "briefing")
-      return null
-    return { principalId, principalType }
+    return portalPrincipalFromClaims(payload)
   } catch {
     return null
   }

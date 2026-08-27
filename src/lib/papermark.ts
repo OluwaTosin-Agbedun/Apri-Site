@@ -134,43 +134,26 @@ function unwrap<T>(data: unknown, legacyKey: string): { items: T[]; next: string
   return { items: [], next: null }
 }
 
-export async function listFolders(): Promise<PapermarkFolder[]> {
-  const folders: PapermarkFolder[] = []
-  let cursor: string | null = null
-
-  do {
-    const query = new URLSearchParams({ limit: '100' })
-    if (cursor) query.set('cursor', cursor)
-    const page = unwrap<PapermarkFolder>(
-      await call<unknown>(`/v1/folders?${query.toString()}`),
-      'folders'
-    )
-    folders.push(...page.items)
-    cursor = page.next
-  } while (cursor && folders.length < 2000)
-
-  return folders
-}
-
-export async function listDocuments(
-  folderId?: string
+/**
+ * Documents from one explicitly selected folder.
+ *
+ * There is deliberately no team-wide list helper: APRI Fetch must never have a
+ * code path that can fall back to importing 00 Masters or folders 01–06.
+ */
+export async function listDocumentsInFolder(
+  folderId: string,
 ): Promise<PapermarkDocument[]> {
-  const documents: PapermarkDocument[] = []
-  let cursor: string | null = null
-
-  do {
-    const query = new URLSearchParams({ limit: '100' })
-    if (cursor) query.set('cursor', cursor)
-    if (folderId) query.set('folderId', folderId)
-    const page = unwrap<PapermarkDocument>(
-      await call<unknown>(`/v1/documents?${query.toString()}`),
-      'documents'
-    )
-    documents.push(...page.items)
-    cursor = page.next
-  } while (cursor && documents.length < 2000)
-
-  return documents
+  const selectedFolderId = folderId.trim()
+  if (!selectedFolderId) {
+    throw new PapermarkError("A Papermark folder ID is required.")
+  }
+  const { items } = unwrap<PapermarkDocument>(
+    await call<unknown>(
+      `/v1/documents?folder_id=${encodeURIComponent(selectedFolderId)}`,
+    ),
+    'documents'
+  )
+  return items
 }
 
 /**

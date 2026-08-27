@@ -87,22 +87,16 @@ export async function setDocumentStatus(
 }
 
 export async function deleteDocument(id: string): Promise<FormState> {
-  await requireOwner()
+  const admin = await requireAdmin()
+  if (admin.role !== 'owner') return { message: 'Only an owner can delete publications.' }
   if (!UUID.test(id)) return { message: 'Unknown publication.' }
-
   const sql = getSql()
-  const rows = (await sql`
-    select id from documents where id = ${id} limit 1
-  `) as { id: string }[]
+  // Database foreign keys remove APRI-only access, copy, view and alert
+  // associations. No Papermark API is called, so its original and link remain.
+  const rows = await sql`delete from documents where id=${id} returning id`
   if (!rows[0]) return { message: 'That publication no longer exists.' }
-
-  await sql`delete from documents where id = ${id}`
   refresh()
-  return {
-    ok: true,
-    message:
-      'Publication deleted from APRI. The Papermark document and link were not deleted.',
-  }
+  return { ok:true, message:'Publication deleted from APRI. The Papermark original was not changed.' }
 }
 
 /** Save the editable CMS fields for one publication. */

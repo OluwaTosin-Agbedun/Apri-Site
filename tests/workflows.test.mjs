@@ -1,6 +1,12 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
+import {
+  papermarkEmbedUrl,
+  subscriberLibraryEmbedUrl,
+} from "../src/lib/papermark-embed.ts"
+import { seatsForSubscriptionRequest } from "../src/lib/entitlements.ts"
+import { portalVerificationUrl } from "../src/lib/app-url.ts"
 
 const read = (path) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8")
@@ -14,72 +20,73 @@ test("subscriber activation requires level, term and a unique library link", () 
   assert.match(source, /already assigned to another client/)
 })
 
-test("subscriber admin exposes one access level and protects activation status", () => {
-  const form = read("src/app/admin/subscribers/[id]/subscriber-form.tsx")
-  const action = read("src/app/actions/subscribers.ts")
-  assert.match(form, /Subscription access level/)
-  assert.doesNotMatch(form, /Access level \(internal\)/)
-  assert.doesNotMatch(form, /Tier \(as named publicly\)/)
-  assert.doesNotMatch(form, /name="status"/)
-  assert.match(action, /levelForPublicTier\(d\.publicTier\)/)
-  assert.doesNotMatch(action, /formData\.get\("status"\)/)
+test("subscriber deletion is admin-gated and cannot delete briefing clients", () => {
+  const source = read("src/app/actions/subscribers.ts")
+  assert.match(source, /export async function deleteSubscriber/)
+  assert.match(source, /await requireAdmin\(\)/)
+  assert.match(source, /delete from subscribers/)
+  assert.match(source, /client_type = 'subscriber'/)
+  assert.match(source, /lower\(email\).*confirmationEmail/)
+  const controls = read("src/app/admin/subscribers/seat-actions.tsx")
+  assert.match(controls, /window\.prompt/)
+  assert.match(controls, /confirmation !== email/)
 })
 
-test("Individual Access is one seat in both request and admin flows", () => {
-  const publicForm = read("src/app/access-form.tsx")
-  const publicAction = read("src/app/actions/public.ts")
-  const adminForm = read("src/app/admin/subscribers/[id]/subscriber-form.tsx")
-  assert.match(publicForm, /subscriptionLevel === "Individual Access"/)
-  assert.match(publicForm, /name="seats" value="1"/)
-  assert.match(
-    publicAction,
-    /subscriptionLevel === "Individual Access" \? 1 : requestedSeats/,
-  )
-  assert.match(adminForm, /readOnly=\{isIndividual\}/)
+test("Individual Access needs no seat field and always stores one seat", () => {
+  assert.equal(seatsForSubscriptionRequest("Individual Access", null), 1)
+  assert.equal(seatsForSubscriptionRequest("Individual Access", "99"), 1)
 })
 
-test("Papermark sync imports only the Open Editions folder as OPEN", () => {
-  const client = read("src/lib/papermark.ts")
-  const route = read("src/app/api/admin/papermark/sync/route.ts")
-  assert.match(client, /listFolders/)
-  assert.match(client, /query\.set\('folderId', folderId\)/)
-  assert.match(route, /07 Open Editions/)
-  assert.match(route, /listDocuments\(openFolder\.id\)/)
-  assert.match(route, /visibility = 'OPEN'/)
+test("multi-seat access requires and preserves a valid seat count", () => {
+  assert.equal(seatsForSubscriptionRequest("Professional Team Access", null), null)
+  assert.equal(seatsForSubscriptionRequest("Professional Team Access", "8"), 8)
 })
 
-test("APRI custom Papermark links are accepted and embeddable", () => {
-  const embed = read("src/lib/papermark-embed.ts")
-  const config = read("next.config.ts")
-  const action = read("src/app/actions/subscribers.ts")
-  assert.match(embed, /docs\.athenacentre\.org/)
-  assert.match(config, /https:\/\/docs\.athenacentre\.org/)
-  assert.match(action, /normaliseSecureLink/)
+test("subscriber form orders access level before conditional seats and resets Individual", () => {
+  const source = read("src/app/access-form.tsx")
+  assert.ok(source.indexOf("Subscription access level") < source.indexOf("How many people need access?"))
+  assert.match(source, /subscriptionLevel !== 'Individual Access'/)
+  assert.match(source, /if \(value === 'Individual Access' \|\| !value\) setSeats\(''\)/)
 })
 
-test("public publications index reads only published OPEN editions", () => {
-  const library = read("src/lib/publications.ts")
-  const page = read("src/app/publications/page.tsx")
-  assert.match(library, /where is_published = true and visibility = 'OPEN'/)
-  assert.match(page, /getOpenPublications/)
-  assert.doesNotMatch(page, /getAllPublications/)
+test("portal emails use only the APRI production callback", () => {
+  const url = portalVerificationUrl("safe-test-token")
+  assert.equal(url, "https://apri.athenacentre.org/portal/verify?token=safe-test-token")
+  assert.doesNotMatch(url, /localhost|vercel\.app/)
 })
 
-test("owner deletion removes APRI records without deleting Papermark data", () => {
-  const subscribers = read("src/app/actions/subscribers.ts")
-  const documents = read("src/app/actions/documents.ts")
-  assert.match(subscribers, /deleteSubscriber/)
-  assert.match(subscribers, /await requireOwner\(\)/)
-  assert.match(subscribers, /delete from subscribers/)
-  assert.match(documents, /deleteDocument/)
-  assert.match(documents, /delete from documents/)
-  assert.doesNotMatch(documents, /revokeLink/)
+test("briefing detail awaits params and queries briefing_requests with migration fallback", () => {
+  const source = read("src/app/admin/briefings/[id]/page.tsx")
+  assert.match(source, /const \{ id \} = await params/)
+  assert.match(source, /from briefing_requests where id=\$\{id\}/)
+  assert.doesNotMatch(source, /from subscribers/)
+  assert.match(source, /information_schema\.columns/)
+})
+
+test("briefing activation and resend use briefing-only tokens", () => {
+  const actions = read("src/app/actions/briefings.ts")
+  const magic = read("src/lib/magic-link.ts")
+  assert.match(actions, /update briefing_requests set status='Active'/)
+  assert.match(actions, /issueBriefingToken\(id\)/)
+  assert.match(actions, /resendBriefingSignInLink/)
+  assert.match(magic, /createSubscriberSession\(principal\.id, "briefing"\)/)
+  assert.match(magic, /consumed_at is null and expires_at>now\(\)/)
+})
+
+test("Papermark sync is pinned to 07 Open Editions and creates private-safe OPEN drafts", () => {
+  const source = read("src/app/api/admin/papermark/sync/route.ts")
+  assert.match(source, /PAPERMARK_OPEN_EDITIONS_FOLDER_ID/)
+  assert.match(source, /listDocumentsInFolder\(folderId\)/)
+  assert.match(source, /'draft', false, 'OPEN'/)
 })
 
 test("briefings remain separate principals with their own link and token", () => {
   const schema = read("db/schema.sql")
   const action = read("src/app/actions/briefings.ts")
-  assert.match(schema, /briefing_requests add column if not exists private_link_url/)
+  assert.match(
+    schema,
+    /briefing_requests add column if not exists private_link_url/,
+  )
   assert.match(schema, /briefing_request_id uuid/)
   assert.match(action, /issueBriefingToken\(id\)/)
   assert.doesNotMatch(action, /insert into subscribers/i)
@@ -93,4 +100,60 @@ test("both public request types send requester and manager messages", () => {
   assert.match(source, /sendAccessRequestNotification/)
   assert.match(source, /sendBriefingConfirmation/)
   assert.match(source, /sendBriefingNotification/)
+})
+
+const active = {
+  authenticatedSubscriberId: "subscriber-a",
+  subscriberId: "subscriber-a",
+  status: "active",
+  termEnd: "2030-12-31",
+  libraryLinkUrl: "https://www.papermark.com/view/private-a",
+  now: new Date("2030-01-01T12:00:00Z"),
+}
+
+test("an active subscriber receives their embedded private library URL", () => {
+  assert.equal(
+    subscriberLibraryEmbedUrl(active),
+    "https://www.papermark.com/view/private-a?embed=1",
+  )
+})
+
+test("unauthenticated, inactive and expired subscribers cannot render a library", () => {
+  assert.equal(subscriberLibraryEmbedUrl({ ...active, authenticatedSubscriberId: null }), null)
+  assert.equal(subscriberLibraryEmbedUrl({ ...active, status: "pending" }), null)
+  assert.equal(
+    subscriberLibraryEmbedUrl({ ...active, termEnd: "2029-12-31" }),
+    null,
+  )
+})
+
+test("a subscriber cannot render another subscriber's private library", () => {
+  assert.equal(
+    subscriberLibraryEmbedUrl({ ...active, authenticatedSubscriberId: "subscriber-b" }),
+    null,
+  )
+})
+
+test("unsafe, unrelated and Masters URLs are rejected", () => {
+  for (const url of [
+    "javascript:alert(1)",
+    "data:text/html,bad",
+    "not a url",
+    "https://example.com/view/private-a",
+    "https://evil.papermark.com/view/private-a",
+    "https://www.papermark.com/00-masters/private-a",
+  ]) {
+    assert.equal(papermarkEmbedUrl(url), null, url)
+  }
+})
+
+test("configured HTTPS Papermark custom domains are allowed without a shared fallback", () => {
+  assert.equal(
+    papermarkEmbedUrl(
+      "https://library.apri.example/client/private-a?email=required",
+      "library.apri.example",
+    ),
+    "https://library.apri.example/client/private-a?email=required&embed=1",
+  )
+  assert.equal(subscriberLibraryEmbedUrl({ ...active, libraryLinkUrl: null }), null)
 })

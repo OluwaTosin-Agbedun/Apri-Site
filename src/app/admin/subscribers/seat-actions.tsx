@@ -34,11 +34,11 @@ import {
   deleteSubscriber,
   resendSignInLink,
 } from "@/app/actions/subscribers"
-import { activateSubscriber, resendSignInLink } from "@/app/actions/subscribers"
 import { revokeAccessFor } from "@/app/actions/copies"
 import type { FormState } from "@/lib/definitions"
 export default function SeatActions({
   id,
+  email,
   status,
   hasLevel,
   hasTermEnd,
@@ -47,6 +47,7 @@ export default function SeatActions({
   compact = false,
 }: {
   id: string
+  email: string
   status: string
   hasLevel: boolean
   hasTermEnd: boolean
@@ -72,7 +73,7 @@ export default function SeatActions({
   const isActive = status === "active"
   const ready = hasLevel && hasTermEnd && hasLibraryLink
   const blocked = !hasLevel
-    ? "Set a subscription access level first."
+    ? "Set Subscription access level first."
     : !hasTermEnd
       ? "Set a term end date first."
       : !hasLibraryLink
@@ -93,18 +94,18 @@ export default function SeatActions({
   }
 
   function remove() {
-    const confirmed = window.confirm(
-      "Permanently delete this subscriber?\n\nTheir APRI portal session, sign-in tokens, and access records will also be removed. This does not disable their share link in Papermark; disable it there separately. This cannot be undone.",
+    const confirmation = window.prompt(
+      `Type the subscriber's exact email to delete their APRI account:\n\n${email}\n\nPapermark access must be revoked separately.`,
     )
-    if (!confirmed) return
+    if (confirmation !== email) return
+    if (!window.confirm("Final warning: permanently delete this APRI subscriber and all APRI access records? Papermark access must be revoked separately.")) return
     setMessage(null)
     startTransition(async () => {
-      const result = await deleteSubscriber(id)
+      const result = await deleteSubscriber(id, confirmation)
       setOk(Boolean(result?.ok))
       if (result?.message) setMessage(result.message)
       if (result?.ok) {
-        if (compact) router.refresh()
-        else router.push("/admin/subscribers")
+        router.push("/admin/subscribers?deleted=1")
       }
     })
   }

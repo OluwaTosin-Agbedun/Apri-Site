@@ -17,9 +17,9 @@ export default async function AdminDashboardPage() {
 
   const [counts] = (await sql`
     select
-      (select count(*)::int from documents where is_published and visibility = 'OPEN') as documents,
-      (select count(*)::int from subscribers where client_type = 'subscriber') as subscribers,
-      (select count(*)::int from subscribers where client_type = 'subscriber' and lower(status) = 'pending') as pending,
+      (select count(*)::int from documents where is_published)      as documents,
+      (select count(*)::int from subscribers where client_type='subscriber') as subscribers,
+      (select count(*)::int from subscribers where client_type='subscriber' and lower(status)='pending') as pending,
       (select count(*)::int from briefing_requests where status = 'New') as new_briefings
   `) as {
     documents: number

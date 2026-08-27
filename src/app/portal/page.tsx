@@ -77,6 +77,7 @@ export default async function PortalPage() {
             <p className="mt-3 text-xs text-muted-foreground">
               This library is unique to you. Downloads are controlled by its Papermark settings.
             </p>
+            <a href={subscriber.libraryLinkUrl!} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-medium text-accent hover:text-accent-hover">Open Private Library</a>
           </section>
         ) : (
           <div className="border border-border bg-card/30 p-8 mb-10" role="alert">

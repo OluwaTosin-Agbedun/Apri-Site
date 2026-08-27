@@ -130,7 +130,7 @@ export async function getPublishedPublications(): Promise<Publication[]> {
     const sql = getSql()
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
-       where is_published = true
+       where is_published = true and status = 'published' and visibility = 'OPEN'
        order by sort_order asc, created_at desc`
     )) as Row[]
   }, 'published list')
@@ -158,7 +158,7 @@ export async function getPublicationBySlug(slug: string): Promise<Publication | 
     const sql = getSql()
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
-       where slug = $1 and is_published = true
+       where slug = $1 and is_published = true and status = 'published' and visibility = 'OPEN'
        limit 1`,
       [slug]
     )) as Row[]

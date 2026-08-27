@@ -2,6 +2,7 @@ import "server-only"
 import { Resend } from "resend"
 import { seriesLabel } from "./entitlements"
 import { emailNotice } from "./delivery"
+import { APRI_PRODUCTION_URL, portalVerificationUrl } from "./app-url"
 
 /**
  * Transactional email for the subscriber portal.
@@ -23,16 +24,9 @@ function getResend(): Resend | null {
   return _resend
 }
 
-const FROM = process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
+const FROM = process.env.SUBSCRIBER_FROM_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
 const CONTACT =
   process.env.BRIEFING_MANAGER_EMAIL ?? "intelligence@athenacentre.org"
-
-function appUrl(): string {
-  return (process.env.APP_URL ?? "https://apri.athenacentre.org").replace(
-    /\/$/,
-    "",
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Sign-in link
@@ -46,7 +40,7 @@ export async function sendSignInLink(args: {
   const resend = getResend()
   if (!resend) return
 
-  const url = `${appUrl()}/portal/verify?token=${encodeURIComponent(args.token)}`
+  const url = portalVerificationUrl(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   await resend.emails.send({
@@ -125,7 +119,7 @@ export async function sendWelcome(args: {
   const resend = getResend()
   if (!resend) return
 
-  const url = `${appUrl()}/portal/verify?token=${encodeURIComponent(args.token)}`
+  const url = portalVerificationUrl(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   await resend.emails.send({
@@ -163,7 +157,7 @@ export async function sendBriefingWelcome(args: {
 }): Promise<void> {
   const resend = getResend()
   if (!resend) return
-  const url = `${appUrl()}/portal/verify?token=${encodeURIComponent(args.token)}`
+  const url = portalVerificationUrl(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
   await resend.emails.send({
     from: `APRI <${FROM}>`,
@@ -198,7 +192,7 @@ export async function sendEditionAlert(alert: EditionAlert): Promise<void> {
   const resend = getResend()
   if (!resend) return
 
-  const target = alert.linkUrl ?? `${appUrl()}/portal`
+  const target = alert.linkUrl ?? `${APRI_PRODUCTION_URL}/portal`
   const label = alert.linkUrl ? "Read it now" : "Open my library"
   const kicker = [seriesLabel(alert.series), formatDate(alert.editionDate)]
     .filter(Boolean)

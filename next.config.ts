@@ -1,12 +1,7 @@
 import type { NextConfig } from 'next'
 
 function papermarkFrameSources(): string {
-  const sources = [
-    "'self'",
-    'https://papermark.com',
-    'https://*.papermark.com',
-    'https://docs.athenacentre.org',
-  ]
+  const sources = ["'self'", 'https://papermark.com', 'https://*.papermark.com', 'https://docs.athenacentre.org']
   const configured = process.env.PAPERMARK_CUSTOM_DOMAIN
   if (configured) {
     try {

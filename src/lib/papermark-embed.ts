@@ -1,11 +1,16 @@
 const OFFICIAL_HOSTS = new Set(['papermark.com', 'www.papermark.com', 'app.papermark.com'])
-const APRI_CUSTOM_HOSTS = new Set(['docs.athenacentre.org'])
+const APRI_HOSTS = new Set(['docs.athenacentre.org'])
+
+export function normalisePapermarkUrl(value: string): string {
+  const trimmed = value.trim()
+  return trimmed && !trimmed.includes('://') ? `https://${trimmed}` : trimmed
+}
 
 function configuredHost(customDomain?: string | null): string | null {
   if (!customDomain) return null
   try {
     const value = customDomain.includes('://') ? customDomain : `https://${customDomain}`
-    const url = new URL(value)
+    const url = new URL(normalisePapermarkUrl(value))
     return url.protocol === 'https:' ? url.hostname.toLowerCase() : null
   } catch {
     return null
@@ -21,10 +26,7 @@ export function papermarkEmbedUrl(
   try {
     const url = new URL(value)
     const host = url.hostname.toLowerCase()
-    const allowed =
-      OFFICIAL_HOSTS.has(host) ||
-      APRI_CUSTOM_HOSTS.has(host) ||
-      host === configuredHost(customDomain)
+    const allowed = OFFICIAL_HOSTS.has(host) || APRI_HOSTS.has(host) || host === configuredHost(customDomain)
     if (url.protocol !== 'https:' || !allowed || url.username || url.password) return null
     if (OFFICIAL_HOSTS.has(host) && !url.pathname.startsWith('/view/')) return null
     if (url.pathname === '/' || /(^|[-_/])00[-_ ]?masters?($|[-_/])/i.test(url.pathname)) {

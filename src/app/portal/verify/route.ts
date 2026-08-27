@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server'
-import { headers } from 'next/headers'
-import { getSql } from '@/lib/db'
-import { signInWithToken } from '@/lib/magic-link'
+import { NextResponse } from "next/server"
+import { headers } from "next/headers"
+import { getSql } from "@/lib/db"
+import { signInWithToken } from "@/lib/magic-link"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 /**
  * GET /portal/verify?token=…
@@ -15,18 +15,18 @@ export const dynamic = 'force-dynamic'
  * plain GET, which a page render cannot answer with a Set-Cookie.
  *
  * Both outcomes redirect. Success lands on the library; failure lands on the
- * sign-in form with a flag that shows one message covering every cause --
- * expired, already used, never existed, or a seat suspended since it was sent.
- * Distinguishing them would turn this URL into a probe for valid tokens.
+ * sign-in form with a safe recovery message for the token or account state.
  */
 /** Attempts allowed from one address inside the window. */
 const MAX_ATTEMPTS = 10
 const WINDOW_MINUTES = 15
 
 export async function GET(request: Request) {
-  const token = new URL(request.url).searchParams.get('token')
+  const token = new URL(request.url).searchParams.get("token")
 
-  const failed = NextResponse.redirect(new URL('/portal/sign-in?expired=1', request.url))
+  const failed = NextResponse.redirect(
+    new URL("/portal/sign-in?expired=1", request.url),
+  )
 
   if (!token) return failed
 
@@ -38,26 +38,38 @@ export async function GET(request: Request) {
   // the connection pool from a single machine.
   const ip = await clientIp()
   if (ip && (await tooManyAttempts(ip))) {
-    return NextResponse.redirect(new URL('/portal/sign-in?expired=1', request.url))
+    return NextResponse.redirect(
+      new URL("/portal/sign-in?expired=1", request.url),
+    )
   }
 
-  const signedIn = await signInWithToken(token)
+  let signedIn: Awaited<ReturnType<typeof signInWithToken>>
+  try {
+    signedIn = await signInWithToken(token)
+  } catch {
+    // Database/configuration failures must still land on a useful recovery page.
+    return NextResponse.redirect(
+      new URL("/portal/sign-in?expired=1", request.url),
+    )
+  }
 
   // Only failures are recorded. A subscriber who signs in successfully should
   // never be counted toward a limit meant for someone probing.
-  if (!signedIn) {
+  if (!signedIn.ok) {
     await recordAttempt(ip)
-    return failed
+    return NextResponse.redirect(
+      new URL(`/portal/sign-in?reason=${signedIn.reason}`, request.url),
+    )
   }
 
-  return NextResponse.redirect(new URL('/portal', request.url))
+  return NextResponse.redirect(new URL("/portal", request.url))
 }
 
 async function clientIp(): Promise<string> {
   const h = await headers()
-  const forwarded = h.get('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0]!.trim().slice(0, 64)
-  return h.get('x-real-ip')?.slice(0, 64) ?? ''
+  const forwarded = h.get("x-forwarded-for")
+  if (forwarded) return forwarded.split(",")[0]!.trim().slice(0, 64)
+  return h.get("x-real-ip")?.slice(0, 64) ?? ""
 }
 
 async function tooManyAttempts(ip: string): Promise<boolean> {
