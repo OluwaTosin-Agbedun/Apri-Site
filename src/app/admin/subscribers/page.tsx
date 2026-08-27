@@ -2,7 +2,6 @@ import Link from "next/link"
 import { requireAdmin } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
-import { levelLabelOrDash } from "@/lib/entitlements"
 import SeatActions from "./seat-actions"
 
 export const metadata = { title: "Subscribers · APRI" }
@@ -42,8 +41,6 @@ export default async function AdminSubscribersPage() {
     from subscribers s
     where s.client_type = 'subscriber'
     order by
-      -- Seats needing attention first: no longer active, but still holding
-      -- working links. Nothing else closes those in this deployment.
       case when lower(s.status) <> 'active'
             and exists (select 1 from publication_access pa
                         where pa.subscriber_id = s.id and pa.revoke_state = 'live')
@@ -54,17 +51,15 @@ export default async function AdminSubscribersPage() {
   `) as (Row & { live_links: number })[]
 
   const active = subscribers.filter(
-    (s) => s.status.toLowerCase() === "active",
+    (subscriber) => subscriber.status.toLowerCase() === "active",
   ).length
   const pending = subscribers.filter(
-    (s) => s.status.toLowerCase() === "pending",
+    (subscriber) => subscriber.status.toLowerCase() === "pending",
   ).length
-
-  // Seats that have stopped paying but can still open their documents. Nothing
-  // closes these on a schedule in this deployment, so the count is stated in the
-  // page header rather than left to be noticed row by row.
   const needRevoking = subscribers.filter(
-    (s) => s.status.toLowerCase() !== "active" && Number(s.live_links ?? 0) > 0,
+    (subscriber) =>
+      subscriber.status.toLowerCase() !== "active" &&
+      Number(subscriber.live_links ?? 0) > 0,
   ).length
 
   return (
@@ -97,81 +92,69 @@ export default async function AdminSubscribersPage() {
               <tr>
                 <th className="font-medium p-4">Name</th>
                 <th className="font-medium p-4">Organisation</th>
-                <th className="font-medium p-4">Tier</th>
-                <th className="font-medium p-4">Level</th>
+                <th className="font-medium p-4">Subscription access level</th>
                 <th className="font-medium p-4">Term ends</th>
-                <th className="font-medium p-4">Link</th>
+                <th className="font-medium p-4">Library link</th>
                 <th className="font-medium p-4">Status</th>
                 <th className="font-medium p-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {subscribers.map((sub) => {
-                const status = sub.status.toLowerCase()
-                const name = sub.full_name || sub.name || "—"
+              {subscribers.map((subscriber) => {
+                const status = subscriber.status.toLowerCase()
+                const name = subscriber.full_name || subscriber.name || "—"
                 return (
-                  <tr
-                    key={sub.id}
-                    className="hover:bg-black/5 transition-colors"
-                  >
+                  <tr key={subscriber.id} className="hover:bg-black/5 transition-colors">
                     <td className="p-4">
                       <Link
-                        href={`/admin/subscribers/${sub.id}`}
+                        href={`/admin/subscribers/${subscriber.id}`}
                         className="font-medium text-foreground hover:text-accent transition-colors"
                       >
                         {name}
                       </Link>
                       <span className="block text-xs text-muted-foreground mt-0.5">
-                        {sub.email}
+                        {subscriber.email}
                       </span>
                     </td>
                     <td className="p-4 text-foreground/70">
-                      {sub.organization || "—"}
+                      {subscriber.organization || "—"}
                     </td>
                     <td className="p-4 text-foreground/70">
-                      {sub.public_tier || "—"}
-                      {sub.seats > 1 && (
+                      {subscriber.public_tier || "—"}
+                      {subscriber.seats > 1 && (
                         <span className="text-xs text-muted-foreground">
-                          {" "}
-                          ({sub.seats} seats)
+                          {" "}({subscriber.seats} seats)
                         </span>
                       )}
                     </td>
                     <td className="p-4 text-foreground/70">
-                      {levelLabelOrDash(sub.level, sub.seats)}
-                    </td>
-                    <td className="p-4 text-foreground/70">
-                      {sub.term_end
-                        ? new Date(sub.term_end).toLocaleDateString("en-GB")
+                      {subscriber.term_end
+                        ? new Date(subscriber.term_end).toLocaleDateString("en-GB")
                         : "—"}
                     </td>
                     <td className="p-4">
-                      {sub.library_link_url ? (
+                      {subscriber.library_link_url ? (
                         <span className="text-xs text-accent">Set</span>
                       ) : (
-                        <span className="text-xs text-muted-foreground">
-                          Not set
-                        </span>
+                        <span className="text-xs text-muted-foreground">Not set</span>
                       )}
                     </td>
                     <td className="p-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                          STATUS_STYLE[status] ??
-                          "bg-muted text-muted-foreground border border-border"
-                        }`}
-                      >
+                      <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                        STATUS_STYLE[status] ??
+                        "bg-muted text-muted-foreground border border-border"
+                      }`}>
                         {status}
                       </span>
                     </td>
                     <td className="p-4 text-right">
                       <SeatActions
-                        id={sub.id}
+                        id={subscriber.id}
                         status={status}
-                        hasLevel={Boolean(sub.level)}
-                        hasTermEnd={Boolean(sub.term_end)}
-                        hasLibraryLink={Boolean(sub.library_link_url)}
-                        liveLinks={Number(sub.live_links ?? 0)}
+                        hasLevel={Boolean(subscriber.level)}
+                        hasTermEnd={Boolean(subscriber.term_end)}
+                        hasLibraryLink={Boolean(subscriber.library_link_url)}
+                        liveLinks={Number(subscriber.live_links ?? 0)}
                         compact
                       />
                     </td>
@@ -184,9 +167,9 @@ export default async function AdminSubscribersPage() {
       </div>
 
       <p className="mt-6 text-xs text-muted-foreground leading-relaxed max-w-2xl">
-        Activating a seat sets it live and emails the subscriber a working
-        sign-in link. It needs an access level and a term end date first. Access
-        closes on its own after the term end date.
+        Pending means the person has requested access but cannot sign in yet.
+        Complete their subscription access level, term end date and personal
+        Papermark library link, save the record, then activate it.
       </p>
     </AdminShell>
   )

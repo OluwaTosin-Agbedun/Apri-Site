@@ -53,7 +53,7 @@ export default async function AdminDocumentsPage() {
       admin={admin}
       current="/admin/documents"
       title="Publications"
-      description="Manage intelligence notes and briefings. Only published items appear on the public site."
+      description="Manage open public editions. Only Open items that you publish appear on the public Publications page."
       actions={
         <Link
           href="/admin/documents/new"
@@ -151,6 +151,7 @@ export default async function AdminDocumentsPage() {
                       status={doc.status}
                       visibility={doc.visibility}
                       title={doc.title}
+                      canDelete={admin.role === 'owner'}
                     />
                   </td>
                 </tr>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
 import { requestAccess } from '@/app/actions/public'
 import { PUBLIC_TIER_NAMES } from '@/lib/entitlements'
 
@@ -33,6 +33,7 @@ export default function AccessForm({
   defaultLevel?: string
 }) {
   const [state, action, pending] = useActionState(requestAccess, undefined)
+  const [subscriptionLevel, setSubscriptionLevel] = useState(defaultLevel)
 
   if (state?.ok) {
     return (
@@ -167,36 +168,15 @@ export default function AccessForm({
       </div>
 
       <div>
-        <label htmlFor="seats" className={labelClass}>
-          How many people would need access?
-        </label>
-        <input
-          id="seats"
-          name="seats"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={500}
-          step={1}
-          defaultValue={1}
-          required
-          className={field}
-        />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Each person gets their own sign-in and their own individually identified copy.
-        </p>
-        <Err messages={state?.errors?.seats} />
-      </div>
-
-      <div>
         <label htmlFor="subscriptionLevel" className={labelClass}>
-          Which level interests you?
+          Which subscription access level interests you?
         </label>
         <select
           id="subscriptionLevel"
           name="subscriptionLevel"
           className={`${field} appearance-none cursor-pointer`}
-          defaultValue={defaultLevel}
+          value={subscriptionLevel}
+          onChange={(event) => setSubscriptionLevel(event.target.value)}
         >
           <option value="">No preference</option>
           {PUBLIC_TIER_NAMES.map((level) => (
@@ -210,6 +190,37 @@ export default function AccessForm({
         </p>
         <Err messages={state?.errors?.subscriptionLevel} />
       </div>
+
+      {subscriptionLevel === "Individual Access" ? (
+        <div>
+          <input type="hidden" name="seats" value="1" />
+          <p className="text-sm text-foreground/80">
+            Individual Access includes one named person.
+          </p>
+        </div>
+      ) : (
+        <div>
+          <label htmlFor="seats" className={labelClass}>
+            How many people would need access?
+          </label>
+          <input
+            id="seats"
+            name="seats"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={500}
+            step={1}
+            defaultValue={1}
+            required
+            className={field}
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Each person receives their own sign-in.
+          </p>
+          <Err messages={state?.errors?.seats} />
+        </div>
+      )}
 
       <div>
         <label htmlFor="note" className={labelClass}>

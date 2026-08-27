@@ -2,7 +2,7 @@ import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge } from '@/components/PublicationAccess'
-import { getAllPublications } from '@/lib/publications'
+import { getOpenPublications } from '@/lib/publications'
 
 /**
  * Cached, then revalidated -- not rendered for every visitor.
@@ -20,7 +20,7 @@ export const metadata = {
 }
 
 export default async function PublicationsPage() {
-  const publications = await getAllPublications()
+  const publications = await getOpenPublications()
 
   return (
     <div className="min-h-screen bg-background">
@@ -32,13 +32,17 @@ export default async function PublicationsPage() {
             Publications
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            APRI publishes written intelligence products on Nigeria&rsquo;s political,
-            regulatory and political-economy environment, issued to subscribers and
-            authorised readers.
+            Open APRI editions available to authorised readers. Papermark
+            verifies your email before a document opens.
           </p>
         </header>
 
         <div className="space-y-8">
+          {publications.length === 0 && (
+            <p className="border border-border bg-card/30 p-8 text-sm text-muted-foreground">
+              No open publications are currently available.
+            </p>
+          )}
           {publications.map((doc) => (
             <Link
               key={doc.id}

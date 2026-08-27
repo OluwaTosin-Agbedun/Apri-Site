@@ -20,8 +20,16 @@ const BASE = process.env.PAPERMARK_API_BASE ?? 'https://api.papermark.com'
 export type PapermarkDocument = {
   id: string
   name: string
+  folderId?: string | null
   createdAt?: string
   updatedAt?: string
+}
+
+export type PapermarkFolder = {
+  id: string
+  name: string
+  parent_id?: string | null
+  path?: string
 }
 
 export type PapermarkLink = {
@@ -126,12 +134,43 @@ function unwrap<T>(data: unknown, legacyKey: string): { items: T[]; next: string
   return { items: [], next: null }
 }
 
-export async function listDocuments(): Promise<PapermarkDocument[]> {
-  const { items } = unwrap<PapermarkDocument>(
-    await call<unknown>('/v1/documents'),
-    'documents'
-  )
-  return items
+export async function listFolders(): Promise<PapermarkFolder[]> {
+  const folders: PapermarkFolder[] = []
+  let cursor: string | null = null
+
+  do {
+    const query = new URLSearchParams({ limit: '100' })
+    if (cursor) query.set('cursor', cursor)
+    const page = unwrap<PapermarkFolder>(
+      await call<unknown>(`/v1/folders?${query.toString()}`),
+      'folders'
+    )
+    folders.push(...page.items)
+    cursor = page.next
+  } while (cursor && folders.length < 2000)
+
+  return folders
+}
+
+export async function listDocuments(
+  folderId?: string
+): Promise<PapermarkDocument[]> {
+  const documents: PapermarkDocument[] = []
+  let cursor: string | null = null
+
+  do {
+    const query = new URLSearchParams({ limit: '100' })
+    if (cursor) query.set('cursor', cursor)
+    if (folderId) query.set('folderId', folderId)
+    const page = unwrap<PapermarkDocument>(
+      await call<unknown>(`/v1/documents?${query.toString()}`),
+      'documents'
+    )
+    documents.push(...page.items)
+    cursor = page.next
+  } while (cursor && documents.length < 2000)
+
+  return documents
 }
 
 /**

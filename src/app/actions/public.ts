@@ -141,11 +141,13 @@ export async function requestAccess(
     organization,
     email,
     roleTitle,
-    seats,
+    seats: requestedSeats,
     subscriptionLevel,
     note,
   } = parsed.data
   const phone = normalisePhone(parsed.data.phone)
+  const seats =
+    subscriptionLevel === "Individual Access" ? 1 : requestedSeats
 
   const sql = getSql()
   const ip = await clientIp()
@@ -177,7 +179,10 @@ export async function requestAccess(
         organization = ${organization},
         phone = ${phone},
         role_title = ${roleTitle},
+        client_type = 'subscriber',
         subscription_level = ${subscriptionLevel},
+        public_tier = ${subscriptionLevel},
+        level = ${level},
         seats = ${seats},
         note = ${note},
         terms_accepted_at = now(),

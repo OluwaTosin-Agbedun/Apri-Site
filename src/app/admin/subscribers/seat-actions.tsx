@@ -29,6 +29,11 @@
 
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import {
+  activateSubscriber,
+  deleteSubscriber,
+  resendSignInLink,
+} from "@/app/actions/subscribers"
 import { activateSubscriber, resendSignInLink } from "@/app/actions/subscribers"
 import { revokeAccessFor } from "@/app/actions/copies"
 import type { FormState } from "@/lib/definitions"
@@ -67,7 +72,7 @@ export default function SeatActions({
   const isActive = status === "active"
   const ready = hasLevel && hasTermEnd && hasLibraryLink
   const blocked = !hasLevel
-    ? "Set an access level first."
+    ? "Set a subscription access level first."
     : !hasTermEnd
       ? "Set a term end date first."
       : !hasLibraryLink
@@ -85,6 +90,23 @@ export default function SeatActions({
         "can still see what they had.",
     )
     if (ok) run(revokeAccessFor)
+  }
+
+  function remove() {
+    const confirmed = window.confirm(
+      "Permanently delete this subscriber?\n\nTheir APRI portal session, sign-in tokens, and access records will also be removed. This does not disable their share link in Papermark; disable it there separately. This cannot be undone.",
+    )
+    if (!confirmed) return
+    setMessage(null)
+    startTransition(async () => {
+      const result = await deleteSubscriber(id)
+      setOk(Boolean(result?.ok))
+      if (result?.message) setMessage(result.message)
+      if (result?.ok) {
+        if (compact) router.refresh()
+        else router.push("/admin/subscribers")
+      }
+    })
   }
 
   if (compact) {
@@ -122,6 +144,14 @@ export default function SeatActions({
               Revoke {liveLinks}
             </button>
           )}
+          <button
+            type="button"
+            onClick={remove}
+            disabled={pending}
+            className="text-xs font-medium text-red-700 hover:text-red-800 cursor-pointer disabled:opacity-40"
+          >
+            Delete
+          </button>
         </div>
         {message && (
           <p
@@ -173,6 +203,15 @@ export default function SeatActions({
                 })`}
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={remove}
+          disabled={pending}
+          className="border border-red-200 text-red-700 px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-red-50 disabled:opacity-50 transition-colors cursor-pointer"
+        >
+          Delete subscriber
+        </button>
 
         {!isActive && blocked && (
           <p className="text-xs text-muted-foreground">{blocked}</p>

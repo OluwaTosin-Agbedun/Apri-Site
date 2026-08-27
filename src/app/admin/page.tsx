@@ -17,9 +17,9 @@ export default async function AdminDashboardPage() {
 
   const [counts] = (await sql`
     select
-      (select count(*)::int from documents where is_published)      as documents,
-      (select count(*)::int from subscribers)                        as subscribers,
-      (select count(*)::int from subscribers where status = 'Pending') as pending,
+      (select count(*)::int from documents where is_published and visibility = 'OPEN') as documents,
+      (select count(*)::int from subscribers where client_type = 'subscriber') as subscribers,
+      (select count(*)::int from subscribers where client_type = 'subscriber' and lower(status) = 'pending') as pending,
       (select count(*)::int from briefing_requests where status = 'New') as new_briefings
   `) as {
     documents: number
@@ -31,6 +31,7 @@ export default async function AdminDashboardPage() {
   const recent = (await sql`
     select id, title, kicker, papermark_link, cta_mode, created_at
     from documents
+    where is_published = true and visibility = 'OPEN'
     order by sort_order asc, created_at desc
     limit 5
   `) as {

@@ -1,17 +1,20 @@
-import { NextResponse } from 'next/server'
-import { revalidatePath } from 'next/cache'
-import { getCurrentAdmin } from '@/lib/dal'
-import { getSql } from '@/lib/db'
+import { NextResponse } from "next/server"
+import { revalidatePath } from "next/cache"
+import { getCurrentAdmin } from "@/lib/dal"
+import { getSql } from "@/lib/db"
 import {
   PapermarkError,
   listDocuments,
+  listFolders,
   listLinks,
   resolveShareUrl,
-} from '@/lib/papermark'
+} from "@/lib/papermark"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
-type Outcome = 'new' | 'updated' | 'unchanged' | 'missing-link'
+const OPEN_FOLDER_NAME = "07 Open Editions"
+
+type Outcome = "new" | "updated" | "unchanged" | "missing-link"
 
 type Item = {
   papermarkDocumentId: string
@@ -23,39 +26,36 @@ type Item = {
 function slugify(input: string, fallback: string): string {
   const slug = input
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, 100)
   return slug || fallback
 }
 
-/**
- * POST /api/admin/papermark/sync
- *
- * Pulls documents and their share links from Papermark and upserts them into
- * the `documents` table, keyed on papermark_document_id. Idempotent: pressing
- * the button repeatedly cannot create duplicates, because the unique partial
- * index on papermark_document_id turns a repeat insert into an update.
- *
- * Newly discovered documents land as status='draft' and are therefore invisible
- * on the public site until an administrator publishes them.
- */
 export async function POST() {
-  // Authorisation first, before any Papermark call or database write.
   const admin = await getCurrentAdmin()
   if (!admin) {
-    return NextResponse.json({ error: 'Not authorised.' }, { status: 401 })
+    return NextResponse.json({ error: "Not authorised." }, { status: 401 })
   }
 
   let documents
   try {
-    documents = await listDocuments()
+    const folders = await listFolders()
+    const openFolder = folders.find(
+      (folder) =>
+        folder.name.trim().toLowerCase() === OPEN_FOLDER_NAME.toLowerCase(),
+    )
+    if (!openFolder) {
+      throw new PapermarkError(
+        `Papermark folder "${OPEN_FOLDER_NAME}" was not found. Create it or restore that exact name before fetching.`,
+      )
+    }
+    documents = await listDocuments(openFolder.id)
   } catch (error) {
     const message =
       error instanceof PapermarkError
         ? error.message
-        : 'Unexpected error contacting Papermark.'
-    // Deliberately no stack trace or token echoed back to the client.
+        : "Unexpected error contacting Papermark."
     return NextResponse.json({ error: message }, { status: 502 })
   }
 
@@ -72,7 +72,6 @@ export async function POST() {
     let shareUrl: string | null = null
     try {
       const links = await listLinks(doc.id)
-      // First live, non-archived link wins.
       for (const link of links) {
         shareUrl = resolveShareUrl(link)
         if (shareUrl) break
@@ -81,48 +80,63 @@ export async function POST() {
       shareUrl = null
     }
 
-    const title = (doc.name ?? '').trim() || 'Untitled document'
+    const title = (doc.name ?? "").trim() || "Untitled document"
 
     const existing = (await sql`
-      select id, title, papermark_link, status
+      select id, title, papermark_link, open_link_url, visibility
       from documents
       where papermark_document_id = ${doc.id}
       limit 1
-    `) as { id: string; title: string; papermark_link: string; status: string }[]
+    `) as {
+      id: string
+      title: string
+      papermark_link: string
+      open_link_url: string | null
+      visibility: string
+    }[]
 
     const row = existing[0]
 
     if (!row) {
-      // Insert as draft. Never published automatically.
       await sql`
         insert into documents (
           slug, title, papermark_document_id, papermark_link,
-          status, is_published, cta_label, cta_mode, synced_at
+          status, is_published, cta_label, cta_mode, synced_at,
+          visibility, open_link_url
         ) values (
-          ${slugify(title, doc.id)}, ${title}, ${doc.id}, ${shareUrl ?? ''},
-          'draft', false, 'Access Secure Note', 'link', now()
+          ${slugify(title, doc.id)}, ${title}, ${doc.id}, ${shareUrl ?? ""},
+          'draft', false, 'Read now', 'link', now(),
+          'OPEN', ${shareUrl}
         )
-        on conflict (papermark_document_id) where papermark_document_id is not null
+        on conflict (papermark_document_id)
+          where papermark_document_id is not null
         do nothing
       `
       created++
-      const outcome: Outcome = shareUrl ? 'new' : 'missing-link'
+      const outcome: Outcome = shareUrl ? "new" : "missing-link"
       if (!shareUrl) missingLink++
-      items.push({ papermarkDocumentId: doc.id, title, outcome, papermarkUrl: shareUrl })
+      items.push({
+        papermarkDocumentId: doc.id,
+        title,
+        outcome,
+        papermarkUrl: shareUrl,
+      })
       continue
     }
 
-    // Only the Papermark-owned fields are refreshed. Editorial fields an
-    // administrator has written (description, audience, frequency, order) are
-    // never overwritten by a sync.
-    const linkChanged = shareUrl !== null && shareUrl !== row.papermark_link
+    const linkChanged =
+      shareUrl !== null &&
+      (shareUrl !== row.papermark_link || shareUrl !== row.open_link_url)
     const titleChanged = title !== row.title
+    const laneChanged = row.visibility !== "OPEN"
 
-    if (linkChanged || titleChanged) {
+    if (linkChanged || titleChanged || laneChanged) {
       await sql`
         update documents
         set title = ${title},
-            papermark_link = ${shareUrl ?? row.papermark_link},
+            papermark_link = coalesce(${shareUrl}, papermark_link),
+            open_link_url = coalesce(${shareUrl}, open_link_url),
+            visibility = 'OPEN',
             synced_at = now(),
             updated_at = now()
         where id = ${row.id}
@@ -131,18 +145,18 @@ export async function POST() {
       items.push({
         papermarkDocumentId: doc.id,
         title,
-        outcome: 'updated',
-        papermarkUrl: shareUrl ?? row.papermark_link,
+        outcome: "updated",
+        papermarkUrl: shareUrl ?? row.open_link_url ?? row.papermark_link,
       })
       continue
     }
 
-    if (!shareUrl && !row.papermark_link) {
+    if (!shareUrl && !row.open_link_url) {
       missingLink++
       items.push({
         papermarkDocumentId: doc.id,
         title,
-        outcome: 'missing-link',
+        outcome: "missing-link",
         papermarkUrl: null,
       })
       continue
@@ -153,17 +167,19 @@ export async function POST() {
     items.push({
       papermarkDocumentId: doc.id,
       title,
-      outcome: 'unchanged',
-      papermarkUrl: row.papermark_link,
+      outcome: "unchanged",
+      papermarkUrl: row.open_link_url ?? row.papermark_link,
     })
   }
 
-  revalidatePath('/admin/documents')
-  revalidatePath('/admin')
-  revalidatePath('/')
+  revalidatePath("/admin/documents")
+  revalidatePath("/admin")
+  revalidatePath("/")
+  revalidatePath("/publications")
 
   return NextResponse.json({
     ok: true,
+    folder: OPEN_FOLDER_NAME,
     summary: {
       fetched: documents.length,
       new: created,

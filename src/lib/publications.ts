@@ -138,12 +138,28 @@ export async function getPublishedPublications(): Promise<Publication[]> {
   return rows.map(toPublication)
 }
 
+/** Published OPEN editions, for the public Publications page. */
+export async function getOpenPublications(): Promise<Publication[]> {
+  const rows = await publicRead(async () => {
+    const sql = getSql()
+    return (await sql.query(
+      `select ${SELECT_COLUMNS} from documents
+       where is_published = true and visibility = 'OPEN'
+       order by sort_order asc, created_at desc`
+    )) as Row[]
+  }, 'open publications list')
+
+  return rows.map(toPublication)
+}
+
 /** Single publication by slug, for detail pages. */
 export async function getPublicationBySlug(slug: string): Promise<Publication | null> {
   const rows = await publicRead(async () => {
     const sql = getSql()
     return (await sql.query(
-      `select ${SELECT_COLUMNS} from documents where slug = $1 limit 1`,
+      `select ${SELECT_COLUMNS} from documents
+       where slug = $1 and is_published = true
+       limit 1`,
       [slug]
     )) as Row[]
   }, 'lookup by slug')

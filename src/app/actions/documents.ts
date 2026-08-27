@@ -1,10 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { requireAdmin } from '@/lib/dal'
+import { requireAdmin, requireOwner } from '@/lib/dal'
 import { getSql } from '@/lib/db'
 import { DocumentSchema, fieldErrors, type FormState } from '@/lib/definitions'
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STATUSES = ['draft', 'published', 'archived'] as const
 type Status = (typeof STATUSES)[number]
 
@@ -83,6 +84,25 @@ export async function setDocumentStatus(
 
   refresh()
   return { ok: true, message: `Publication set to ${next}.` }
+}
+
+export async function deleteDocument(id: string): Promise<FormState> {
+  await requireOwner()
+  if (!UUID.test(id)) return { message: 'Unknown publication.' }
+
+  const sql = getSql()
+  const rows = (await sql`
+    select id from documents where id = ${id} limit 1
+  `) as { id: string }[]
+  if (!rows[0]) return { message: 'That publication no longer exists.' }
+
+  await sql`delete from documents where id = ${id}`
+  refresh()
+  return {
+    ok: true,
+    message:
+      'Publication deleted from APRI. The Papermark document and link were not deleted.',
+  }
 }
 
 /** Save the editable CMS fields for one publication. */

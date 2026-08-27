@@ -64,9 +64,10 @@ export default function SyncPanel() {
         <div>
           <h3 className="font-serif text-lg text-foreground mb-2">Papermark</h3>
           <p className="text-sm text-foreground/70 max-w-xl leading-relaxed">
-            Pull documents and their secure share links from Papermark. Imported
-            documents arrive as drafts and stay off the public site until you
-            publish them. Running this repeatedly will not create duplicates.
+            Import only the documents inside Papermark&apos;s
+            <strong> 07 Open Editions</strong> folder. They arrive as Open
+            drafts and stay off the website until you publish them. Each item
+            needs its email-gated Papermark link.
           </p>
         </div>
         <button
