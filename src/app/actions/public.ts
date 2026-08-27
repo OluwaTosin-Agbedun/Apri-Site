@@ -155,6 +155,7 @@ export async function requestAccess(
     organization,
     email,
     roleTitle,
+    seats,
     subscriptionLevel,
     note,
   } = parsed.data

@@ -17,6 +17,7 @@ const BLANK: SubscriberDraft = {
   email: "",
   phone: "",
   publicTier: "",
+  level: "",
   seats: 1,
   termStart: "",
   termEnd: "",
@@ -103,6 +104,7 @@ export default async function EditSubscriberPage({
   // usually one of these.
   const draft: SubscriberDraft = {
     id: row.id,
+    clientType: row.client_type || "subscriber",
     clientType: "subscriber",
     fullName: row.full_name || row.name || "",
     organisation: row.organization,
@@ -110,6 +112,7 @@ export default async function EditSubscriberPage({
     email: row.email,
     phone: row.phone,
     publicTier: row.public_tier,
+    level: row.level ?? "",
     seats: row.seats,
     termStart: dateInput(row.term_start),
     termEnd: dateInput(row.term_end),

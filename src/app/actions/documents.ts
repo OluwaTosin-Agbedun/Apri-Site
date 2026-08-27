@@ -8,6 +8,7 @@ import { DocumentSchema, fieldErrors, type FormState } from '@/lib/definitions'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STATUSES = ['draft', 'published', 'archived'] as const
 type Status = (typeof STATUSES)[number]
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function refresh() {
   revalidatePath('/admin/documents')
