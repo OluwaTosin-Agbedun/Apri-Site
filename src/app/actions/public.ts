@@ -126,8 +126,6 @@ export async function requestAccess(
   const submittedSeats = formData.get("seats")
   const effectiveSeats = seatsForSubscriptionRequest(requestedTier, submittedSeats)
   if (effectiveSeats === null) {
-  const enforcedSeats = seatsForSubscriptionRequest(requestedTier, formData.get("seats"))
-  if (enforcedSeats === null) {
     return {
       errors: {
         [requestedTier ? "seats" : "subscriptionLevel"]: [
@@ -146,7 +144,6 @@ export async function requestAccess(
     phone: formData.get("phone"),
     roleTitle: formData.get("roleTitle") ?? "",
     seats: effectiveSeats,
-    seats: enforcedSeats,
     subscriptionLevel: requestedTier,
     note: formData.get("note") ?? "",
     acceptedTerms: formData.get("acceptedTerms"),
@@ -159,7 +156,6 @@ export async function requestAccess(
     organization,
     email,
     roleTitle,
-    seats,
     subscriptionLevel,
     note,
   } = parsed.data
@@ -202,7 +198,6 @@ export async function requestAccess(
         public_tier = ${subscriptionLevel},
         level = ${level},
         seats = ${effectiveSeats},
-        seats = ${seats},
         note = ${note},
         status = 'Pending',
         terms_accepted_at = now(),
@@ -222,7 +217,6 @@ export async function requestAccess(
         phone,
         roleTitle,
         seats: effectiveSeats,
-        seats,
         subscriptionLevel,
         note,
       }),

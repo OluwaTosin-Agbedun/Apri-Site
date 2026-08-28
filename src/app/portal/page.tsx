@@ -73,7 +73,6 @@ export default async function PortalPage() {
         </p>
 
         {privateDocuments.length > 0 ? <PrivateDocumentLibrary documents={privateDocuments} /> : embedUrl ? (
-        {embedUrl ? (
           <section className="mb-10" aria-labelledby="private-library-heading">
             <h2 id="private-library-heading" className="sr-only">
               Private Papermark library
@@ -83,7 +82,6 @@ export default async function PortalPage() {
               This library is unique to you. Downloads are controlled by its Papermark settings.
             </p>
             <a href="/portal/open-private" target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-medium text-accent hover:text-accent-hover">Open Private Library</a>
-            <a href={subscriber.libraryLinkUrl!} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-medium text-accent hover:text-accent-hover">Open Private Library</a>
           </section>
         ) : (
           <div className="border border-border bg-card/30 p-8 mb-10" role="alert">
@@ -141,7 +139,6 @@ export default async function PortalPage() {
 }
 
 async function BriefingPortal({
-function BriefingPortal({
   client,
 }: {
   client: Extract<Awaited<ReturnType<typeof requirePortalPrincipal>>, {
@@ -169,10 +166,6 @@ function BriefingPortal({
         ) : client.hasAccess ? (
           <a
             href="/portal/open-private"
-        {client.hasAccess ? (
-          <a
-            href="/portal/open-private"
-            href={client.privateLinkUrl}
             target="_blank"
             rel="noreferrer"
             className="block border border-border bg-card/30 p-6 hover:border-accent transition-colors"

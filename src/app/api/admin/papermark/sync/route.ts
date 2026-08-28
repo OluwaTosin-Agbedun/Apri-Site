@@ -38,8 +38,10 @@ export async function POST() {
   }
 
   let documents
-  const folderId = (process.env.PAPERMARK_OPEN_FOLDER_ID ?? process.env.PAPERMARK_OPEN_EDITIONS_FOLDER_ID)?.trim()
-  const folderId = process.env.PAPERMARK_OPEN_EDITIONS_FOLDER_ID?.trim()
+  const legacyOpenEditionsFolderId =
+    process.env.PAPERMARK_OPEN_EDITIONS_FOLDER_ID?.trim()
+  const folderId =
+    process.env.PAPERMARK_OPEN_FOLDER_ID?.trim() || legacyOpenEditionsFolderId
   if (!folderId) {
     return NextResponse.json({ error: 'PAPERMARK_OPEN_EDITIONS_FOLDER_ID is not configured for 07 Open Editions.' }, { status: 503 })
   }

@@ -4,7 +4,6 @@ import { getSql } from "./db"
 import { createSubscriberSession } from "./subscriber-session"
 import { hashToken, storedTokenFailureReason } from "./magic-token"
 import { recordClientEvent } from "./client-engagement"
-import { hashToken } from "./magic-token"
 
 /**
  * One-time sign-in tokens for subscribers.
@@ -140,12 +139,6 @@ async function failedTokenReason(hash: string): Promise<SignInResult> {
     expires_at: string
   }[]
   return { ok: false, reason: storedTokenFailureReason(rows[0]) }
-  const row = rows[0]
-  if (!row) return { ok: false, reason: "invalid" }
-  if (row.consumed_at) return { ok: false, reason: "used" }
-  if (new Date(row.expires_at) <= new Date())
-    return { ok: false, reason: "expired" }
-  return { ok: false, reason: "invalid" }
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
@@ -179,7 +172,6 @@ export async function signInWithToken(token: string): Promise<SignInResult> {
       select id from briefing_requests
       where id = ${principal.id} and status = 'Active'
         and (coalesce(private_link_url,'') <> '' or papermark_folder_id is not null)
-        and private_link_url is not null and private_link_url <> ''
       limit 1
     `) as { id: string }[]
     if (!rows[0]) return { ok: false, reason: "inactive" }

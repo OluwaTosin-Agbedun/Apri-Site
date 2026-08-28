@@ -51,7 +51,6 @@ type Row = {
   updated_at: string | null
   library_link_updated_at: string | null
   papermark_folder_id: string | null
-  client_type: string
 }
 
 const UUID =
@@ -93,8 +92,6 @@ export default async function EditSubscriberPage({
     select s.id, s.full_name, s.name, s.organization, s.role_title, s.email, s.phone,
            s.public_tier, s.level, s.seats, s.term_start, s.term_end, s.status,
            s.invoice_ref, s.library_link_url, s.papermark_folder_id, s.note, s.last_viewed_at, s.updated_at, s.library_link_updated_at,
-           s.invoice_ref, s.library_link_url, s.note, s.last_viewed_at, s.updated_at, s.library_link_updated_at,
-          s.invoice_ref, s.library_link_url, s.note, s.last_viewed_at, s.client_type,
            (select count(*)::int from publication_access pa
              where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links
     from subscribers s
@@ -113,7 +110,6 @@ export default async function EditSubscriberPage({
   const draft: SubscriberDraft = {
     id: row.id,
     clientType: row.client_type || "subscriber",
-    clientType: "subscriber",
     fullName: row.full_name || row.name || "",
     organisation: row.organization,
     roleTitle: row.role_title,
@@ -157,7 +153,6 @@ export default async function EditSubscriberPage({
           hasLevel={Boolean(row.public_tier && row.level)}
           hasTermEnd={Boolean(row.term_end)}
           hasLibraryLink={Boolean(row.library_link_url || row.papermark_folder_id)}
-          hasLibraryLink={Boolean(row.library_link_url)}
           liveLinks={Number(row.live_links ?? 0)}
         />
         <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground leading-relaxed max-w-xl">
@@ -172,7 +167,6 @@ export default async function EditSubscriberPage({
       </div>
 
       <SubscriberForm draft={draft} folders={folderResult.folders} folderError={folderResult.error} />
-      <SubscriberForm draft={draft} />
       <PapermarkConnectionPanel link={row.library_link_url} updatedAt={row.library_link_updated_at} />
     </AdminShell>
   )

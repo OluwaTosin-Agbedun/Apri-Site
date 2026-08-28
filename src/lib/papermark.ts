@@ -30,7 +30,6 @@ export type PapermarkFolder = {
   name: string
   parent_id?: string | null
   parentId?: string | null
-  path?: string
 }
 
 export type PapermarkLink = {

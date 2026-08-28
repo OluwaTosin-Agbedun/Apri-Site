@@ -56,7 +56,6 @@ const label =
   "block text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2"
 
 export default function SubscriberForm({ draft, folders = [], folderError }: { draft: SubscriberDraft; folders?: PapermarkFolder[]; folderError?: string }) {
-export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
   const router = useRouter()
   const action = saveSubscriber.bind(null, draft.id)
   const [state, formAction, pending] = useActionState<FormState, FormData>(
@@ -68,10 +67,6 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
   }, [state, router])
   const [publicTier, setPublicTier] = useState(draft.publicTier)
   const [seats, setSeats] = useState(String(draft.seats))
-  }, [state?.ok, router])
-  const [publicTier, setPublicTier] = useState(draft.publicTier)
-  const [seats, setSeats] = useState(String(draft.seats))
-  const isIndividual = publicTier === "Individual Access"
 
   function onTierChange(tier: string) {
     setPublicTier(tier)
@@ -255,7 +250,6 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
         </h3>
 
         {draft.id && <div className="mb-6"><PapermarkFolderSelector kind="subscriber" id={draft.id} value={draft.papermarkFolderId} folders={folders} error={folderError} /></div>}
-        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">Library link</h3>
         <div>
           <label htmlFor="libraryLinkUrl" className={label}>
             Private Papermark share link
@@ -274,9 +268,6 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
             share link when they should see a library containing several documents.
             Uploading another document into the same Papermark folder does not automatically
             add it to an existing single-document link.
-            Paste the subscriber&apos;s private Papermark multi-file share link. It will be
-            embedded securely inside their portal. Enable downloading in the link&apos;s
-            Papermark settings if the subscriber should download the files.
           </p>
           {err("libraryLinkUrl")}
         </div>

@@ -113,39 +113,11 @@ const optionalIsoDate = z
       error: "Use a valid date in YYYY-MM-DD format.",
     }),
   ])
-  ])
-  .default("")
-
-const optionalIsoDate = z
-  .union([
-    z.literal(""),
-    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
-      error: "Use a valid date in YYYY-MM-DD format.",
-    }),
-  ])
   .refine((value) => value === "" || isRealIsoDate(value), {
     error: "Enter a real calendar date.",
   })
 
 const SubscriberAdminSchema = z.object({
-  ])
-  .default("")
-
-const optionalIsoDate = z
-  .union([
-    z.literal(""),
-    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
-      error: "Use a valid date in YYYY-MM-DD format.",
-    }),
-  ])
-  .refine((value) => value === "" || isRealIsoDate(value), {
-    error: "Enter a real calendar date.",
-  })
-
-const SubscriberAdminSchema = z.object({
-
-const SubscriberAdminSchema = z.object({
-  clientType: z.enum(["subscriber", "engagement"]).default("subscriber"),
   fullName: z.string().trim().min(1, { error: "A name is required." }).max(160),
   organisation: z.string().trim().max(200).default(""),
   roleTitle: z.string().trim().max(160).default(""),
@@ -166,16 +138,6 @@ const SubscriberAdminSchema = z.object({
   invoiceRef: z.string().trim().max(120).default(""),
   libraryLinkUrl: httpsOrBlank,
   papermarkFolderId: z.string().trim().max(200).default(""),
-  seats: z.coerce.number().int().min(1).max(500).default(1),
-  termStart: optionalIsoDate.default(""),
-  termEnd: optionalIsoDate.default(""),
-  level: z.enum(LEVELS).or(z.literal("")),
-  seats: z.coerce.number().int().min(1).max(500).default(1),
-  termStart: z.union([z.literal(""), z.string().trim().max(10)]).default(""),
-  termEnd: z.union([z.literal(""), z.string().trim().max(10)]).default(""),
-  status: z.enum(["pending", "active", "lapsed", "suspended"]),
-  invoiceRef: z.string().trim().max(120).default(""),
-  libraryLinkUrl: httpsOrBlank,
   note: z.string().trim().max(600).default(""),
 })
 export async function saveSubscriber(
@@ -187,7 +149,6 @@ export async function saveSubscriber(
   if (id && !UUID.test(id)) return { message: "Unknown subscriber." }
 
   const parsed = SubscriberAdminSchema.safeParse({
-    clientType: formData.get("clientType") ?? "subscriber",
     fullName: formData.get("fullName"),
     organisation: formData.get("organisation") ?? "",
     roleTitle: formData.get("roleTitle") ?? "",
@@ -200,13 +161,6 @@ export async function saveSubscriber(
     invoiceRef: formData.get("invoiceRef") ?? "",
     libraryLinkUrl: normalisePapermarkUrl(String(formData.get("libraryLinkUrl") ?? "")),
     papermarkFolderId: formData.get("papermarkFolderId") ?? "",
-    level: formData.get("level") ?? "",
-    seats: formData.get("seats") ?? 1,
-    termStart: formData.get("termStart") ?? "",
-    termEnd: formData.get("termEnd") ?? "",
-    status: formData.get("status") ?? "pending",
-    invoiceRef: formData.get("invoiceRef") ?? "",
-    libraryLinkUrl: normalisePapermarkUrl(String(formData.get("libraryLinkUrl") ?? "")),
     note: formData.get("note") ?? "",
   })
 
@@ -230,54 +184,6 @@ export async function saveSubscriber(
     sql = getSql()
   } catch {
     return { message: "Subscriber storage is temporarily unavailable. Please try again." }
-  const termStart = d.termStart || null
-  const termEnd = d.termEnd || null
-  let sql: ReturnType<typeof getSql>
-  try {
-    sql = getSql()
-  } catch {
-    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
-  const termStart = d.termStart || null
-  const termEnd = d.termEnd || null
-  let sql: ReturnType<typeof getSql>
-  try {
-    sql = getSql()
-  } catch {
-    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
-  const termStart = d.termStart || null
-  const termEnd = d.termEnd || null
-  let sql: ReturnType<typeof getSql>
-  try {
-    sql = getSql()
-  } catch {
-    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
-  const sql = getSql()
-  const termStart = d.termStart || null
-  const termEnd = d.termEnd || null
-  if (d.libraryLinkUrl) {
-    const duplicates = await sql`
-      select 1 from subscribers
-      where library_link_url = ${d.libraryLinkUrl}
-        and (${id}::uuid is null or id <> ${id}::uuid)
-      union all
-      select 1 from briefing_requests where private_link_url = ${d.libraryLinkUrl}
-      limit 1
-    `
-    if (duplicates.length > 0) {
-      return {
-        message:
-          "That private Papermark link is already assigned to another client.",
-      }
-    }
-  }
-  let previousLevel: string | null = null
-  if (id && UUID.test(id)) {
-    const before = (await sql`
-      select level from subscribers
-      where id = ${id} and client_type = 'subscriber'
-      limit 1
-    `) as { level: string | null }[]
-    previousLevel = before[0]?.level ?? null
   }
   let previousLevel: string | null = null
   let outcome: LevelChangeOutcome = { direction: "none", revocationsQueued: 0 }
@@ -317,17 +223,6 @@ export async function saveSubscriber(
 
     if (id) {
       const updated = await sql`
-    if (id) {
-      const before = (await sql`
-        select level from subscribers where id = ${id} limit 1
-      `) as { level: string | null }[]
-      previousLevel = before[0]?.level ?? null
-    }
-
-    if (id) {
-      const updated = await sql`
-      if (!UUID.test(id)) return { message: "Unknown subscriber." }
-      await sql`
         update subscribers set
           full_name = ${d.fullName}, name = ${d.fullName},
           organization = ${d.organisation}, role_title = ${d.roleTitle},
@@ -342,7 +237,6 @@ export async function saveSubscriber(
           note = ${d.note}, updated_at = now()
         where id = ${id}
         returning id
-        where id = ${id} and client_type = 'subscriber'
       `
       if (!updated[0]) return { message: "That subscriber no longer exists." }
     } else {
@@ -351,7 +245,6 @@ export async function saveSubscriber(
           full_name, name, organization, role_title, email, phone,
           client_type, public_tier, subscription_level, level, seats,
           term_start, term_end, status, invoice_ref, library_link_url, papermark_folder_id, library_link_updated_at, note
-          term_start, term_end, status, invoice_ref, library_link_url, library_link_updated_at, note
         ) values (
           ${d.fullName}, ${d.fullName}, ${d.organisation}, ${d.roleTitle},
           ${d.email}, ${d.phone}, 'subscriber',
@@ -359,9 +252,6 @@ export async function saveSubscriber(
           ${level}, ${seats}, ${termStart}::date, ${termEnd}::date,
           'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null}, ${d.papermarkFolderId || null},
           ${d.libraryLinkUrl ? new Date() : null}, ${d.note}
-          'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null},
-          ${d.libraryLinkUrl ? new Date() : null}, ${d.note}
-          'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null}, ${d.note}
         )
       `
     }
@@ -381,19 +271,6 @@ export async function saveSubscriber(
         ? "A subscriber with that email address or private library link already exists."
         : "The subscriber could not be saved. Please check the fields and try again.",
     }
-  } catch {
-    return { message: "A subscriber with that email address already exists." }
-  }
-  let outcome: LevelChangeOutcome = { direction: "none", revocationsQueued: 0 }
-  if (id) {
-    outcome = await applyLevelChange({
-      subscriberId: id,
-      subscriberEmail: d.email,
-      oldLevel: previousLevel,
-      newLevel: level,
-      changedById: admin.id,
-      changedByName: admin.name,
-    })
   }
 
   refresh()
@@ -428,10 +305,6 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   }
 
   let rows: {
-  const rows = (await sql`
-    select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url
-    from subscribers where id = ${id} limit 1
-  `) as {
     id: string
     full_name: string | null
     name: string
@@ -447,10 +320,6 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   try {
     rows = (await sql`
       select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url, papermark_folder_id
-  }[]
-  try {
-    rows = (await sql`
-      select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url
       from subscribers where id = ${id} limit 1
     `) as typeof rows
   } catch {
@@ -472,14 +341,12 @@ export async function activateSubscriber(id: string): Promise<FormState> {
     return { message: "Set a term end date before activating this seat." }
   }
   if (!row.library_link_url && !row.papermark_folder_id) {
-  if (!row.library_link_url) {
     return {
       message:
         "Set the subscriber's unique private Papermark library link before activating.",
     }
   }
   if (row.library_link_url && !papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
-  if (!papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return { message: "Replace the private library link with a valid Papermark share link before activating." }
   }
   let duplicates: unknown[]
@@ -500,13 +367,6 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   } catch {
     return { message: "Activation checks could not be completed. Please try again." }
   }
-  const duplicates = await sql`
-    select 1 from subscribers
-    where library_link_url = ${row.library_link_url} and id <> ${id}
-    union all
-    select 1 from briefing_requests where private_link_url = ${row.library_link_url}
-    limit 1
-  `
   if (duplicates.length > 0) {
     return {
       message:
@@ -537,14 +397,6 @@ export async function activateSubscriber(id: string): Promise<FormState> {
         "The subscriber was not fully activated. Refresh the page and use Activate or Resend sign-in link again.",
     }
   }
-  await sql`
-    update subscribers
-    set status = 'active',
-        term_start = coalesce(term_start, current_date),
-        updated_at = now()
-    where id = ${id}
-  `
-  const token = await issueToken(id)
   let mailed = true
   try {
     await sendWelcome({

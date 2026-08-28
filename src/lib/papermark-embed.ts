@@ -34,7 +34,6 @@ export function papermarkEmbedUrl(
       OFFICIAL_HOSTS.has(host) &&
       !['/view/', '/dataroom/', '/data-room/', '/rooms/'].some((prefix) => path.startsWith(prefix))
     ) return null
-    if (OFFICIAL_HOSTS.has(host) && !url.pathname.startsWith('/view/')) return null
     if (url.pathname === '/' || /(^|[-_/])00[-_ ]?masters?($|[-_/])/i.test(url.pathname)) {
       return null
     }

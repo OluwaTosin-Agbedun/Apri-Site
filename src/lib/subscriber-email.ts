@@ -182,26 +182,6 @@ async function trackEmail(principal: ClientPrincipal, resendEmailId?: string) {
   try { await recordClientEvent(principal,"signin_email_sent",{resendEmailId}) } catch { /* email delivery must not depend on analytics */ }
 }
 
-export async function sendBriefingWelcome(args: {
-  email: string
-  fullName: string
-  token: string
-}): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-  const url = portalVerificationUrl(args.token)
-  const greeting = args.fullName ? `, ${args.fullName}` : ""
-  await resend.emails.send({
-    from: `APRI <${FROM}>`,
-    to: args.email,
-    replyTo: CONTACT,
-    subject: "Your private APRI briefing is ready",
-    html: shell(
-      `<h1 style="margin:0 0 20px;font-size:22px;font-weight:normal">Your briefing is ready</h1><p style="font-size:15px;line-height:1.7">Good day${esc(greeting)}. Use this secure, one-time link to enter your portal and open your private briefing.</p>${button("Open my briefing", url)}<p style="font-size:13px;color:#888">The sign-in link expires in 15 minutes and works once. Your briefing link is private; please do not forward it.</p>`,
-    ),
-  })
-}
-
 // ---------------------------------------------------------------------------
 // New edition alert
 //

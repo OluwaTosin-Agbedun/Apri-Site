@@ -669,8 +669,6 @@ alter table auth_tokens add constraint auth_tokens_briefing_request_id_fkey
   foreign key (briefing_request_id) references briefing_requests (id)
   on delete cascade not valid;
 alter table auth_tokens validate constraint auth_tokens_briefing_request_id_fkey;
-alter table auth_tokens add column if not exists briefing_request_id uuid
-  references briefing_requests (id) on delete cascade;
 alter table auth_tokens drop constraint if exists auth_tokens_one_principal_check;
 alter table auth_tokens add constraint auth_tokens_one_principal_check check (
   (subscriber_id is not null and briefing_request_id is null)

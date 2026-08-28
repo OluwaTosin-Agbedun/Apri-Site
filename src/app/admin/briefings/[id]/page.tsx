@@ -35,14 +35,6 @@ export default async function BriefingDetails({
     : await sql`select id,name,organization,role_title,email,phone,briefing_type,
         format,timeline,sector,description,audience_size,location,status,
         null::text as private_link_url,null::text as papermark_folder_id,null::timestamptz as updated_at,null::timestamptz as private_link_updated_at from briefing_requests where id=${id} limit 1`) as {
-        private_link_url,updated_at,private_link_updated_at from briefing_requests where id=${id} limit 1`
-    : await sql`select id,name,organization,role_title,email,phone,briefing_type,
-        format,timeline,sector,description,audience_size,location,status,
-        null::text as private_link_url,null::timestamptz as updated_at,null::timestamptz as private_link_updated_at from briefing_requests where id=${id} limit 1`) as {
-        private_link_url from briefing_requests where id=${id} limit 1`
-    : await sql`select id,name,organization,role_title,email,phone,briefing_type,
-        format,timeline,sector,description,audience_size,location,status,
-        null::text as private_link_url from briefing_requests where id=${id} limit 1`) as {
       id: string
       name: string
       organization: string
@@ -94,7 +86,6 @@ export default async function BriefingDetails({
         }}
         folders={folderResult.folders}
         folderError={folderResult.error}
-        }}
       />
       <PapermarkConnectionPanel link={r.private_link_url} updatedAt={r.private_link_updated_at} />
       <BriefingDeleteControl

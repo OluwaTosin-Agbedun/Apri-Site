@@ -134,7 +134,6 @@ export async function requirePortalPrincipal(): Promise<CurrentSubscriber | Curr
   const sql = getSql()
   const rows = (await sql`
     select id, name, organization, email, status, private_link_url, papermark_folder_id
-    select id, name, organization, email, status, private_link_url
     from briefing_requests where id = ${session.principalId} limit 1
   `) as {
     id: string
@@ -156,7 +155,6 @@ export async function requirePortalPrincipal(): Promise<CurrentSubscriber | Curr
     privateLinkUrl: row.private_link_url ?? "",
     papermarkFolderId: row.papermark_folder_id,
     hasAccess: row.status === "Active" && Boolean(row.private_link_url || row.papermark_folder_id),
-    hasAccess: row.status === "Active" && Boolean(row.private_link_url),
   }
 }
 

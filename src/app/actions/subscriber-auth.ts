@@ -138,7 +138,6 @@ export async function requestSignInLink(
     const token = await issueToken(subscriber.id)
     try {
       await sendSignInLink({ subscriberId:subscriber.id, email: subscriber.email, fullName, token })
-      await sendSignInLink({ email: subscriber.email, fullName, token })
     } catch {}
     return NEUTRAL
   }

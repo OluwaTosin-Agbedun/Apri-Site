@@ -70,7 +70,6 @@ test("briefing deletion is owner-gated, exact-email confirmed, and principal sco
   assert.match(
     read("db/migrations/20260826_briefing_portal.sql"),
     /references briefing_requests\(id\)\s+on delete cascade/,
-    /references briefing_requests\(id\) on delete cascade/,
   )
 
   const control = read("src/app/admin/briefings/briefing-delete-control.tsx")

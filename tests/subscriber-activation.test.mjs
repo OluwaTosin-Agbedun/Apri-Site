@@ -3,7 +3,6 @@ import fs from "node:fs"
 import test from "node:test"
 import { portalVerificationUrl } from "../src/lib/app-url.ts"
 import { hashToken, storedTokenFailureReason } from "../src/lib/magic-token.ts"
-import { hashToken } from "../src/lib/magic-token.ts"
 import { portalPrincipalFromClaims } from "../src/lib/portal-session-claims.ts"
 import { subscriberLibraryEmbedUrl } from "../src/lib/papermark-embed.ts"
 
