@@ -21,12 +21,12 @@ export default function BriefingDeleteControl({
 
   function remove() {
     const confirmation = window.prompt(
-      `Type the requester's exact email to delete this briefing client:\n\n${email}\n\nPapermark access must be revoked separately.`,
+      `Type the requester's exact email to delete this briefing request:\n\n${email}`,
     )
     if (confirmation !== email) return
     if (
       !window.confirm(
-        "Final warning: permanently delete this briefing request, its APRI tokens and portal access? A subscriber with the same email will not be affected.",
+        "Final warning: permanently delete this briefing request? A subscriber with the same email will not be affected.",
       )
     ) {
       return
@@ -47,8 +47,8 @@ export default function BriefingDeleteControl({
     <div className={detail ? "border border-red-200 bg-red-50/40 p-6" : "text-right"}>
       {detail && (
         <p className="text-sm text-foreground/70 mb-4">
-          Deleting ends this client&apos;s APRI portal access immediately. Revoke
-          the private Papermark link separately.
+          Permanently delete this briefing request. A subscriber with the same
+          email will not be affected.
         </p>
       )}
       <button
@@ -58,7 +58,7 @@ export default function BriefingDeleteControl({
         title={canDelete ? undefined : "Only owners can delete briefing requests."}
         className="text-xs font-medium text-red-700 hover:text-red-900 disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        {pending ? "Deleting…" : "Delete briefing client"}
+        {pending ? "Deleting…" : "Delete briefing request"}
       </button>
       {message && <p className="mt-3 text-xs text-red-700">{message}</p>}
     </div>

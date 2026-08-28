@@ -44,17 +44,17 @@ test("subscriber Save and activation turn expected storage errors into form mess
   assert.match(form, /state\?\.message/)
 })
 
-test("briefing Save normalises links and returns friendly storage failures", () => {
+test("briefing Save returns friendly storage failures and has no portal activation", () => {
   const source = read("src/app/actions/briefings.ts")
-  assert.match(source, /normalisePapermarkUrl/)
   assert.match(source, /The briefing request could not be saved/)
   assert.match(source, /Briefing storage is temporarily unavailable/)
-  assert.match(source, /The briefing was not fully activated/)
   assert.doesNotMatch(source, /insert into subscribers/i)
+  assert.doesNotMatch(source, /issueBriefingToken/)
+  assert.doesNotMatch(source, /normalisePapermarkUrl/)
 
   const form = read("src/app/admin/briefings/[id]/briefing-form.tsx")
-  assert.match(form, /name="privateLinkUrl" type="text"/)
-  assert.match(form, /HTTPS is added automatically/)
+  assert.match(form, /name="notes"/)
+  assert.match(form, /name="status"/)
 })
 
 test("email callbacks and successful verification share one production route", () => {

@@ -5,9 +5,7 @@ import AdminShell from "@/components/AdminShell"
 import { getReachMonths } from "@/lib/provisioning"
 import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
 import SeatActions from "../seat-actions"
-import PapermarkConnectionPanel from "@/components/PapermarkConnectionPanel"
 import DataRoomPanel from "@/components/DataRoomPanel"
-import { getAssignableFolders } from "@/app/actions/papermark-client-library"
 import { resolveDataRoom, getDataRoomLink } from "@/lib/dataroom-dal"
 
 export const dynamic = "force-dynamic"
@@ -134,8 +132,6 @@ export default async function EditSubscriberPage({
       : null,
   }
 
-  const folderResult = await getAssignableFolders("subscriber")
-
   const room = await resolveDataRoom({
     subscriberId: row.id,
     publicTier: row.public_tier,
@@ -199,8 +195,7 @@ export default async function EditSubscriberPage({
         } : null}
       />
 
-      <SubscriberForm draft={draft} folders={folderResult.folders} folderError={folderResult.error} />
-      <PapermarkConnectionPanel link={row.library_link_url} updatedAt={row.library_link_updated_at} />
+      <SubscriberForm draft={draft} />
     </AdminShell>
   )
 }

@@ -43,7 +43,7 @@ export default async function AdminBriefingsPage() {
       admin={admin}
       current="/admin/briefings"
       title="Briefing Requests"
-      description="Private briefing enquiries from the Services & Briefings page."
+      description="Briefing service requests from the Request a Briefing page."
     >
       {requests.length === 0 ? (
         <div className="border border-border bg-card/30 p-12 text-center text-sm text-muted-foreground">

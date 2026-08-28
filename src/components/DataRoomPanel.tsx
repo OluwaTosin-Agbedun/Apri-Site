@@ -78,8 +78,9 @@ export default function DataRoomPanel({
           Mapped to <span className="font-medium text-foreground">{dataroomName || dataroomId}</span>
         </p>
       ) : (
-        <p className="text-sm text-muted-foreground mb-4">
-          No Data Room assigned. Map this subscription level under Data Rooms, or set an override.
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 p-4 mb-4">
+          No Data Room is configured for this subscription access level. Configure it
+          under Admin &rarr; Data Rooms before activating or migrating this subscriber.
         </p>
       )}
 

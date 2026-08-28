@@ -103,12 +103,12 @@ export default function BriefingForm({ initialType }: { initialType?: string }) 
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <div>
-          <label htmlFor="format" className={label}>Preferred format</label>
+          <label htmlFor="format" className={label}>Mode of Briefing</label>
           <select id="format" name="format" className={field} defaultValue="">
             <option value="">Select…</option>
             <option value="Virtual">Virtual</option>
             <option value="In person">In person</option>
-            <option value="Either">Either</option>
+            <option value="Hybrid">Hybrid</option>
           </select>
           {err('format')}
         </div>

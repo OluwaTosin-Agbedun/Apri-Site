@@ -62,7 +62,7 @@ test("private-link clicks re-read the authenticated principal instead of accepti
   const route=read("src/app/portal/open-private/route.ts")
   assert.match(route,/requirePortalPrincipal/)
   assert.match(route,/principal\.libraryLinkUrl/)
-  assert.match(route,/principal\.privateLinkUrl/)
+  assert.doesNotMatch(route,/principal\.privateLinkUrl/)
   assert.doesNotMatch(route,/searchParams|get\("url"\)/)
 })
 

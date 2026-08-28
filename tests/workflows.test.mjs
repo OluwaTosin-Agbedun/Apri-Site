@@ -55,21 +55,19 @@ test("portal emails use only the APRI production callback", () => {
   assert.doesNotMatch(url, /localhost|vercel\.app/)
 })
 
-test("briefing detail awaits params and queries briefing_requests with migration fallback", () => {
+test("briefing detail awaits params and queries briefing_requests", () => {
   const source = read("src/app/admin/briefings/[id]/page.tsx")
   assert.match(source, /const \{ id \} = await params/)
   assert.match(source, /from briefing_requests where id=\$\{id\}/)
   assert.doesNotMatch(source, /from subscribers/)
-  assert.match(source, /information_schema\.columns/)
 })
 
-test("briefing activation and resend use briefing-only tokens", () => {
+test("briefing actions do not issue tokens or create sessions", () => {
   const actions = read("src/app/actions/briefings.ts")
   const magic = read("src/lib/magic-link.ts")
-  assert.match(actions, /update briefing_requests set status='Active'/)
-  assert.match(actions, /issueBriefingToken\(id\)/)
-  assert.match(actions, /resendBriefingSignInLink/)
-  assert.match(magic, /createSubscriberSession\(principal\.id, "briefing"\)/)
+  assert.doesNotMatch(actions, /issueBriefingToken/)
+  assert.doesNotMatch(actions, /resendBriefingSignInLink/)
+  assert.doesNotMatch(magic, /createSubscriberSession\(principal\.id, "briefing"\)/)
   assert.match(magic, /consumed_at is null and expires_at>now\(\)/)
 })
 
@@ -80,18 +78,14 @@ test("Papermark sync is pinned to 07 Open Editions and creates private-safe OPEN
   assert.match(source, /'draft', false, 'OPEN'/)
 })
 
-test("briefings remain separate principals with their own link and token", () => {
-  const schema = read("db/schema.sql")
+test("briefing actions are service-request management without portal activation", () => {
   const action = read("src/app/actions/briefings.ts")
-  assert.match(
-    schema,
-    /briefing_requests add column if not exists private_link_url/,
-  )
-  assert.match(schema, /briefing_request_id uuid/)
-  assert.match(action, /issueBriefingToken\(id\)/)
+  assert.doesNotMatch(action, /issueBriefingToken/)
+  assert.doesNotMatch(action, /sendBriefingWelcome/)
+  assert.doesNotMatch(action, /activateBriefing/)
   assert.doesNotMatch(action, /insert into subscribers/i)
-  assert.match(action, /already assigned to another client/)
-  assert.doesNotMatch(schema, /subscribers_private_library_link_key/)
+  assert.match(action, /update briefing_requests set/)
+  assert.match(action, /delete from briefing_requests where/)
 })
 
 test("both public request types send requester and manager messages", () => {

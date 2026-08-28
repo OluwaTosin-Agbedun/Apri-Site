@@ -47,9 +47,9 @@ test("sync fetches the exact selected folder and reuses exact-email protected li
   assert.match(actions, /on conflict \(briefing_request_id,papermark_document_id\)/)
 })
 
-test("portal documents are selected only by the authenticated principal id", async () => {
+test("portal documents are selected only by the authenticated subscriber id", async () => {
   const library = await read("src/lib/papermark-client-library.ts")
   assert.match(library, /where subscriber_id=\$\{principal\.id\}/)
-  assert.match(library, /where briefing_request_id=\$\{principal\.id\}/)
+  assert.doesNotMatch(library, /where briefing_request_id=\$\{principal/)
   assert.doesNotMatch(library, /where email=/)
 })

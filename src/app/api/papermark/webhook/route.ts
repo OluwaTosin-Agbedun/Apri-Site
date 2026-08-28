@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse, after } from 'next/server'
 import { recordView, refreshLastViewed, type IncomingView } from '@/lib/view-attribution'
 import { getSql } from '@/lib/db'
+import { notifyNewDataRoomDocuments } from '@/lib/dataroom-notifications'
 
 export const dynamic = 'force-dynamic'
 
@@ -151,6 +152,10 @@ function handleDocumentEvent(payload: unknown, eventType: string, eventId: strin
             removed_at = null,
             updated_at = now()
         `
+
+        if (/created/i.test(eventType) && dataroomId) {
+          try { await notifyNewDataRoomDocuments(dataroomId) } catch {}
+        }
       }
     } catch {}
 

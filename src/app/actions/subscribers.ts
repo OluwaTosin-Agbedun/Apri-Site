@@ -162,6 +162,8 @@ export async function saveSubscriber(
   const admin = await requireAdmin()
   if (id && !UUID.test(id)) return { message: "Unknown subscriber." }
 
+  const hasLegacyLibraryFields = formData.has("libraryLinkUrl")
+
   const parsed = SubscriberAdminSchema.safeParse({
     fullName: formData.get("fullName"),
     organisation: formData.get("organisation") ?? "",
@@ -173,8 +175,12 @@ export async function saveSubscriber(
     termStart: formData.get("termStart") ?? "",
     termEnd: formData.get("termEnd") ?? "",
     invoiceRef: formData.get("invoiceRef") ?? "",
-    libraryLinkUrl: normalisePapermarkUrl(String(formData.get("libraryLinkUrl") ?? "")),
-    papermarkFolderId: formData.get("papermarkFolderId") ?? "",
+    libraryLinkUrl: hasLegacyLibraryFields
+      ? normalisePapermarkUrl(String(formData.get("libraryLinkUrl") ?? ""))
+      : "",
+    papermarkFolderId: hasLegacyLibraryFields
+      ? (formData.get("papermarkFolderId") ?? "")
+      : "",
     note: formData.get("note") ?? "",
   })
 
@@ -182,7 +188,7 @@ export async function saveSubscriber(
   const d = parsed.data
   const level = levelForPublicTier(d.publicTier)
   const seats = d.publicTier === "Individual Access" ? 1 : d.seats
-  if (d.libraryLinkUrl && !papermarkEmbedUrl(d.libraryLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
+  if (hasLegacyLibraryFields && d.libraryLinkUrl && !papermarkEmbedUrl(d.libraryLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return {
       errors: {
         libraryLinkUrl: [
@@ -205,7 +211,7 @@ export async function saveSubscriber(
   let outcome: LevelChangeOutcome = { direction: "none", revocationsQueued: 0 }
 
   try {
-    if (d.libraryLinkUrl) {
+    if (hasLegacyLibraryFields && d.libraryLinkUrl) {
       const duplicates = await sql`
         select 1 from subscribers
         where library_link_url = ${d.libraryLinkUrl}
@@ -221,7 +227,7 @@ export async function saveSubscriber(
         }
       }
     }
-    if (d.papermarkFolderId) {
+    if (hasLegacyLibraryFields && d.papermarkFolderId) {
       const folderDuplicates = await sql`
         select 1 from subscribers where papermark_folder_id=${d.papermarkFolderId}
           and lower(status)='active' and (${id}::uuid is null or id<>${id}::uuid)
@@ -230,14 +236,21 @@ export async function saveSubscriber(
           and lower(status)='active' limit 1`
       if (folderDuplicates.length) return { message:"That private Papermark folder is assigned to another active client." }
     }
+    let existingLibraryLinkUrl: string | null = null
+    let existingPapermarkFolderId: string | null = null
     if (id) {
       const before = (await sql`
-        select level, public_tier, term_end from subscribers where id = ${id} limit 1
-      `) as { level: string | null; public_tier: string | null; term_end: string | null }[]
+        select level, public_tier, term_end, library_link_url, papermark_folder_id
+        from subscribers where id = ${id} limit 1
+      `) as { level: string | null; public_tier: string | null; term_end: string | null; library_link_url: string | null; papermark_folder_id: string | null }[]
       previousLevel = before[0]?.level ?? null
       previousPublicTier = before[0]?.public_tier ?? null
       previousTermEnd = before[0]?.term_end ?? null
+      existingLibraryLinkUrl = before[0]?.library_link_url ?? null
+      existingPapermarkFolderId = before[0]?.papermark_folder_id ?? null
     }
+    const libraryLinkForDb = hasLegacyLibraryFields ? (d.libraryLinkUrl || null) : existingLibraryLinkUrl
+    const folderIdForDb = hasLegacyLibraryFields ? (d.papermarkFolderId || null) : existingPapermarkFolderId
 
     if (id) {
       const updated = await sql`
@@ -249,9 +262,9 @@ export async function saveSubscriber(
           level = ${level}, seats = ${seats},
           term_start = ${termStart}::date, term_end = ${termEnd}::date,
           invoice_ref = ${d.invoiceRef},
-          library_link_updated_at = case when library_link_url is distinct from ${d.libraryLinkUrl || null} then now() else library_link_updated_at end,
-          library_link_url = ${d.libraryLinkUrl || null},
-          papermark_folder_id = ${d.papermarkFolderId || null},
+          library_link_updated_at = case when library_link_url is distinct from ${libraryLinkForDb} then now() else library_link_updated_at end,
+          library_link_url = ${libraryLinkForDb},
+          papermark_folder_id = ${folderIdForDb},
           note = ${d.note}, updated_at = now()
         where id = ${id}
         returning id
@@ -268,8 +281,8 @@ export async function saveSubscriber(
           ${d.email}, ${d.phone}, 'subscriber',
           ${d.publicTier}, ${d.publicTier},
           ${level}, ${seats}, ${termStart}::date, ${termEnd}::date,
-          'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null}, ${d.papermarkFolderId || null},
-          ${d.libraryLinkUrl ? new Date() : null}, ${d.note}
+          'pending', ${d.invoiceRef}, ${libraryLinkForDb}, ${folderIdForDb},
+          ${libraryLinkForDb ? new Date() : null}, ${d.note}
         )
       `
     }

@@ -2,7 +2,7 @@ import { requireOwner } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
 import { getLevelRoomMappings, getDataRoomStats } from "@/lib/dataroom-dal"
 import { PUBLIC_TIERS } from "@/lib/entitlements"
-import DataRoomMappingForm from "./dataroom-form"
+import DataRoomMappingForm, { MappingActions } from "./dataroom-form"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Data Rooms · APRI" }
@@ -98,6 +98,12 @@ export default async function DataRoomsPage() {
             <DataRoomMappingForm unmappedTiers={unmappedTiers.map((t) => t.name)} />
           </div>
         </>
+      )}
+
+      {mappings.length > 0 && (
+        <div className="border border-border bg-card/30 p-6 mt-8">
+          <MappingActions mappedTiers={mappings.map((m) => m.publicTier)} />
+        </div>
       )}
 
       <div className="mt-8 pt-8 border-t border-border">

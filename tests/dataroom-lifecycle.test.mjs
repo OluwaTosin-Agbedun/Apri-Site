@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
 import {
   watermarkText,
@@ -42,21 +43,21 @@ describe('webhook signature verification', () => {
   })
 
   it('different body produces different signature', () => {
-    const sig1 = sign('{"a":1}', secret)
-    const sig2 = sign('{"a":2}', secret)
+    const sig1 = sign('{"a":1}', hmacKey)
+    const sig2 = sign('{"a":2}', hmacKey)
     assert.notEqual(sig1, sig2)
   })
 
-  it('different secret produces different signature', () => {
+  it('different key produces different signature', () => {
     const body = '{"test":true}'
-    const sig1 = sign(body, 'secret-a')
-    const sig2 = sign(body, 'secret-b')
+    const sig1 = sign(body, 'test-key-a')
+    const sig2 = sign(body, 'test-key-b')
     assert.notEqual(sig1, sig2)
   })
 
   it('sha256= prefix is standard', () => {
     const body = '{"event":"view"}'
-    const sig = sign(body, secret)
+    const sig = sign(body, hmacKey)
     const prefixed = `sha256=${sig}`
     assert.ok(prefixed.startsWith('sha256='))
     assert.equal(prefixed.slice(7), sig)
@@ -279,6 +280,50 @@ describe('lifecycle: Data Room link settings', () => {
     assert.equal(typeof config.color, 'string')
     assert.equal(typeof config.font_size, 'number')
     assert.equal(typeof config.opacity, 'number')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Admin Data Rooms page — Quick Actions visibility
+// ---------------------------------------------------------------------------
+
+describe('admin Data Rooms page renders Quick Actions independently', () => {
+  const adminPage = readFileSync(
+    new URL('../src/app/admin/datarooms/page.tsx', import.meta.url), 'utf8')
+  const formFile = readFileSync(
+    new URL('../src/app/admin/datarooms/dataroom-form.tsx', import.meta.url), 'utf8')
+
+  it('renders "Assign a Data Room" only when unmapped tiers exist', () => {
+    assert.match(adminPage, /unmappedTiers\.length > 0/)
+    assert.match(adminPage, /Assign a Data Room/)
+  })
+
+  it('renders MappingActions when any mapping exists, independently of unmapped tiers', () => {
+    assert.match(adminPage, /mappings\.length > 0/)
+    assert.match(adminPage, /<MappingActions\b/)
+    const assignBlock = adminPage.indexOf('unmappedTiers.length > 0')
+    const actionsBlock = adminPage.indexOf('mappings.length > 0')
+    assert.ok(assignBlock > -1 && actionsBlock > -1)
+    assert.ok(actionsBlock > assignBlock, 'MappingActions should be rendered after the assign block')
+  })
+
+  it('MappingActions is exported and separate from DataRoomMappingForm', () => {
+    assert.match(formFile, /export function MappingActions/)
+    assert.match(adminPage, /import DataRoomMappingForm, \{ MappingActions \}/)
+  })
+
+  it('MappingActions takes a mappedTiers prop and uses a dropdown', () => {
+    assert.match(formFile, /mappedTiers: string\[\]/)
+    assert.match(formFile, /mappedTiers\.map/)
+    assert.match(formFile, /<select/)
+    assert.doesNotMatch(formFile, /placeholder="Tier name/)
+  })
+
+  it('the dashboard count denominator comes from PUBLIC_TIERS, not a subscriber query', () => {
+    const dal = readFileSync(
+      new URL('../src/lib/dataroom-dal.ts', import.meta.url), 'utf8')
+    assert.match(dal, /PUBLIC_TIERS\.length/)
+    assert.doesNotMatch(dal, /count\(distinct public_tier\)/)
   })
 })
 

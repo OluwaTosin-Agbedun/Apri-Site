@@ -393,13 +393,10 @@ export async function recordPortalDownloadClick(
 
   if (!documentId || documentId.length > 200) return { message: "Invalid document." }
 
-  const subscriberId = session.principalType === "subscriber" ? session.principalId : null
-  const briefingId = session.principalType === "briefing" ? session.principalId : null
-
   await sql`
     insert into client_engagement_events
-      (subscriber_id, briefing_request_id, event_type, occurred_at)
-    values (${subscriberId}::uuid, ${briefingId}::uuid, 'document_downloaded', now())
+      (subscriber_id, event_type, occurred_at)
+    values (${session.principalId}::uuid, 'document_downloaded', now())
   `
 
   return { ok: true, message: "Download recorded." }

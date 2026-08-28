@@ -112,17 +112,6 @@ export const getCurrentSubscriber = cache(
   },
 )
 
-export type CurrentBriefingClient = {
-  type: "briefing"
-  id: string
-  fullName: string
-  organisation: string
-  email: string
-  privateLinkUrl: string
-  papermarkFolderId: string | null
-  hasAccess: boolean
-}
-
 /**
  * Whether this device already holds a valid portal session.
  *
@@ -135,39 +124,10 @@ export async function hasPortalSession(): Promise<boolean> {
   return (await readSubscriberSession()) !== null
 }
 
-export async function requirePortalPrincipal(): Promise<CurrentSubscriber | CurrentBriefingClient> {
-  const session = await readSubscriberSession()
-  if (!session) redirect("/portal/sign-in")
-  if (session.principalType === "subscriber") {
-    const subscriber = await getCurrentSubscriber()
-    if (!subscriber) redirect("/portal/sign-in")
-    return subscriber
-  }
-  const sql = getSql()
-  const rows = (await sql`
-    select id, name, organization, email, status, private_link_url, papermark_folder_id
-    from briefing_requests where id = ${session.principalId} limit 1
-  `) as {
-    id: string
-    name: string
-    organization: string
-    email: string
-    status: string
-    private_link_url: string | null
-    papermark_folder_id: string | null
-  }[]
-  const row = rows[0]
-  if (!row) redirect("/portal/sign-in")
-  return {
-    type: "briefing",
-    id: row.id,
-    fullName: row.name,
-    organisation: row.organization,
-    email: row.email,
-    privateLinkUrl: row.private_link_url ?? "",
-    papermarkFolderId: row.papermark_folder_id,
-    hasAccess: row.status === "Active" && Boolean(row.private_link_url || row.papermark_folder_id),
-  }
+export async function requirePortalPrincipal(): Promise<CurrentSubscriber> {
+  const subscriber = await getCurrentSubscriber()
+  if (!subscriber) redirect("/portal/sign-in")
+  return subscriber
 }
 
 /**

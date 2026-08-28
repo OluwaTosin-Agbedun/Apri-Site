@@ -33,11 +33,10 @@ import { redirect } from "next/navigation"
 import { headers } from "next/headers"
 import * as z from "zod"
 import { getSql } from "@/lib/db"
-import { issueToken, issueBriefingToken } from "@/lib/magic-link"
+import { issueToken } from "@/lib/magic-link"
 import {
   sendSignInLink,
   sendLapsedNotice,
-  sendBriefingWelcome,
 } from "@/lib/subscriber-email"
 import { destroySubscriberSession } from "@/lib/subscriber-session"
 import type { FormState } from "@/lib/definitions"
@@ -106,29 +105,7 @@ export async function requestSignInLink(
   }[]
 
   const subscriber = rows[0]
-  if (!subscriber) {
-    const briefings =
-      (await sql`select id,name,email,status from briefing_requests
-      where lower(email)=${email} order by created_at desc limit 1`) as {
-        id: string
-        name: string
-        email: string
-        status: string
-      }[]
-    const briefing = briefings[0]
-    if (briefing?.status === "Active") {
-      const token = await issueBriefingToken(briefing.id)
-      try {
-        await sendBriefingWelcome({
-          briefingRequestId: briefing.id,
-          email: briefing.email,
-          fullName: briefing.name,
-          token,
-        })
-      } catch {}
-    }
-    return NEUTRAL
-  }
+  if (!subscriber) return NEUTRAL
 
   const status = subscriber.status.toLowerCase()
   const termEnd = subscriber.term_end

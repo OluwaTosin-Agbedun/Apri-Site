@@ -24,7 +24,7 @@ export default function DataRoomMappingForm({
   unmappedTiers,
 }: {
   unmappedTiers: string[]
-}) {
+  }) {
   const router = useRouter()
   const [state, formAction, pending] = useActionState<FormState, FormData>(
     saveLevelRoomMapping,
@@ -103,12 +103,11 @@ export default function DataRoomMappingForm({
         </div>
       </form>
 
-      <MappingActions />
     </div>
   )
 }
 
-function MappingActions() {
+export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
   const [syncing, setSyncing] = useState("")
   const [syncMsg, setSyncMsg] = useState("")
   const [notifying, setNotifying] = useState("")
@@ -154,13 +153,16 @@ function MappingActions() {
     <div className="mt-6 pt-6 border-t border-border">
       <p className={label}>Quick actions on an existing mapping</p>
       <div className="flex items-center gap-3 flex-wrap">
-        <input
-          type="text"
+        <select
           value={tier}
           onChange={(e) => setTier(e.target.value)}
-          placeholder="Tier name (e.g. Individual Access)"
           className={`${field} max-w-xs`}
-        />
+        >
+          <option value="">Select a mapped level</option>
+          {mappedTiers.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
         <button
           type="button"
           onClick={handleSync}

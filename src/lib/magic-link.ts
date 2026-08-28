@@ -52,19 +52,6 @@ export async function issueToken(subscriberId: string): Promise<string> {
   return token
 }
 
-export async function issueBriefingToken(
-  briefingRequestId: string,
-): Promise<string> {
-  const sql = getSql()
-  const token = randomBytes(TOKEN_BYTES).toString("base64url")
-  await sql`update auth_tokens set consumed_at = now()
-    where briefing_request_id = ${briefingRequestId} and consumed_at is null`
-  await sql`insert into auth_tokens (briefing_request_id, token_hash, expires_at)
-    values (${briefingRequestId}, ${hashToken(token)},
-            now() + (${TTL_MINUTES} || ' minutes')::interval)`
-  return token
-}
-
 /**
  * Verifies and consumes a token, returning the subscriber id or null.
  *
@@ -125,7 +112,7 @@ export async function consumeToken(
 
 export type SignInResult = {
   ok: true
-  principalType: "subscriber" | "briefing"
+  principalType: "subscriber"
 } | {
   ok: false
   reason: "invalid" | "expired" | "used" | "inactive" | "subscription-expired"
@@ -167,18 +154,7 @@ export async function signInWithToken(token: string): Promise<SignInResult> {
 
   // Eligibility is re-checked at the moment of use. A seat suspended in the
   // fifteen minutes since the link was sent must not still let its holder in.
-  if (principal.type === "briefing") {
-    const rows = (await sql`
-      select id from briefing_requests
-      where id = ${principal.id} and status = 'Active'
-        and (coalesce(private_link_url,'') <> '' or papermark_folder_id is not null)
-      limit 1
-    `) as { id: string }[]
-    if (!rows[0]) return { ok: false, reason: "inactive" }
-    await createSubscriberSession(principal.id, "briefing")
-    try { await recordClientEvent({type:"briefing",id:principal.id},"signin_completed") } catch {}
-    return { ok: true, principalType: "briefing" }
-  }
+  if (principal.type !== "subscriber") return { ok: false, reason: "inactive" }
 
   const rows = (await sql`
     select id, status, term_end from subscribers where id = ${principal.id} limit 1

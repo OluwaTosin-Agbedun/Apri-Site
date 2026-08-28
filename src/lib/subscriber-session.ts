@@ -74,7 +74,7 @@ export async function decrypt(
 
 export async function createSubscriberSession(
   principalId: string,
-  principalType: "subscriber" | "briefing" = "subscriber",
+  principalType: "subscriber" = "subscriber",
 ): Promise<void> {
   const token = await encrypt({ principalId, principalType })
   const cookieStore = await cookies()

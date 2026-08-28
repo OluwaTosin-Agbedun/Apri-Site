@@ -28,8 +28,6 @@ import {
   seatsForPublicTier,
 } from "@/lib/entitlements"
 import type { FormState } from "@/lib/definitions"
-import PapermarkFolderSelector from "@/components/PapermarkFolderSelector"
-import type { PapermarkFolder } from "@/lib/papermark"
 
 export type SubscriberDraft = {
   id: string | null
@@ -57,7 +55,7 @@ const field =
 const label =
   "block text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2"
 
-export default function SubscriberForm({ draft, folders = [], folderError }: { draft: SubscriberDraft; folders?: PapermarkFolder[]; folderError?: string }) {
+export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
   const router = useRouter()
   const action = saveSubscriber.bind(null, draft.id)
   const [state, formAction, pending] = useActionState<FormState, FormData>(
@@ -249,35 +247,6 @@ export default function SubscriberForm({ draft, folders = [], folderError }: { d
             </p>
             {err("termEnd")}
           </div>
-        </div>
-      </div>
-
-      <div className="pt-6 border-t border-border">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
-          Library link
-        </h3>
-
-        {draft.id && <div className="mb-6"><PapermarkFolderSelector kind="subscriber" id={draft.id} value={draft.papermarkFolderId} folders={folders} error={folderError} lastSyncedAt={draft.librarySyncedAt} /></div>}
-        <div>
-          <label htmlFor="libraryLinkUrl" className={label}>
-            Private Papermark share link
-          </label>
-          <label htmlFor="libraryLinkUrl" className={label}>Their personal Papermark library link</label>
-          <input
-            id="libraryLinkUrl"
-            name="libraryLinkUrl"
-            type="text"
-            defaultValue={draft.libraryLinkUrl}
-            className={field}
-            placeholder="https://docs.athenacentre.org/…"
-          />
-          <p className="mt-2 text-xs text-muted-foreground">
-            Use a document link when this person should see one document. Use a multi-file
-            share link when they should see a library containing several documents.
-            Uploading another document into the same Papermark folder does not automatically
-            add it to an existing single-document link.
-          </p>
-          {err("libraryLinkUrl")}
         </div>
       </div>
 

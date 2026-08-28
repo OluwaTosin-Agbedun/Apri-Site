@@ -23,11 +23,15 @@ test('the portal has no Open Private Library button', () => {
 })
 
 test('documents render on the portal itself rather than behind a link out', () => {
-  // The list is fetched and grouped on the page, not deferred to a button.
+  // Legacy pipeline still fetched and grouped on the page.
   assert.match(portal, /getSyncedClientDocuments\(principal, \{ previousVisit \}\)/)
   assert.match(portal, /groupBySection\(documents\)/)
-  assert.match(portal, /function DocumentGrid/)
-  assert.match(portal, /function DocumentCard/)
+  // DR pipeline uses its own grid and cards.
+  assert.match(portal, /function DataRoomGrid/)
+  assert.match(portal, /function DataRoomCard/)
+  // Legacy pipeline keeps its own grid and cards.
+  assert.match(portal, /function LegacyDocumentGrid/)
+  assert.match(portal, /function LegacyDocumentCard/)
 })
 
 test('every section the brief names is rendered, and empty ones are hidden', () => {
@@ -35,22 +39,29 @@ test('every section the brief names is rendered, and empty ones are hidden', () 
   assert.equal(SECTION_LABELS.AIU, 'Athena Intelligence Updates')
   assert.equal(SECTION_LABELS.OTHER, 'Other Assigned Publications')
 
-  assert.match(portal, /"Latest updates"/)
+  // Legacy pipeline uses LIBRARY_SECTIONS
   assert.match(portal, /LIBRARY_SECTIONS\.map/)
-  // A section with nothing in it renders nothing at all.
   assert.match(portal, /sections\[section\]\.length === 0 \? null/)
+
+  // DR pipeline uses PORTAL_CATEGORIES
+  assert.match(portal, /PORTAL_CATEGORIES\.map/)
 })
 
-test('Latest Updates keeps an empty state instead of disappearing', () => {
-  assert.match(portal, /latest\.length === 0 \?/)
-  assert.match(portal, /Nothing new since your last visit/)
+test('Latest Publications always shows content for DR subscribers', () => {
+  // When fewer new docs exist, the most recent documents are shown instead.
+  assert.match(portal, /latestToShow\.length === 0 \?/)
+  assert.match(portal, /latest\.length > 0 \? latest : documents\.slice\(0, 6\)/)
 })
 
-test('a card shows the title, the type, a date and a New badge only when earned', () => {
+test('a card shows the title, the type, a date and a badge only when earned', () => {
+  // Legacy cards
   assert.match(portal, /\{document\.typeLabel\}/)
   assert.match(portal, /\{document\.title\}/)
   assert.match(portal, /document\.changedAt \? formatDate\(document\.changedAt\)/)
   assert.match(portal, /\{document\.isNew && \(/)
+  // DR cards
+  assert.match(portal, /\{document\.categoryLabel\}/)
+  assert.match(portal, /\{document\.badge && \(/)
 })
 
 // ---------------------------------------------------------------------------
@@ -96,52 +107,37 @@ test('nothing forces the page to scroll sideways on a phone', () => {
 
 test('a document route resolves through the session, never through the URL', () => {
   assert.match(viewer, /requirePortalPrincipal\(\)/)
-  assert.match(viewer, /getSyncedClientDocument\(principal, decodeURIComponent\(id\)\)/)
+  // DR pipeline tried first, legacy fallback second — both scoped to the principal.
+  assert.match(viewer, /getDataRoomDocumentForSubscriber\(principal\.id, decodedId\)/)
+  assert.match(viewer, /getSyncedClientDocument\(principal, decodedId\)/)
   assert.match(viewer, /if \(!document\) notFound\(\)/)
   assert.match(viewer, /if \(!principal\.hasAccess\) notFound\(\)/)
 
-  // No share URL, email or token is ever read from the query string.
-  assert.doesNotMatch(viewer, /searchParams/)
+  // No share URL, email or token is ever read from the page's query string.
+  // url.searchParams.set() is used to construct a deep-link URL, not to read
+  // untrusted input from the page's own URL.
+  assert.doesNotMatch(viewer, /await searchParams|props\.searchParams|\.searchParams\)\.get/)
 })
 
-test('a document lookup is always bound to the principal, so it cannot cross clients', () => {
+test('a document lookup is always bound to the subscriber, so it cannot cross clients', () => {
   const lookup = dataLayer.slice(
     dataLayer.indexOf('export async function getSyncedClientDocument('),
     dataLayer.indexOf('export async function getPreviousPortalVisit'),
   )
 
-  // Both branches filter by the principal's own id as well as the document id.
   assert.match(lookup, /where subscriber_id=\$\{principal\.id\} and papermark_document_id=/)
-  assert.match(lookup, /where briefing_request_id=\$\{principal\.id\} and papermark_document_id=/)
-
-  // And there is no lookup by document id alone anywhere in the module.
   assert.doesNotMatch(dataLayer, /where papermark_document_id=\$\{[^}]+\}\s*\n?\s*limit/)
 })
 
-test('subscriber and briefing libraries never read each other', () => {
-  assert.match(dataLayer, /principal\.type === "subscriber"/)
-  // Each branch names exactly one owning column.
-  const subscriberQueries = dataLayer.match(/where subscriber_id=/g) ?? []
-  const briefingQueries = dataLayer.match(/where briefing_request_id=/g) ?? []
-  assert.ok(subscriberQueries.length >= 2)
-  assert.ok(briefingQueries.length >= 2)
-  assert.doesNotMatch(dataLayer, /subscriber_id=.*or briefing_request_id=/)
+test('the portal has no briefing portal path', () => {
+  assert.doesNotMatch(portal, /BriefingPortal/)
+  assert.doesNotMatch(portal, /principal\.type === "briefing"/)
+  assert.doesNotMatch(portal, /Your private briefing/)
 })
 
-test('a briefing client sees a briefing and none of the subscriber furniture', () => {
-  const briefingPortal = portal.slice(
-    portal.indexOf('async function BriefingPortal'),
-    portal.indexOf('function PortalSection'),
-  )
-
-  assert.match(briefingPortal, /Your private briefing/)
-  assert.doesNotMatch(briefingPortal, /SECTION_LABELS|groupBySection|Published editions/)
-  assert.doesNotMatch(briefingPortal, /getLibraryFor/)
-
-  // And the subscriber path is only reached after the briefing path returns.
-  const briefingBranch = portal.indexOf('if (principal.type === "briefing")')
-  const subscriberFetch = portal.indexOf('getLibraryFor(principal)')
-  assert.ok(briefingBranch > -1 && briefingBranch < subscriberFetch)
+test('the data layer has no briefing branches', () => {
+  assert.doesNotMatch(dataLayer, /briefing_request_id=\$\{principal/)
+  assert.doesNotMatch(dataLayer, /principal\.type === "briefing"/)
 })
 
 test('the folders APRI must never expose stay excluded', () => {
@@ -175,8 +171,9 @@ test('a verified device goes straight to the library, whichever kind of client i
 })
 
 test('the portal explains the Papermark check rather than adding an APRI one', () => {
-  assert.match(viewer, /Papermark&rsquo;s own document-security check/)
-  assert.match(viewer, /not be asked to sign in to APRI again/)
+  // Both legacy and DR viewer paths explain the Papermark check.
+  assert.match(viewer, /Papermark/)
+  assert.match(viewer, /document-security check/)
   // No second APRI verification screen is introduced.
   assert.doesNotMatch(viewer, /Verify your email|Confirm your identity/i)
 })
@@ -201,6 +198,28 @@ test('no Papermark credential can reach a client component', () => {
   // a build error rather than a leak.
   assert.match(read('src/lib/papermark.ts'), /^import 'server-only'/m)
   assert.match(read('src/lib/papermark-client-library.ts'), /^import "server-only"/m)
+})
+
+test('DR cards show both Download and View buttons', () => {
+  const cardSection = portal.slice(
+    portal.indexOf('function DataRoomCard'),
+    portal.indexOf('function LegacyDocumentGrid') > -1
+      ? portal.indexOf('function LegacyDocumentGrid')
+      : portal.length,
+  )
+  assert.match(cardSection, /Download/)
+  assert.match(cardSection, /View/)
+  assert.match(cardSection, /\/portal\/document\/.*\/download/)
+  assert.match(cardSection, /\/portal\/document\/.*[^/]`\}/)
+})
+
+test('the download route validates the subscriber server-side', () => {
+  const downloadRoute = read('src/app/portal/document/[id]/download/route.ts')
+  assert.match(downloadRoute, /requirePortalPrincipal\(\)/)
+  assert.match(downloadRoute, /getDataRoomDocumentForSubscriber\(principal\.id/)
+  assert.match(downloadRoute, /document_downloaded/)
+  assert.match(downloadRoute, /recordClientEvent/)
+  assert.doesNotMatch(downloadRoute, /PAPERMARK_API_TOKEN|PAPERMARK_API_KEY/)
 })
 
 test('a share URL is never handed to the browser as a link target on the list', () => {

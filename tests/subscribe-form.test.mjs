@@ -143,7 +143,7 @@ test('the admin subscriber form and its page agree on what a draft carries', () 
 
   const draftType = between(form, 'export type SubscriberDraft', 'const field')
   const blankDraft = between(page, 'const BLANK: SubscriberDraft', 'type Row')
-  const rowDraft = between(page, 'const draft: SubscriberDraft', 'const folderResult')
+  const rowDraft = between(page, 'const draft: SubscriberDraft', 'const room = await')
 
   for (const block of [draftType, blankDraft, rowDraft]) {
     assert.ok(block.length > 0, 'a block moved; this test is reading nothing')

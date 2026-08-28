@@ -3,9 +3,9 @@ import {
   requirePortalPrincipal,
   getLibraryFor,
   touchLastViewed,
+  type CurrentSubscriber,
 } from "@/lib/subscriber-dal"
-import { seriesLabel } from "@/lib/entitlements"
-import { portalNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
+import { seriesLabel, tierDisplayName } from "@/lib/entitlements"
 import { subscriberSignOut } from "@/app/actions/subscriber-auth"
 import SiteFooter from "@/components/SiteFooter"
 import PortalHeader from "@/components/PortalHeader"
@@ -15,54 +15,143 @@ import { recordClientEvent } from "@/lib/client-engagement"
 import {
   getPreviousPortalVisit,
   getSyncedClientDocuments,
-  groupBySection,
+  getDataRoomDocumentsForSubscriber,
+  groupDataRoomByCategory,
+  type DataRoomDocument,
   type SyncedClientDocument,
 } from "@/lib/papermark-client-library"
 import { SECTION_LABELS, LIBRARY_SECTIONS } from "@/lib/papermark-contract"
+import {
+  PORTAL_CATEGORIES,
+  portalCategoryLabel,
+  type PortalCategoryKey,
+} from "@/lib/papermark-dataroom-contract"
 
 export const dynamic = "force-dynamic"
 
 export const metadata = {
   title: "Your Library · APRI",
-  // A subscriber's library must never be indexed or cached by a crawler.
   robots: { index: false, follow: false },
 }
 
 const CONTACT = "intelligence@athenacentre.org"
 
-/**
- * The portal shell width.
- *
- * The public site is set to a reading measure, which is right for prose and
- * wrong for a working library: it left a document grid running in a single
- * narrow column with most of the screen empty. The portal gets the browser's
- * width up to 1600px, with gutters of 24px rising to 32px, and the viewer below
- * inherits the same container so a document is read at full width.
- */
 const SHELL = "w-full max-w-[1600px] mx-auto px-6 sm:px-8"
 
 export default async function PortalPage() {
   const principal = await requirePortalPrincipal()
 
-  // Read before recording, so "since your last visit" means the visit before
-  // this one rather than this one.
   const previousVisit = await getPreviousPortalVisit(principal)
   try {
-    await recordClientEvent({ type: principal.type, id: principal.id }, "portal_opened", {
+    await recordClientEvent({ type: "subscriber", id: principal.id }, "portal_opened", {
       dedupeMinutes: 30,
     })
   } catch {}
 
-  if (principal.type === "briefing") {
-    return <BriefingPortal client={principal} previousVisit={previousVisit} />
-  }
-
-  // Lapsed and suspended seats reach here on purpose: the brief requires a
-  // locked library that explains itself, not a 404 that looks like a fault.
   if (!principal.hasAccess) {
     return <LockedLibrary name={principal.fullName} />
   }
 
+  const drContext = await getDataRoomDocumentsForSubscriber(principal.id, { previousVisit })
+
+  if (drContext) {
+    return (
+      <DataRoomPortal
+        principal={principal}
+        documents={drContext.documents}
+        linkUrl={drContext.linkUrl}
+        allowDownload={drContext.allowDownload}
+        previousVisit={previousVisit}
+      />
+    )
+  }
+
+  return <LegacyPortal principal={principal} previousVisit={previousVisit} />
+}
+
+// ---------------------------------------------------------------------------
+// Data Room portal — the new pipeline
+// ---------------------------------------------------------------------------
+
+async function DataRoomPortal({
+  principal,
+  documents,
+  linkUrl,
+  allowDownload,
+  previousVisit,
+}: {
+  principal: CurrentSubscriber
+  documents: DataRoomDocument[]
+  linkUrl: string
+  allowDownload: boolean
+  previousVisit: string | null
+}) {
+  await touchLastViewed(principal.id)
+
+  const categories = groupDataRoomByCategory(documents)
+  const latest = documents.filter((d) => d.badge === "new" || d.badge === "updated")
+  const latestToShow = latest.length > 0 ? latest : documents.slice(0, 6)
+  const total = documents.length
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <PortalHeader
+        shell={SHELL}
+        name={principal.fullName}
+        organisation={principal.organisation}
+        tier={tierDisplayName(principal.publicTier)}
+        termEnd={principal.termEnd}
+      />
+
+      <main className={`flex-1 ${SHELL} py-10 sm:py-14`}>
+        <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-2 leading-tight tracking-tight">
+          Your library
+        </h1>
+        <p className="text-sm text-foreground/60 mb-12">
+          {total === 0
+            ? "Nothing has been issued to you yet."
+            : `${total} ${total === 1 ? "document" : "documents"} issued to you.`}
+        </p>
+
+        <PortalSection title="Latest Publications">
+          {latestToShow.length === 0 ? (
+            <p className="text-sm text-foreground/60 border border-border bg-card/30 p-6">
+              No documents have been added to your library yet.
+            </p>
+          ) : (
+            <DataRoomGrid documents={latestToShow} />
+          )}
+        </PortalSection>
+
+        {PORTAL_CATEGORIES.map(({ key }) =>
+          categories[key as PortalCategoryKey].length === 0 ? null : (
+            <PortalSection key={key} title={portalCategoryLabel(key as PortalCategoryKey)}>
+              <DataRoomGrid documents={categories[key as PortalCategoryKey]} />
+            </PortalSection>
+          ),
+        )}
+
+        <PortalFooter />
+      </main>
+
+      <div className={`${SHELL} pb-10`}>
+        <SiteFooter />
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Legacy portal — for subscribers not yet migrated to Data Rooms
+// ---------------------------------------------------------------------------
+
+async function LegacyPortal({
+  principal,
+  previousVisit,
+}: {
+  principal: CurrentSubscriber
+  previousVisit: string | null
+}) {
   const [library, documents] = await Promise.all([
     getLibraryFor(principal),
     getSyncedClientDocuments(principal, { previousVisit }),
@@ -88,7 +177,7 @@ export default async function PortalPage() {
         shell={SHELL}
         name={principal.fullName}
         organisation={principal.organisation}
-        tier={principal.publicTier}
+        tier={tierDisplayName(principal.publicTier)}
         termEnd={principal.termEnd}
       />
 
@@ -102,53 +191,26 @@ export default async function PortalPage() {
             : `${total} ${total === 1 ? "document" : "documents"} issued to you.`}
         </p>
 
-        {/* Latest Updates -- always present, so an empty week says so. */}
-        <PortalSection title="Latest updates">
-          {latest.length === 0 ? (
-            <p className="text-sm text-foreground/60 border border-border bg-card/30 p-6">
-              Nothing new since your last visit. Everything issued to you is below.
-            </p>
-          ) : (
-            <DocumentGrid documents={latest} />
-          )}
-        </PortalSection>
+        {latest.length > 0 && (
+          <PortalSection title="Latest updates">
+            <LegacyDocumentGrid documents={latest} />
+          </PortalSection>
+        )}
 
         {LIBRARY_SECTIONS.map((section) =>
           sections[section].length === 0 ? null : (
             <PortalSection key={section} title={SECTION_LABELS[section]}>
-              <DocumentGrid documents={sections[section]} />
+              <LegacyDocumentGrid documents={sections[section]} />
             </PortalSection>
           ),
         )}
 
-        {/*
-          The fallback for a subscriber whose library is one pasted Papermark
-          link rather than a synchronised folder. It renders as the library
-          itself, not as a button to go and find it elsewhere.
-        */}
-        {documents.length === 0 && (
+        {documents.length === 0 && embedUrl && (
           <PortalSection title="Your private library">
-            {embedUrl ? (
-              <>
-                <PapermarkEmbed src={embedUrl} title="Your private library" />
-                <p className="mt-4 text-xs text-muted-foreground leading-relaxed max-w-4xl">
-                  This library is unique to you. If the viewer asks you to confirm your
-                  email address, that is Papermark&rsquo;s own document-security check;
-                  you will not be asked to sign in to APRI again.
-                </p>
-              </>
-            ) : (
-              <div className="border border-border bg-card/30 p-8" role="alert">
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  Your private library has not been prepared yet. Please contact APRI and
-                  we will set it up.
-                </p>
-              </div>
-            )}
+            <PapermarkEmbed src={embedUrl} title="Your private library" />
           </PortalSection>
         )}
 
-        {/* Entitlement-based editions, kept so nothing already issued is lost. */}
         {library.length > 0 && (
           <PortalSection title="Published editions">
             <div className="space-y-12">
@@ -170,18 +232,7 @@ export default async function PortalPage() {
           </PortalSection>
         )}
 
-        <div className="mt-8 pt-8 border-t border-border">
-          <p className="text-xs text-muted-foreground leading-relaxed max-w-4xl">
-            {BRIEFINGS_SEPARATE_NOTICE} {portalNotice()} Questions:{" "}
-            <a
-              href={`mailto:${CONTACT}`}
-              className="text-accent hover:text-accent-hover transition-colors"
-            >
-              {CONTACT}
-            </a>
-            .
-          </p>
-        </div>
+        <PortalFooter />
       </main>
 
       <div className={`${SHELL} pb-10`}>
@@ -191,59 +242,18 @@ export default async function PortalPage() {
   )
 }
 
-/**
- * A briefing client's portal.
- *
- * Deliberately shares nothing with the subscriber sections above. A briefing is
- * commissioned separately, so there are no series, no editions and no
- * subscriber categories here -- only the papers written for this client.
- */
-async function BriefingPortal({
-  client,
-  previousVisit,
-}: {
-  client: Extract<Awaited<ReturnType<typeof requirePortalPrincipal>>, { type: "briefing" }>
-  previousVisit: string | null
-}) {
-  const documents = await getSyncedClientDocuments(client, { previousVisit })
-
-  return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <PortalHeader
-        shell={SHELL}
-        name={client.fullName}
-        organisation={client.organisation}
-        tier="Private briefing"
-        termEnd={null}
-      />
-      <main className={`flex-1 ${SHELL} py-10 sm:py-14`}>
-        <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-2">
-          Your private briefing
-        </h1>
-        <p className="text-sm text-foreground/60 mb-12">
-          Commissioned for you. Please do not share it.
-        </p>
-
-        {!client.hasAccess ? (
-          <LockedLibrary name={client.fullName} />
-        ) : documents.length > 0 ? (
-          <DocumentGrid documents={documents} />
-        ) : (
-          <div className="border border-border bg-card/30 p-8">
-            <p className="text-sm text-foreground/70 leading-relaxed">
-              Your briefing is being prepared. We will email you as soon as it is ready.
-            </p>
-          </div>
-        )}
-      </main>
-
-      <div className={`${SHELL} pb-10`}>
-        <SiteFooter />
-      </div>
-    </div>
-  )
+function groupBySection(
+  documents: SyncedClientDocument[],
+): Record<string, SyncedClientDocument[]> {
+  const grouped: Record<string, SyncedClientDocument[]> = {
+    PLM: [], AEO: [], AIU: [], MIN: [], QIB: [], OTHER: [],
+  }
+  for (const doc of documents) grouped[doc.section]?.push(doc)
+  return grouped
 }
 
+// ---------------------------------------------------------------------------
+// Shared components
 // ---------------------------------------------------------------------------
 
 function PortalSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -257,28 +267,109 @@ function PortalSection({ title, children }: { title: string; children: React.Rea
   )
 }
 
-/** Multiple columns on a desktop, one on a phone, no horizontal scrolling. */
-function DocumentGrid({ documents }: { documents: SyncedClientDocument[] }) {
+function PortalFooter() {
+  return (
+    <div className="mt-8 pt-8 border-t border-border">
+      <p className="text-xs text-muted-foreground leading-relaxed max-w-4xl">
+        Your access is personal to you and every view is logged. Documents are
+        licensed for your own use — please do not forward or redistribute them.
+        Questions:{" "}
+        <a
+          href={`mailto:${CONTACT}`}
+          className="text-accent hover:text-accent-hover transition-colors"
+        >
+          {CONTACT}
+        </a>
+        .
+      </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Data Room document cards (new pipeline)
+// ---------------------------------------------------------------------------
+
+function DataRoomGrid({ documents }: { documents: DataRoomDocument[] }) {
   return (
     <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {documents.map((document) => (
-        <li key={document.id}>
-          <DocumentCard document={document} />
+      {documents.map((doc) => (
+        <li key={doc.id}>
+          <DataRoomCard document={doc} />
         </li>
       ))}
     </ul>
   )
 }
 
-/**
- * One document.
- *
- * The whole card is the link, and it opens inside APRI rather than throwing the
- * subscriber out to another site. The href carries a document id and nothing
- * else -- no share URL, no address, no token -- and the route it points at
- * checks that the document belongs to whoever is signed in before it renders.
- */
-function DocumentCard({ document }: { document: SyncedClientDocument }) {
+function DataRoomCard({ document }: { document: DataRoomDocument }) {
+  const date = document.papermarkUpdatedAt || document.papermarkCreatedAt
+  return (
+    <div className="flex h-full flex-col justify-between border border-border bg-card/30 p-6 min-h-[11rem]">
+      <div>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+            {document.categoryLabel}
+          </span>
+          {document.badge && (
+            <span className={`shrink-0 border text-[0.65rem] uppercase tracking-wider px-2 py-0.5 ${
+              document.badge === "new"
+                ? "border-accent/50 text-accent"
+                : "border-foreground/30 text-foreground/60"
+            }`}>
+              {document.badge === "new" ? "New" : "Updated"}
+            </span>
+          )}
+        </div>
+        <h3 className="font-serif text-lg text-foreground leading-snug">
+          {document.title}
+        </h3>
+        {document.numPages && (
+          <p className="text-xs text-muted-foreground mt-2">
+            {document.numPages} {document.numPages === 1 ? "page" : "pages"}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-border">
+        <span className="text-xs text-muted-foreground">
+          {date ? formatDate(date) : ""}
+        </span>
+        <div className="flex gap-3">
+          <Link
+            href={`/portal/document/${encodeURIComponent(document.id)}/download`}
+            className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors"
+          >
+            Download
+          </Link>
+          <Link
+            href={`/portal/document/${encodeURIComponent(document.id)}`}
+            className="text-sm font-medium text-accent hover:text-accent-hover transition-colors"
+          >
+            View <span aria-hidden>&rarr;</span>
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Legacy document cards (old folder-sync pipeline)
+// ---------------------------------------------------------------------------
+
+function LegacyDocumentGrid({ documents }: { documents: SyncedClientDocument[] }) {
+  return (
+    <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {documents.map((document) => (
+        <li key={document.id}>
+          <LegacyDocumentCard document={document} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function LegacyDocumentCard({ document }: { document: SyncedClientDocument }) {
   return (
     <Link
       href={`/portal/document/${encodeURIComponent(document.id)}`}
@@ -312,10 +403,11 @@ function DocumentCard({ document }: { document: SyncedClientDocument }) {
 }
 
 // ---------------------------------------------------------------------------
+// Legacy publication rows (copies/entitlement)
+// ---------------------------------------------------------------------------
 
 type Item = Awaited<ReturnType<typeof getLibraryFor>>[number]
 
-/** One published edition from the entitlement library. */
 function PublicationRow({ item }: { item: Item }) {
   const meta = [formatDate(item.editionDate), item.code].filter(Boolean).join(" · ")
 
@@ -418,7 +510,6 @@ function LockedLibrary({ name }: { name: string }) {
 
 // ---------------------------------------------------------------------------
 
-/** Groups items by series, preserving the newest-first order within each. */
 function groupBySeries(items: Item[]): [string, Item[]][] {
   const map = new Map<string, Item[]>()
   for (const item of items) {

@@ -106,7 +106,7 @@ const LEVEL_NAMES: Record<Level, string> = {
   L1: 'Political Monitor',
   L2: 'Individual Access / Professional Team Access',
   L3: 'Executive Intelligence',
-  L4: 'Board Briefing',
+  L4: 'Board Intelligence Access',
 }
 
 /**
@@ -120,7 +120,22 @@ const LEVEL_BASE_NAMES: Record<Level, string> = {
   L1: 'Political Monitor',
   L2: 'Individual Access',
   L3: 'Executive Intelligence',
-  L4: 'Board Briefing',
+  L4: 'Board Intelligence Access',
+}
+
+/**
+ * Maps a stored tier name to its current user-facing display name.
+ *
+ * The database stores `'Board Briefing'` for L4 subscribers and
+ * `papermark_level_rooms` maps that value to a Data Room. Changing the stored
+ * value would break existing records and mappings, so the rename is display-only.
+ */
+const TIER_DISPLAY_OVERRIDES: Record<string, string> = {
+  'Board Briefing': 'Board Intelligence Access',
+}
+
+export function tierDisplayName(storedName: string): string {
+  return TIER_DISPLAY_OVERRIDES[storedName] ?? storedName
 }
 
 /**
@@ -188,7 +203,7 @@ export function visibilityBadge(visibility: Visibility): string {
  */
 export function minimumLevelLabel(visibility: Visibility): string {
   if (visibility === 'OPEN') return 'Open to all readers'
-  // Board Briefing is the top level, so "and above" would name nothing further.
+  // Board Intelligence Access is the top level, so "and above" would name nothing further.
   if (visibility === 'L4') return LEVEL_BASE_NAMES.L4
   return `${LEVEL_BASE_NAMES[visibility]} and above`
 }

@@ -1,6 +1,6 @@
 export type PortalPrincipal = {
   principalId: string
-  principalType: "subscriber" | "briefing"
+  principalType: "subscriber"
 }
 
 export function portalPrincipalFromClaims(
@@ -9,7 +9,6 @@ export function portalPrincipalFromClaims(
   const principalId = payload.principalId ?? payload.subscriberId
   const principalType = payload.principalType ?? "subscriber"
   if (typeof principalId !== "string") return null
-  if (principalType !== "subscriber" && principalType !== "briefing")
-    return null
-  return { principalId, principalType }
+  if (principalType !== "subscriber") return null
+  return { principalId, principalType: "subscriber" }
 }

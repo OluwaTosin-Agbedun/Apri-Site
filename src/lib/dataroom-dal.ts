@@ -1,5 +1,6 @@
 import 'server-only'
 import { getSql } from './db'
+import { PUBLIC_TIERS } from './entitlements'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -447,9 +448,7 @@ export async function getDataRoomStats(): Promise<DataRoomStats> {
   const [row] = (await sql`
     select
       (select count(*)::int from papermark_level_rooms) as configured_levels,
-      (select count(distinct public_tier)::int from subscribers
-        where client_type='subscriber' and lower(status)='active'
-          and public_tier <> '') as total_levels,
+      ${PUBLIC_TIERS.length}::int as total_levels,
       (select count(*)::int from subscribers
         where client_type='subscriber' and lower(status)='active'
           and (papermark_dataroom_id is not null or papermark_dataroom_override is not null)) as with_room,

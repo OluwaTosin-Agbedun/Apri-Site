@@ -41,7 +41,7 @@ const SUBSCRIPTION_LEVELS = [
       'You receive everything APRI publishes, including the Monthly Intelligence Note, the Quarterly Outlook and Intelligence Updates, and your briefing requests are treated as a priority.',
   },
   {
-    title: 'Board Briefing',
+    title: 'Board Intelligence Access',
     description:
       'Our most senior tier, written for boards and board risk committees. It includes every publication, priority access to bespoke briefings, and direct engagement with the intelligence team.',
   },
