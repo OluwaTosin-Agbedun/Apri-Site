@@ -68,6 +68,12 @@ export default function SubscriberForm({ draft, folders = [], folderError }: { d
   const [publicTier, setPublicTier] = useState(draft.publicTier)
   const [seats, setSeats] = useState(String(draft.seats))
 
+  // Individual Access is one seat, so the field is shown but not editable. The
+  // server enforces the same rule -- saveSubscriber recomputes it from the tier
+  // rather than trusting the posted number -- and this only keeps the form
+  // honest about it.
+  const isIndividual = publicTier === "Individual Access"
+
   function onTierChange(tier: string) {
     setPublicTier(tier)
     setSeats(String(seatsForPublicTier(tier)))
@@ -200,7 +206,7 @@ export default function SubscriberForm({ draft, folders = [], folderError }: { d
               min={1}
               value={seats}
               onChange={(e) => setSeats(e.target.value)}
-              readOnly={publicTier === "Individual Access"}
+              readOnly={isIndividual}
               className={field}
             />
             <p className="mt-2 text-xs text-muted-foreground">

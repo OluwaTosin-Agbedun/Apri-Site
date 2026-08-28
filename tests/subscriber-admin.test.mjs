@@ -27,7 +27,11 @@ test('admin displays one access-level field, read-only status and enforced Indiv
   assert.match(form, /Subscription access level/)
   assert.doesNotMatch(form, /Access level \(internal\)|Tier \(as named publicly\)/)
   assert.doesNotMatch(form, /name="status"/)
-  assert.match(form, /readOnly=\{publicTier === "Individual Access"\}/)
+  // Read-only for Individual Access. The condition is named once and used both
+  // for the input and for the note beneath it -- a merge had left those two
+  // disagreeing, one written inline and one referring to a name that had gone.
+  assert.match(form, /const isIndividual = publicTier === "Individual Access"/)
+  assert.match(form, /readOnly=\{isIndividual\}/)
   assert.match(actions, /d\.publicTier === "Individual Access" \? 1 : d\.seats/)
   assert.doesNotMatch(actions, /status = \$\{d\.status\}/)
 })

@@ -19,7 +19,6 @@ const BLANK: SubscriberDraft = {
   email: "",
   phone: "",
   publicTier: "",
-  level: "",
   seats: 1,
   termStart: "",
   termEnd: "",
@@ -38,6 +37,7 @@ type Row = {
   role_title: string
   email: string
   phone: string
+  client_type: string
   public_tier: string
   level: string | null
   seats: number
@@ -90,7 +90,7 @@ export default async function EditSubscriberPage({
   const sql = getSql()
   const rows = (await sql`
     select s.id, s.full_name, s.name, s.organization, s.role_title, s.email, s.phone,
-           s.public_tier, s.level, s.seats, s.term_start, s.term_end, s.status,
+           s.client_type, s.public_tier, s.level, s.seats, s.term_start, s.term_end, s.status,
            s.invoice_ref, s.library_link_url, s.papermark_folder_id, s.note, s.last_viewed_at, s.updated_at, s.library_link_updated_at,
            (select count(*)::int from publication_access pa
              where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links
@@ -116,7 +116,6 @@ export default async function EditSubscriberPage({
     email: row.email,
     phone: row.phone,
     publicTier: row.public_tier,
-    level: row.level ?? "",
     seats: row.seats,
     termStart: dateInput(row.term_start),
     termEnd: dateInput(row.term_end),

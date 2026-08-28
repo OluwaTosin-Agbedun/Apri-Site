@@ -123,9 +123,26 @@ export async function requestAccess(
   if (typeof decoy === "string" && decoy.trim() !== "") return ACCEPTED
 
   const requestedTier = String(formData.get("subscriptionLevel") ?? "")
-  const submittedSeats = formData.get("seats")
-  const effectiveSeats = seatsForSubscriptionRequest(requestedTier, submittedSeats)
-  if (effectiveSeats === null) {
+
+  /**
+   * Seats: one submitted value, one enforced value, and nothing in between.
+   *
+   * `requestedSeats` is what the form sent -- untrusted, possibly absent, and
+   * never written anywhere. `seatCount` is what the server decided, and it is
+   * the only seat number used from here on: in the schema, in the insert, in the
+   * update and in both emails.
+   *
+   * Keeping it to two names is the point. An earlier merge left a second
+   * derivation of the same thing further down the function, referring to a
+   * variable that no longer existed, and the build stopped there.
+   *
+   * Individual Access is forced to one seat inside the helper rather than
+   * trusted from the form, so a request with `seats=50` posted straight at this
+   * action still stores one.
+   */
+  const requestedSeats = formData.get("seats")
+  const seatCount = seatsForSubscriptionRequest(requestedTier, requestedSeats)
+  if (seatCount === null) {
     return {
       errors: {
         [requestedTier ? "seats" : "subscriptionLevel"]: [
@@ -143,7 +160,7 @@ export async function requestAccess(
     email: formData.get("email"),
     phone: formData.get("phone"),
     roleTitle: formData.get("roleTitle") ?? "",
-    seats: effectiveSeats,
+    seats: seatCount,
     subscriptionLevel: requestedTier,
     note: formData.get("note") ?? "",
     acceptedTerms: formData.get("acceptedTerms"),
@@ -160,8 +177,6 @@ export async function requestAccess(
     note,
   } = parsed.data
   const phone = normalisePhone(parsed.data.phone)
-  const seats =
-    subscriptionLevel === "Individual Access" ? 1 : enforcedSeats
 
   const sql = getSql()
   const ip = await clientIp()
@@ -181,7 +196,7 @@ export async function requestAccess(
         terms_accepted_at
       ) values (
         ${name}, ${name}, ${organization}, ${email}, ${phone}, ${roleTitle},
-        ${subscriptionLevel}, ${subscriptionLevel}, ${level}, ${effectiveSeats}, ${note}, 'Pending',
+        ${subscriptionLevel}, ${subscriptionLevel}, ${level}, ${seatCount}, ${note}, 'Pending',
         now()
       )
     `
@@ -197,7 +212,7 @@ export async function requestAccess(
         subscription_level = ${subscriptionLevel},
         public_tier = ${subscriptionLevel},
         level = ${level},
-        seats = ${effectiveSeats},
+        seats = ${seatCount},
         note = ${note},
         status = 'Pending',
         terms_accepted_at = now(),
@@ -216,7 +231,7 @@ export async function requestAccess(
         email,
         phone,
         roleTitle,
-        seats: effectiveSeats,
+        seats: seatCount,
         subscriptionLevel,
         note,
       }),
