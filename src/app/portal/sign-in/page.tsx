@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { getCurrentSubscriber } from "@/lib/subscriber-dal"
+import { hasPortalSession } from "@/lib/subscriber-dal"
 import SiteFooter from "@/components/SiteFooter"
 import SignInForm from "./sign-in-form"
 
@@ -18,9 +18,11 @@ export default async function SignInPage({
 }: {
   searchParams: Promise<{ expired?: string; reason?: string }>
 }) {
-  // Already signed in: go straight to the library rather than asking again.
-  const subscriber = await getCurrentSubscriber()
-  if (subscriber) redirect("/portal")
+  // Already verified on this device: go straight to the library rather than
+  // asking again. This covers briefing clients as well as subscribers -- the
+  // previous check read subscribers only, so a briefing client was sent back
+  // through the email step on every visit.
+  if (await hasPortalSession()) redirect("/portal")
 
   const { expired, reason } = await searchParams
   const message =
@@ -54,7 +56,9 @@ export default async function SignInPage({
           Sign in
         </h1>
         <p className="text-sm text-foreground/70 leading-relaxed mb-8">
-          Enter the email address on your subscription.
+          Enter the email address on your subscription. We will send a link to
+          confirm this device once; after that you will come straight here to your
+          library, with no email step.
         </p>
 
         {(expired || reason) && (

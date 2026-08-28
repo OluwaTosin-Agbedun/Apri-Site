@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-export default function PapermarkEmbed({ src }: { src: string }) {
+export default function PapermarkEmbed({
+  src,
+  title = 'Your private Papermark library',
+}: {
+  src: string
+  title?: string
+}) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [attempt, setAttempt] = useState(0)
   const timeoutRef = useRef<number | null>(null)
@@ -21,16 +27,16 @@ export default function PapermarkEmbed({ src }: { src: string }) {
   }
 
   return (
-    <div className="relative w-full min-h-[70vh] sm:min-h-[76vh] border border-border bg-card/30 overflow-hidden">
+    <div className="relative w-full min-h-[70vh] lg:min-h-[78vh] border border-border bg-card/30 overflow-hidden">
       {state !== 'ready' && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-8 text-center">
           {state === 'loading' ? (
             <p className="text-sm text-muted-foreground" role="status">
-              Loading your private Papermark library…
+              Loading…
             </p>
           ) : (
             <div role="alert">
-              <p className="font-medium text-foreground">Your library could not be loaded.</p>
+              <p className="font-medium text-foreground">This could not be loaded.</p>
               <p className="mt-2 text-sm text-muted-foreground">
                 Check your connection, then try loading the viewer again.
               </p>
@@ -48,7 +54,7 @@ export default function PapermarkEmbed({ src }: { src: string }) {
       <iframe
         key={`${src}-${attempt}`}
         src={src}
-        title="Your private Papermark library"
+        title={title}
         className="absolute inset-0 h-full w-full border-0"
         allow="fullscreen; clipboard-read; clipboard-write"
         allowFullScreen

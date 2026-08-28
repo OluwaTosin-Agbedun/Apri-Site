@@ -123,6 +123,18 @@ export type CurrentBriefingClient = {
   hasAccess: boolean
 }
 
+/**
+ * Whether this device already holds a valid portal session.
+ *
+ * Used by the sign-in page so a verified device is sent straight to the
+ * library. Verification happens once per device: after the one-time link has
+ * been used, the session lasts 90 days and the subscriber never meets the email
+ * step again on that browser.
+ */
+export async function hasPortalSession(): Promise<boolean> {
+  return (await readSubscriberSession()) !== null
+}
+
 export async function requirePortalPrincipal(): Promise<CurrentSubscriber | CurrentBriefingClient> {
   const session = await readSubscriberSession()
   if (!session) redirect("/portal/sign-in")

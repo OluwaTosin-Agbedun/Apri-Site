@@ -1,5 +1,12 @@
 import 'server-only'
 import { WATERMARKING_ENABLED } from './delivery'
+import {
+  DOCUMENTS_FOLDER_PARAM,
+  FOLDERS_PARENT_PARAM,
+  describePapermarkFailure,
+  papermarkExpiresAt,
+  type PapermarkFailure,
+} from './papermark-contract'
 
 /**
  * Papermark REST client.
@@ -17,12 +24,35 @@ import { WATERMARKING_ENABLED } from './delivery'
  */
 const BASE = process.env.PAPERMARK_API_BASE ?? 'https://api.papermark.com'
 
+/**
+ * Papermark's Document, per the OpenAPI `Document` schema.
+ *
+ * The timestamps are `created` and `updated_at`. An earlier revision declared
+ * `createdAt`/`updatedAt`, which are not fields Papermark sends -- they read as
+ * undefined for every document, so anything sorting by them silently sorted by
+ * nothing. Both spellings are accepted here so a payload change cannot break
+ * the sort again, but `updated_at` is the one the spec documents.
+ */
 export type PapermarkDocument = {
   id: string
   name: string
+  folder_id?: string | null
   folderId?: string | null
+  created?: string
+  updated_at?: string
   createdAt?: string
   updatedAt?: string
+}
+
+/** The most reliable "last changed" instant Papermark gives for a document. */
+export function documentUpdatedAt(document: PapermarkDocument): string | null {
+  return (
+    document.updated_at ??
+    document.updatedAt ??
+    document.created ??
+    document.createdAt ??
+    null
+  )
 }
 
 export type PapermarkFolder = {
@@ -35,12 +65,16 @@ export type PapermarkFolder = {
 export type PapermarkLink = {
   id: string
   url?: string
+  /** The spec's name for the custom host; domainSlug is kept for older payloads. */
+  domain?: string | null
   domainSlug?: string
-  slug?: string
+  slug?: string | null
   isArchived?: boolean
   /** snake_case per the OpenAPI Link schema; camelCase kept for older payloads. */
   document_id?: string | null
   documentId?: string | null
+  allow_download?: boolean
+  expires_at?: string | null
 }
 
 /**
@@ -78,7 +112,30 @@ function requireToken(): string {
   return token
 }
 
-export class PapermarkError extends Error {}
+/**
+ * A Papermark failure, carrying what the API actually said.
+ *
+ * `failure` holds the parsed field errors so an administrator can be told which
+ * field was rejected and why. It is optional because a network error has no
+ * response to parse.
+ */
+export class PapermarkError extends Error {
+  readonly failure?: PapermarkFailure
+
+  constructor(message: string, failure?: PapermarkFailure) {
+    super(message)
+    this.failure = failure
+  }
+}
+
+/** Reads an error body without letting a parse failure hide the real status. */
+async function readErrorBody(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
 
 async function call<T>(path: string): Promise<T> {
   const token = requireToken()
@@ -93,24 +150,17 @@ async function call<T>(path: string): Promise<T> {
       // Never cache: a sync must see current state.
       cache: 'no-store',
     })
-  } catch (cause) {
+  } catch {
     throw new PapermarkError('Could not reach Papermark. Check network access.')
   }
 
-  if (response.status === 401 || response.status === 403) {
-    throw new PapermarkError(
-      'Papermark rejected the API token. Check PAPERMARK_API_TOKEN is current.'
-    )
-  }
-  if (response.status === 404) {
-    throw new PapermarkError(
-      `Papermark returned 404 for ${path}. The API path or team id may be wrong.`
-    )
-  }
   if (!response.ok) {
-    throw new PapermarkError(
-      `Papermark returned ${response.status}. Try again, or check the Papermark status page.`
-    )
+    // The body is parsed rather than discarded. Replacing it with the status
+    // code is what left "Papermark returned 422" as the only clue while the
+    // real answer -- a query parameter under the wrong name -- was sitting in
+    // the response the whole time.
+    const failure = describePapermarkFailure(response.status, await readErrorBody(response))
+    throw new PapermarkError(failure.message, failure)
   }
 
   try {
@@ -147,13 +197,39 @@ export async function listDocumentsInFolder(
   if (!selectedFolderId) {
     throw new PapermarkError("A Papermark folder ID is required.")
   }
-  const { items } = unwrap<PapermarkDocument>(
-    await call<unknown>(
-      `/v1/documents?folder_id=${encodeURIComponent(selectedFolderId)}`,
-    ),
-    'documents'
-  )
-  return items
+
+  const documents: PapermarkDocument[] = []
+  let cursor: string | null = null
+
+  do {
+    // DOCUMENTS_FOLDER_PARAM, not a literal: this endpoint takes the folder
+    // filter in camelCase while /v1/folders takes its parent in snake_case, and
+    // getting it the wrong way round is the 422 this whole path used to fail
+    // with. The name is declared once, next to the reason.
+    const query: string = [
+      `${DOCUMENTS_FOLDER_PARAM}=${encodeURIComponent(selectedFolderId)}`,
+      'limit=100',
+      cursor ? `cursor=${encodeURIComponent(cursor)}` : '',
+    ]
+      .filter(Boolean)
+      .join('&')
+
+    const page = unwrap<PapermarkDocument>(
+      await call<unknown>(`/v1/documents?${query}`),
+      'documents'
+    )
+    documents.push(...page.items)
+    cursor = page.next
+    // Bounded: a runaway cursor must not loop forever inside one sync.
+  } while (cursor && documents.length < 1000)
+
+  // Papermark filters server-side, but a folder filter that were ever ignored
+  // would import the whole team library into one subscriber's portal. Anything
+  // that comes back tagged to another folder is dropped.
+  return documents.filter((document) => {
+    const owner = document.folder_id ?? document.folderId
+    return owner === undefined || owner === null || owner === selectedFolderId
+  })
 }
 
 /** Direct children of one configured root; never returns a team-wide folder list. */
@@ -161,7 +237,9 @@ export async function listFoldersInRoot(rootFolderId: string): Promise<Papermark
   const root = rootFolderId.trim()
   if (!root) throw new PapermarkError('The Papermark root folder is not configured.')
   const { items } = unwrap<PapermarkFolder>(
-    await call<unknown>(`/v1/folders?parent_id=${encodeURIComponent(root)}`),
+    await call<unknown>(
+      `/v1/folders?${FOLDERS_PARENT_PARAM}=${encodeURIComponent(root)}&limit=100`
+    ),
     'folders'
   )
   return items.filter((folder) => (folder.parent_id ?? folder.parentId ?? root) === root)
@@ -172,6 +250,8 @@ export async function ensurePrivateDocumentLink(args: {
   documentId: string
   email: string
   name: string
+  /** The subscriber's term end. A date-only value is converted, never sent raw. */
+  expiresAt?: string | Date | null
 }): Promise<MintResult> {
   const links = await listLinks(args.documentId)
   for (const link of links) {
@@ -181,13 +261,22 @@ export async function ensurePrivateDocumentLink(args: {
     if (detail.ok && detail.link.email_protected && allow.length === 1 &&
         allow[0]?.toLowerCase() === args.email.toLowerCase()) {
       const url = resolveShareUrl(link)
-      if (url) return { ok: true, url, linkId: link.id }
+      if (url) {
+        return {
+          ok: true,
+          url,
+          linkId: link.id,
+          reused: true,
+          allowDownload: detail.link.allow_download === true,
+        }
+      }
     }
   }
   return mintSubscriberLink({
     papermarkDocumentId: args.documentId,
     subscriberEmail: args.email,
     subscriberName: args.name,
+    expiresAt: args.expiresAt ?? null,
   })
 }
 
@@ -422,8 +511,9 @@ export async function revokeLink(papermarkLinkId: string): Promise<RevokeResult>
 export function resolveShareUrl(link: PapermarkLink | undefined): string | null {
   if (!link || link.isArchived) return null
   if (link.url && link.url.startsWith('https://')) return link.url
-  if (link.domainSlug && link.slug) {
-    return `https://${link.domainSlug}/${link.slug}`
+  const host = link.domain ?? link.domainSlug
+  if (host && link.slug) {
+    return `https://${host}/${link.slug}`
   }
 
   // Deliberately no papermark.com/view/{id} fallback.
@@ -441,8 +531,31 @@ export function resolveShareUrl(link: PapermarkLink | undefined): string | null 
 // ---------------------------------------------------------------------------
 
 export type MintResult =
-  | { ok: true; url: string; linkId: string | null }
-  | { ok: false; reason: 'not-configured' | 'no-document' | 'failed'; message: string }
+  | {
+      ok: true
+      url: string
+      linkId: string | null
+      /** True when an existing exact-email link was reused rather than created. */
+      reused: boolean
+      /** What Papermark reports for this link, not what we asked for. */
+      allowDownload: boolean
+    }
+  | {
+      ok: false
+      reason: 'not-configured' | 'no-document' | 'invalid-expiry' | 'failed'
+      message: string
+    }
+
+/**
+ * Screenshot protection, requested only when switched on.
+ *
+ * Named exactly as the API spells it. It is off unless asked for, because a
+ * feature the team's plan does not include is refused outright rather than
+ * ignored -- and a sync that fails for every document because of an optional
+ * extra is worse than a sync without the extra.
+ */
+const SCREENSHOT_PROTECTION_ENABLED =
+  process.env.PAPERMARK_SCREENSHOT_PROTECTION === 'true'
 
 /**
  * Mints a personal, email-gated, view-only link to one document for one named
@@ -459,6 +572,8 @@ export async function mintSubscriberLink(args: {
   papermarkDocumentId: string | null
   subscriberEmail: string
   subscriberName: string
+  /** Term end, as a date or a date-only string. Converted, never sent raw. */
+  expiresAt?: string | Date | null
 }): Promise<MintResult> {
   if (!isPapermarkConfigured()) {
     return {
@@ -477,11 +592,24 @@ export async function mintSubscriberLink(args: {
     }
   }
 
+  // Converted before the request is built, so an unreadable term end is
+  // reported as an APRI data problem rather than sent to Papermark and bounced
+  // back as a validation failure nobody can trace to a subscriber record.
+  const expiry = papermarkExpiresAt(args.expiresAt ?? null)
+  if (!expiry.ok) {
+    return {
+      ok: false,
+      reason: 'invalid-expiry',
+      message: `Papermark needs a complete date and time for the link expiry. ${expiry.reason}`,
+    }
+  }
+
   const token = apiToken()!
 
   try {
     // POST /v1/links, with the target document in the body -- per the spec
-    // there is no per-document links path.
+    // there is no per-document links path. Every field name below is the one
+    // the OpenAPI document declares.
     const response = await fetch(`${BASE}/v1/links`, {
       method: 'POST',
       headers: {
@@ -495,10 +623,19 @@ export async function mintSubscriberLink(args: {
         // Email-gated to one address: the link identifies the reader even
         // without a watermark, which is what makes attribution work.
         email_protected: true,
+        // Papermark verifies the address rather than taking the viewer's word
+        // for it. This is the verification step a subscriber may meet inside
+        // the viewer, and it is what keeps the allow-list meaningful.
+        email_authenticated: true,
         allow_list: [args.subscriberEmail],
-        // Downloads are off by decision, not by omission. Documents are
-        // view-only and this application has no download surface at all.
+        // Downloads are off by decision, not by omission.
         allow_download: false,
+        // Always sent, never omitted: the schema takes null for "no expiry",
+        // and an absent field would inherit a preset's expiry instead.
+        expires_at: expiry.value,
+        ...(SCREENSHOT_PROTECTION_ENABLED
+          ? { enable_screenshot_protection: true }
+          : {}),
         // Only requested when the plan actually provides it. Asking for a
         // watermark the plan does not include is rejected by Papermark, which
         // would fail link creation outright rather than degrade.
@@ -508,13 +645,14 @@ export async function mintSubscriberLink(args: {
     })
 
     if (!response.ok) {
-      // No status code or body echoed to the caller: this message can reach a
-      // UI, and Papermark errors can quote the request, which holds the token.
-      return {
-        ok: false,
-        reason: 'failed',
-        message: 'Papermark could not create the link. Try again, or paste one by hand.',
-      }
+      // Papermark's field errors are read and reported; the request itself is
+      // never echoed, because it carries the token and the subscriber's
+      // address.
+      const failure = describePapermarkFailure(
+        response.status,
+        await readErrorBody(response)
+      )
+      return { ok: false, reason: 'failed', message: failure.message }
     }
 
     const link = (await response.json()) as PapermarkLink
@@ -528,7 +666,13 @@ export async function mintSubscriberLink(args: {
       }
     }
 
-    return { ok: true, url, linkId: link.id ?? null }
+    return {
+      ok: true,
+      url,
+      linkId: link.id ?? null,
+      reused: false,
+      allowDownload: link.allow_download === true,
+    }
   } catch {
     return {
       ok: false,

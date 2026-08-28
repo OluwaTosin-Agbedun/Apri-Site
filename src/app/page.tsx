@@ -103,14 +103,15 @@ export default async function HomePage() {
 
           <div className="flex flex-col sm:flex-row items-start gap-4">
             {/*
-              Goes to sign-in, not to the enquiry form. Only an activated
-              subscriber inside their term can actually get in -- the sign-in
-              page issues a link only for those, and answers everyone else with
-              the same neutral message either way. So this is safe to offer
+              Goes to the library itself, not to a sign-in form. A subscriber
+              whose device has already been verified lands in their library
+              without an email step; anyone else is redirected to sign-in, which
+              issues a link only to an activated subscriber and answers everyone
+              else with the same neutral message. So this is safe to offer
               publicly: it grants nothing on its own.
             */}
             <Link
-              href="/portal/sign-in"
+              href="/portal"
               className="btn-primary"
             >
               Access Subscriber Library

@@ -57,6 +57,22 @@ export default async function BriefingDetails({
   const r = rows[0]
   if (!r) notFound()
   const folderResult = await getAssignableFolders("briefing")
+
+  // Read separately and defensively: this page already tolerates a database
+  // where the client-library migration has not run, and the last sync time is a
+  // convenience rather than something worth failing the whole page over.
+  let librarySyncedAt: string | null = null
+  try {
+    const synced = (await sql`
+      select max(synced_at) as synced_at
+      from papermark_client_documents where briefing_request_id=${id}
+    `) as { synced_at: string | Date | null }[]
+    const value = synced[0]?.synced_at
+    librarySyncedAt = value ? new Date(value).toISOString() : null
+  } catch {
+    librarySyncedAt = null
+  }
+
   return (
     <AdminShell
       admin={admin}
@@ -83,6 +99,7 @@ export default async function BriefingDetails({
           privateLinkUrl: r.private_link_url ?? "",
           schemaReady: Boolean(schema?.ready),
           papermarkFolderId: r.papermark_folder_id ?? "",
+          librarySyncedAt,
         }}
         folders={folderResult.folders}
         folderError={folderResult.error}

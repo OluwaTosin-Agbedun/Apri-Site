@@ -27,6 +27,7 @@ const BLANK: SubscriberDraft = {
   libraryLinkUrl: "",
   note: "",
   papermarkFolderId: "",
+  librarySyncedAt: null,
 }
 
 type Row = {
@@ -93,11 +94,13 @@ export default async function EditSubscriberPage({
            s.client_type, s.public_tier, s.level, s.seats, s.term_start, s.term_end, s.status,
            s.invoice_ref, s.library_link_url, s.papermark_folder_id, s.note, s.last_viewed_at, s.updated_at, s.library_link_updated_at,
            (select count(*)::int from publication_access pa
-             where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links
+             where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links,
+           (select max(synced_at) from papermark_client_documents pcd
+             where pcd.subscriber_id = s.id) as library_synced_at
     from subscribers s
     where s.id = ${id} and s.client_type = 'subscriber'
     limit 1
-  `) as (Row & { live_links: number })[]
+  `) as (Row & { live_links: number; library_synced_at: string | Date | null })[]
 
   const row = rows[0]
   if (!row) notFound()
@@ -124,6 +127,9 @@ export default async function EditSubscriberPage({
     libraryLinkUrl: row.library_link_url ?? "",
     note: row.note,
     papermarkFolderId: row.papermark_folder_id ?? "",
+    librarySyncedAt: row.library_synced_at
+      ? new Date(row.library_synced_at).toISOString()
+      : null,
   }
 
   const folderResult = await getAssignableFolders("subscriber")

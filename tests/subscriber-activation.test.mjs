@@ -179,6 +179,9 @@ test("portal access is bound to the authenticated active subscriber and never fa
   }
 
   const portal = read("src/app/portal/page.tsx")
-  assert.match(portal, /Open Private Library/)
+  // The library is the page now. The button that used to send a subscriber off
+  // to find it has gone, and nothing falls back to a shared Masters link.
+  assert.doesNotMatch(portal, /Open Private Library/)
+  assert.match(portal, /getSyncedClientDocuments/)
   assert.doesNotMatch(portal, /00 Masters/i)
 })

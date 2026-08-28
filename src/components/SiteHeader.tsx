@@ -13,15 +13,15 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Contact', href: '/#contact' },
 ]
 
-/**
- * The subscriber portal entry point, hidden until the flag is turned on.
+/*
+ * There is deliberately no Sign in link in this header.
  *
- * Read at module scope because NEXT_PUBLIC_ values are substituted at build
- * time. The flag is public by design -- it reveals only whether the portal is
- * live, which the presence of the link itself would reveal anyway.
+ * Subscribers reach their library through "Access Subscriber Library" on the
+ * home page, which goes to /portal. A device that has already been verified
+ * lands straight in the library; only a device with no session is asked for an
+ * email address. A second Sign in control in the site chrome made that look
+ * like a step everyone had to take every time.
  */
-const PORTAL_ENABLED =
-  process.env.NEXT_PUBLIC_SUBSCRIBER_PORTAL_ENABLED === 'true'
 
 export default function SiteHeader() {
   const pathname = usePathname()
@@ -56,14 +56,6 @@ export default function SiteHeader() {
                 {item.label}
               </Link>
             ))}
-            {PORTAL_ENABLED && (
-              <Link
-                href="/portal"
-                className="text-sm tracking-wide text-accent hover:text-accent-hover transition-colors"
-              >
-                Sign in
-              </Link>
-            )}
           </nav>
 
           <button
@@ -89,15 +81,6 @@ export default function SiteHeader() {
                 {item.label}
               </Link>
             ))}
-            {PORTAL_ENABLED && (
-              <Link
-                href="/portal"
-                onClick={() => setIsOpen(false)}
-                className="text-sm tracking-wide text-accent hover:text-accent-hover transition-colors"
-              >
-                Sign in
-              </Link>
-            )}
           </nav>
         )}
       </div>

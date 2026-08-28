@@ -19,6 +19,7 @@ export type BriefingDraft = {
   phone: string; briefingType: string; format: string; timeline: string; sector: string
   description: string; audienceSize: string; location: string; status: string
   privateLinkUrl: string; schemaReady: boolean; papermarkFolderId: string
+  librarySyncedAt: string | null
 }
 
 export default function BriefingForm({ draft, folders, folderError }: { draft: BriefingDraft; folders: PapermarkFolder[]; folderError?: string }) {
@@ -58,7 +59,7 @@ export default function BriefingForm({ draft, folders, folderError }: { draft: B
       </div>
       <div><label className={label}>Request details</label><textarea name="description" rows={5} defaultValue={draft.description} className={field}/></div>
       <div><span className={label}>Status</span><p className="text-sm font-medium">{draft.status}</p></div>
-      <PapermarkFolderSelector kind="briefing" id={draft.id} value={draft.papermarkFolderId} folders={folders} error={folderError} />
+      <PapermarkFolderSelector kind="briefing" id={draft.id} value={draft.papermarkFolderId} folders={folders} error={folderError} lastSyncedAt={draft.librarySyncedAt} />
       <div><label className={label}>Private Papermark share link</label><input name="privateLinkUrl" type="text" defaultValue={draft.privateLinkUrl} placeholder="https://www.papermark.com/view/…" className={field}/>{err("privateLinkUrl")}<p className="mt-2 text-xs text-muted-foreground">Use a document link when this person should see one document. Use a multi-file share link when they should see a library containing several documents. Uploading another document into the same Papermark folder does not automatically add it to an existing single-document link. Never use Masters or a shared default. HTTPS is added automatically when omitted.</p></div>
       {state?.message && <p className="text-sm">{state.message}</p>}
       <button disabled={pending || !draft.schemaReady} className="bg-accent text-white px-6 py-2 text-sm">{pending ? "Saving…" : "Save"}</button>

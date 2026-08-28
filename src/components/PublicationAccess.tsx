@@ -65,8 +65,8 @@ export function AccessAction({
   // Paid. While the portal is hidden there is nowhere to sign in to, so the
   // only offer is to enquire.
   return (
-    <Link href={PORTAL_ENABLED ? '/portal/sign-in' : '/access'} className={base}>
-      {PORTAL_ENABLED ? 'Sign in to read' : 'Request access'}
+    <Link href={PORTAL_ENABLED ? '/portal' : '/access'} className={base}>
+      {PORTAL_ENABLED ? 'Open in your library' : 'Request access'}
     </Link>
   )
 }

@@ -11,7 +11,11 @@ test("Papermark Fetch has no unfiltered document-list path", () => {
 
   assert.match(client, /export async function listDocumentsInFolder/)
   assert.match(client, /folderId\.trim\(\)/)
-  assert.match(client, /\/v1\/documents\?folder_id=\$\{encodeURIComponent\(selectedFolderId\)\}/)
+  // Not folder_id. Papermark spells this parameter folderId, and sending the
+  // snake_case name is what made every folder sync fail input validation with
+  // a bare "Papermark returned 422".
+  assert.doesNotMatch(client, /\/v1\/documents\?folder_id=/)
+  assert.match(client, /\$\{DOCUMENTS_FOLDER_PARAM\}=\$\{encodeURIComponent\(selectedFolderId\)\}/)
   assert.doesNotMatch(client, /export async function listDocuments\(/)
   assert.doesNotMatch(client, /: '\/v1\/documents'/)
 

@@ -20,7 +20,14 @@ test("folder discovery is server-only, rooted and excludes protected/cross-clien
   const papermark = await read("src/lib/papermark.ts")
   const actions = await read("src/app/actions/papermark-client-library.ts")
   assert.match(papermark, /import 'server-only'/)
-  assert.match(papermark, /\/v1\/folders\?parent_id=/)
+  // /v1/folders really does take parent_id. It is built from a named constant
+  // now, alongside the documents endpoint's camelCase folderId, so the two
+  // spellings cannot be mistaken for each other again.
+  assert.match(papermark, /\/v1\/folders\?\$\{FOLDERS_PARENT_PARAM\}=/)
+  assert.match(
+    await read("src/lib/papermark-contract.ts"),
+    /FOLDERS_PARENT_PARAM = 'parent_id'/,
+  )
   assert.match(actions, /PAPERMARK_SUBSCRIBERS_FOLDER_ID/)
   assert.match(actions, /PAPERMARK_BRIEFINGS_FOLDER_ID/)
   assert.match(actions, /00 Masters/)
@@ -30,7 +37,9 @@ test("folder discovery is server-only, rooted and excludes protected/cross-clien
 test("sync fetches the exact selected folder and reuses exact-email protected links", async () => {
   const papermark = await read("src/lib/papermark.ts")
   const actions = await read("src/app/actions/papermark-client-library.ts")
-  assert.match(actions, /listDocumentsInFolder\(client\.papermark_folder_id\)/)
+  // The folder just selected and saved, not whatever happened to be on the
+  // record before this administrator touched it.
+  assert.match(actions, /listDocumentsInFolder\(selectedFolderId\)/)
   assert.match(actions, /ensurePrivateDocumentLink/)
   assert.match(papermark, /allow\.length === 1/)
   assert.match(papermark, /allow\[0\]\?\.toLowerCase\(\) === args\.email\.toLowerCase\(\)/)

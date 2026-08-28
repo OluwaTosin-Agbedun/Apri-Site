@@ -48,6 +48,8 @@ export type SubscriberDraft = {
   libraryLinkUrl: string
   note: string
   papermarkFolderId: string
+  /** When this subscriber's Papermark library last synchronised, if ever. */
+  librarySyncedAt: string | null
 }
 
 const field =
@@ -255,7 +257,7 @@ export default function SubscriberForm({ draft, folders = [], folderError }: { d
           Library link
         </h3>
 
-        {draft.id && <div className="mb-6"><PapermarkFolderSelector kind="subscriber" id={draft.id} value={draft.papermarkFolderId} folders={folders} error={folderError} /></div>}
+        {draft.id && <div className="mb-6"><PapermarkFolderSelector kind="subscriber" id={draft.id} value={draft.papermarkFolderId} folders={folders} error={folderError} lastSyncedAt={draft.librarySyncedAt} /></div>}
         <div>
           <label htmlFor="libraryLinkUrl" className={label}>
             Private Papermark share link
