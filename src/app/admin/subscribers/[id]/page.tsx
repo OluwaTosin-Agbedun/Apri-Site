@@ -5,6 +5,7 @@ import AdminShell from "@/components/AdminShell"
 import { getReachMonths } from "@/lib/provisioning"
 import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
 import SeatActions from "../seat-actions"
+import PapermarkConnectionPanel from "@/components/PapermarkConnectionPanel"
 
 export const dynamic = "force-dynamic"
 
@@ -45,6 +46,8 @@ type Row = {
   library_link_url: string | null
   note: string
   last_viewed_at: string | null
+  updated_at: string | null
+  library_link_updated_at: string | null
   client_type: string
 }
 
@@ -86,6 +89,7 @@ export default async function EditSubscriberPage({
   const rows = (await sql`
     select s.id, s.full_name, s.name, s.organization, s.role_title, s.email, s.phone,
            s.public_tier, s.level, s.seats, s.term_start, s.term_end, s.status,
+           s.invoice_ref, s.library_link_url, s.note, s.last_viewed_at, s.updated_at, s.library_link_updated_at,
           s.invoice_ref, s.library_link_url, s.note, s.last_viewed_at, s.client_type,
            (select count(*)::int from publication_access pa
              where pa.subscriber_id = s.id and pa.revoke_state = 'live') as live_links
@@ -160,6 +164,7 @@ export default async function EditSubscriberPage({
       </div>
 
       <SubscriberForm draft={draft} />
+      <PapermarkConnectionPanel link={row.library_link_url} updatedAt={row.library_link_updated_at} />
     </AdminShell>
   )
 }

@@ -2,6 +2,8 @@ import "server-only"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { getSql } from "./db"
 import { createSubscriberSession } from "./subscriber-session"
+import { hashToken, storedTokenFailureReason } from "./magic-token"
+import { recordClientEvent } from "./client-engagement"
 import { hashToken } from "./magic-token"
 
 /**
@@ -137,6 +139,7 @@ async function failedTokenReason(hash: string): Promise<SignInResult> {
     consumed_at: string | null
     expires_at: string
   }[]
+  return { ok: false, reason: storedTokenFailureReason(rows[0]) }
   const row = rows[0]
   if (!row) return { ok: false, reason: "invalid" }
   if (row.consumed_at) return { ok: false, reason: "used" }
@@ -180,6 +183,7 @@ export async function signInWithToken(token: string): Promise<SignInResult> {
     `) as { id: string }[]
     if (!rows[0]) return { ok: false, reason: "inactive" }
     await createSubscriberSession(principal.id, "briefing")
+    try { await recordClientEvent({type:"briefing",id:principal.id},"signin_completed") } catch {}
     return { ok: true, principalType: "briefing" }
   }
 
@@ -198,6 +202,7 @@ export async function signInWithToken(token: string): Promise<SignInResult> {
   if (!termCurrent) return { ok: false, reason: "subscription-expired" }
 
   await createSubscriberSession(subscriber.id, "subscriber")
+  try { await recordClientEvent({type:"subscriber",id:subscriber.id},"signin_completed") } catch {}
   return { ok: true, principalType: "subscriber" }
 }
 

@@ -120,6 +120,7 @@ export async function requestSignInLink(
       const token = await issueBriefingToken(briefing.id)
       try {
         await sendBriefingWelcome({
+          briefingRequestId: briefing.id,
           email: briefing.email,
           fullName: briefing.name,
           token,
@@ -136,6 +137,7 @@ export async function requestSignInLink(
   if (status === "active" && termCurrent) {
     const token = await issueToken(subscriber.id)
     try {
+      await sendSignInLink({ subscriberId:subscriber.id, email: subscriber.email, fullName, token })
       await sendSignInLink({ email: subscriber.email, fullName, token })
     } catch {}
     return NEUTRAL

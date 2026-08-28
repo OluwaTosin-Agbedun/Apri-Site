@@ -61,6 +61,9 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
   )
   useEffect(() => {
     if (state?.ok) router.refresh()
+  }, [state, router])
+  const [publicTier, setPublicTier] = useState(draft.publicTier)
+  const [seats, setSeats] = useState(String(draft.seats))
   }, [state?.ok, router])
   const [publicTier, setPublicTier] = useState(draft.publicTier)
   const [seats, setSeats] = useState(String(draft.seats))
@@ -245,6 +248,9 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
       <div className="pt-6 border-t border-border">
         <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">Library link</h3>
         <div>
+          <label htmlFor="libraryLinkUrl" className={label}>
+            Private Papermark share link
+          </label>
           <label htmlFor="libraryLinkUrl" className={label}>Their personal Papermark library link</label>
           <input
             id="libraryLinkUrl"
@@ -255,6 +261,10 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
             placeholder="https://docs.athenacentre.org/…"
           />
           <p className="mt-2 text-xs text-muted-foreground">
+            Use a document link when this person should see one document. Use a multi-file
+            share link when they should see a library containing several documents.
+            Uploading another document into the same Papermark folder does not automatically
+            add it to an existing single-document link.
             Paste the subscriber&apos;s private Papermark multi-file share link. It will be
             embedded securely inside their portal. Enable downloading in the link&apos;s
             Papermark settings if the subscriber should download the files.

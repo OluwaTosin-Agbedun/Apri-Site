@@ -7,6 +7,7 @@ import { getSql } from "@/lib/db"
 import { issueBriefingToken } from "@/lib/magic-link"
 import { sendBriefingWelcome } from "@/lib/subscriber-email"
 import { fieldErrors, type FormState } from "@/lib/definitions"
+import { normalisePapermarkUrl, papermarkEmbedUrl } from "@/lib/papermark-embed"
 import { papermarkEmbedUrl } from "@/lib/papermark-embed"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -36,6 +37,9 @@ export async function saveBriefing(
 ): Promise<FormState> {
   await requireAdmin()
   if (!UUID.test(id)) return { message: "Unknown briefing request." }
+  const input = Object.fromEntries(formData)
+  input.privateLinkUrl = normalisePapermarkUrl(String(input.privateLinkUrl ?? ""))
+  const parsed = Schema.safeParse(input)
   const parsed = Schema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
   const d = parsed.data
@@ -47,6 +51,44 @@ export async function saveBriefing(
         ],
       },
     }
+  }
+  let sql: ReturnType<typeof getSql>
+  try {
+    sql = getSql()
+  } catch {
+    return { message: "Briefing storage is temporarily unavailable. Please try again." }
+  }
+  try {
+    if (!(await briefingPortalSchemaReady(sql))) {
+      return { message: "The briefing portal database setup is incomplete. Contact the site administrator." }
+    }
+    if (d.privateLinkUrl) {
+      const duplicates = await sql`
+        select 1 from briefing_requests
+        where private_link_url = ${d.privateLinkUrl} and id <> ${id}
+        union all
+        select 1 from subscribers where library_link_url = ${d.privateLinkUrl}
+        limit 1
+      `
+      if (duplicates.length > 0) {
+        return {
+          message:
+            "That private Papermark link is already assigned to another client.",
+        }
+      }
+    }
+    const rows =
+      await sql`update briefing_requests set name=${d.name}, organization=${d.organization},
+      email=${d.email}, phone=${d.phone}, role_title=${d.roleTitle},
+      briefing_type=${d.briefingType}, format=${d.format}, timeline=${d.timeline},
+      sector=${d.sector}, description=${d.description}, audience_size=${d.audienceSize},
+      location=${d.location},
+      private_link_updated_at=case when private_link_url is distinct from ${d.privateLinkUrl || null} then now() else private_link_updated_at end,
+      private_link_url=${d.privateLinkUrl || null}, updated_at=now()
+      where id=${id} returning id`
+    if (!rows[0]) return { message: "That briefing request no longer exists." }
+  } catch {
+    return { message: "The briefing request could not be saved. Please check the fields and try again." }
   }
   const sql = getSql()
   if (!(await briefingPortalSchemaReady(sql))) {
@@ -84,6 +126,13 @@ export async function saveBriefing(
 export async function activateBriefing(id: string): Promise<FormState> {
   await requireAdmin()
   if (!UUID.test(id)) return { message: "Unknown briefing request." }
+  let sql: ReturnType<typeof getSql>
+  try {
+    sql = getSql()
+  } catch {
+    return { message: "Briefing storage is temporarily unavailable. Please try again." }
+  }
+  let rows: {
   const sql = getSql()
   if (!(await briefingPortalSchemaReady(sql))) {
     return { message: "Apply the briefing portal migration before activating this request." }
@@ -95,12 +144,32 @@ export async function activateBriefing(id: string): Promise<FormState> {
       email: string
       private_link_url: string | null
     }[]
+  try {
+    if (!(await briefingPortalSchemaReady(sql))) {
+      return { message: "The briefing portal database setup is incomplete. Contact the site administrator." }
+    }
+    rows = (await sql`select id,name,email,private_link_url from briefing_requests where id=${id} limit 1`) as typeof rows
+  } catch {
+    return { message: "The briefing request could not be loaded for activation. Please try again." }
+  }
   const row = rows[0]
   if (!row) return { message: "That briefing request no longer exists." }
   if (!row.private_link_url)
     return { message: "Set the private briefing link before activating." }
   if (!papermarkEmbedUrl(row.private_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN))
     return { message: "Replace the private briefing link with a valid Papermark share link before activating." }
+  let duplicates: unknown[]
+  try {
+    duplicates = await sql`
+      select 1 from briefing_requests
+      where private_link_url = ${row.private_link_url} and id <> ${id}
+      union all
+      select 1 from subscribers where library_link_url = ${row.private_link_url}
+      limit 1
+    `
+  } catch {
+    return { message: "Activation checks could not be completed. Please try again." }
+  }
   const duplicates = await sql`
     select 1 from briefing_requests
     where private_link_url = ${row.private_link_url} and id <> ${id}
@@ -113,6 +182,20 @@ export async function activateBriefing(id: string): Promise<FormState> {
       message:
         "That private Papermark link is assigned to another client. Give this briefing client a unique link before activating.",
     }
+  let token: string
+  try {
+    await sql`update briefing_requests set status='Active',activated_at=now(),updated_at=now() where id=${id}`
+    token = await issueBriefingToken(id)
+  } catch {
+    revalidatePath("/admin/briefings")
+    revalidatePath(`/admin/briefings/${id}`)
+    return {
+      message:
+        "The briefing was not fully activated. Refresh the page and use Activate or Resend sign-in link again.",
+    }
+  }
+  try {
+    await sendBriefingWelcome({ briefingRequestId:id, email: row.email, fullName: row.name, token })
   await sql`update briefing_requests set status='Active',activated_at=now(),updated_at=now() where id=${id}`
   const token = await issueBriefingToken(id)
   try {
@@ -132,6 +215,20 @@ export async function activateBriefing(id: string): Promise<FormState> {
 export async function resendBriefingSignInLink(id: string): Promise<FormState> {
   await requireAdmin()
   if (!UUID.test(id)) return { message: "Unknown briefing request." }
+  let sql: ReturnType<typeof getSql>
+  let rows: {
+      id:string; name:string; email:string; status:string; private_link_url:string|null
+    }[]
+  try {
+    sql = getSql()
+    if (!(await briefingPortalSchemaReady(sql))) {
+      return { message: "The briefing portal database setup is incomplete. Contact the site administrator." }
+    }
+    rows = (await sql`select id,name,email,status,private_link_url
+      from briefing_requests where id=${id} limit 1`) as typeof rows
+  } catch {
+    return { message: "The briefing sign-in link could not be prepared. Please try again." }
+  }
   const sql = getSql()
   if (!(await briefingPortalSchemaReady(sql))) {
     return { message: "Apply the briefing portal migration before sending sign-in." }
@@ -143,6 +240,12 @@ export async function resendBriefingSignInLink(id: string): Promise<FormState> {
   const row = rows[0]
   if (!row || row.status !== "Active" || !row.private_link_url) {
     return { message: "Only an active briefing client with a private link can receive sign-in." }
+  }
+  try {
+    const token = await issueBriefingToken(id)
+    await sendBriefingWelcome({ briefingRequestId:id, email: row.email, fullName: row.name, token })
+  }
+    await sendBriefingWelcome({ email: row.email, fullName: row.name, token })
   }
   const token = await issueBriefingToken(id)
   try { await sendBriefingWelcome({ email: row.email, fullName: row.name, token }) }

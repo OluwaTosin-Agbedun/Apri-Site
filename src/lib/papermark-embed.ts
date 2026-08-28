@@ -28,6 +28,12 @@ export function papermarkEmbedUrl(
     const host = url.hostname.toLowerCase()
     const allowed = OFFICIAL_HOSTS.has(host) || APRI_HOSTS.has(host) || host === configuredHost(customDomain)
     if (url.protocol !== 'https:' || !allowed || url.username || url.password) return null
+    const path = url.pathname.toLowerCase()
+    if (/\/(dashboard|edit|team|teams|folders?|settings|documents?)(\/|$)/.test(path)) return null
+    if (
+      OFFICIAL_HOSTS.has(host) &&
+      !['/view/', '/dataroom/', '/data-room/', '/rooms/'].some((prefix) => path.startsWith(prefix))
+    ) return null
     if (OFFICIAL_HOSTS.has(host) && !url.pathname.startsWith('/view/')) return null
     if (url.pathname === '/' || /(^|[-_/])00[-_ ]?masters?($|[-_/])/i.test(url.pathname)) {
       return null

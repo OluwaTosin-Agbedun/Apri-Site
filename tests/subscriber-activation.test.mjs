@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import test from "node:test"
 import { portalVerificationUrl } from "../src/lib/app-url.ts"
+import { hashToken, storedTokenFailureReason } from "../src/lib/magic-token.ts"
 import { hashToken } from "../src/lib/magic-token.ts"
 import { portalPrincipalFromClaims } from "../src/lib/portal-session-claims.ts"
 import { subscriberLibraryEmbedUrl } from "../src/lib/papermark-embed.ts"
@@ -36,6 +37,32 @@ test("raw one-time tokens are hashed consistently before database storage", () =
   )
   assert.match(source, /consumed_at is null/)
   assert.match(source, /expires_at\s*>\s*now\(\)/)
+})
+
+test("invalid, expired and already-used token states are classified without secrets", () => {
+  const now = new Date("2030-01-01T12:00:00Z")
+  assert.equal(storedTokenFailureReason(null, now), "invalid")
+  assert.equal(
+    storedTokenFailureReason(
+      { consumed_at: "2030-01-01T11:00:00Z", expires_at: "2030-01-01T13:00:00Z" },
+      now,
+    ),
+    "used",
+  )
+  assert.equal(
+    storedTokenFailureReason(
+      { consumed_at: null, expires_at: "2030-01-01T11:59:59Z" },
+      now,
+    ),
+    "expired",
+  )
+  assert.equal(
+    storedTokenFailureReason(
+      { consumed_at: null, expires_at: "2030-01-01T12:15:00Z" },
+      now,
+    ),
+    "invalid",
+  )
 })
 
 test("subscriber sessions preserve principal identity and reject malformed claims", () => {

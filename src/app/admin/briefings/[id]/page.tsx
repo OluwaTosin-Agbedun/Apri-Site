@@ -4,6 +4,7 @@ import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
 import BriefingForm from "./briefing-form"
 import BriefingDeleteControl from "../briefing-delete-control"
+import PapermarkConnectionPanel from "@/components/PapermarkConnectionPanel"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const dynamic = "force-dynamic"
 export default async function BriefingDetails({
@@ -29,6 +30,10 @@ export default async function BriefingDetails({
   const rows = (schema?.ready
     ? await sql`select id,name,organization,role_title,email,phone,briefing_type,
         format,timeline,sector,description,audience_size,location,status,
+        private_link_url,updated_at,private_link_updated_at from briefing_requests where id=${id} limit 1`
+    : await sql`select id,name,organization,role_title,email,phone,briefing_type,
+        format,timeline,sector,description,audience_size,location,status,
+        null::text as private_link_url,null::timestamptz as updated_at,null::timestamptz as private_link_updated_at from briefing_requests where id=${id} limit 1`) as {
         private_link_url from briefing_requests where id=${id} limit 1`
     : await sql`select id,name,organization,role_title,email,phone,briefing_type,
         format,timeline,sector,description,audience_size,location,status,
@@ -48,6 +53,8 @@ export default async function BriefingDetails({
       location: string
       status: string
       private_link_url: string | null
+      updated_at: string | null
+      private_link_updated_at: string | null
     }[]
   const r = rows[0]
   if (!r) notFound()
@@ -78,6 +85,7 @@ export default async function BriefingDetails({
           schemaReady: Boolean(schema?.ready),
         }}
       />
+      <PapermarkConnectionPanel link={r.private_link_url} updatedAt={r.private_link_updated_at} />
       <BriefingDeleteControl
         id={r.id}
         email={r.email}

@@ -3,6 +3,7 @@ import { Resend } from "resend"
 import { seriesLabel } from "./entitlements"
 import { emailNotice } from "./delivery"
 import { APRI_PRODUCTION_URL, portalVerificationUrl } from "./app-url"
+import { recordClientEvent, type ClientPrincipal } from "./client-engagement"
 
 /**
  * Transactional email for the subscriber portal.
@@ -33,6 +34,7 @@ const CONTACT =
 // ---------------------------------------------------------------------------
 
 export async function sendSignInLink(args: {
+  subscriberId: string
   email: string
   fullName: string
   token: string
@@ -43,7 +45,7 @@ export async function sendSignInLink(args: {
   const url = portalVerificationUrl(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: `APRI <${FROM}>`,
     to: args.email,
     subject: "Your APRI sign-in link",
@@ -63,6 +65,7 @@ export async function sendSignInLink(args: {
       </p>
     `),
   })
+  await trackEmail({type:"subscriber",id:args.subscriberId}, result.data?.id)
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +113,7 @@ export async function sendLapsedNotice(args: {
 // ---------------------------------------------------------------------------
 
 export async function sendWelcome(args: {
+  subscriberId: string
   email: string
   fullName: string
   publicTier: string
@@ -122,7 +126,7 @@ export async function sendWelcome(args: {
   const url = portalVerificationUrl(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: `APRI <${FROM}>`,
     to: args.email,
     replyTo: CONTACT,
@@ -148,6 +152,34 @@ export async function sendWelcome(args: {
       </p>
     `),
   })
+  await trackEmail({type:"subscriber",id:args.subscriberId}, result.data?.id)
+}
+
+export async function sendBriefingWelcome(args: {
+  briefingRequestId: string
+  email: string
+  fullName: string
+  token: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+  const url = portalVerificationUrl(args.token)
+  const greeting = args.fullName ? `, ${args.fullName}` : ""
+  const result = await resend.emails.send({
+    from: `APRI <${FROM}>`,
+    to: args.email,
+    replyTo: CONTACT,
+    subject: "Your private APRI briefing is ready",
+    html: shell(
+      `<h1 style="margin:0 0 20px;font-size:22px;font-weight:normal">Your briefing is ready</h1><p style="font-size:15px;line-height:1.7">Good day${esc(greeting)}. Use this secure, one-time link to enter your portal and open your private briefing.</p>${button("Open my briefing", url)}<p style="font-size:13px;color:#888">The sign-in link expires in 15 minutes and works once. Your briefing link is private; please do not forward it.</p>`,
+    ),
+  })
+  await trackEmail({type:"briefing",id:args.briefingRequestId}, result.data?.id)
+}
+
+async function trackEmail(principal: ClientPrincipal, resendEmailId?: string) {
+  if (!resendEmailId) return
+  try { await recordClientEvent(principal,"signin_email_sent",{resendEmailId}) } catch { /* email delivery must not depend on analytics */ }
 }
 
 export async function sendBriefingWelcome(args: {

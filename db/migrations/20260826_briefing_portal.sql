@@ -24,7 +24,6 @@ alter table auth_tokens add constraint auth_tokens_one_principal_check check (
   (subscriber_id is null and briefing_request_id is not null)
 ) not valid;
 alter table auth_tokens validate constraint auth_tokens_one_principal_check;
-);
 create index if not exists auth_tokens_briefing_idx
   on auth_tokens(briefing_request_id, created_at desc);
 commit;

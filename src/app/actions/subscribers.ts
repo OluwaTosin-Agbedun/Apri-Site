@@ -106,6 +106,19 @@ const httpsOrBlank = z
   ])
   .default("")
 
+const optionalIsoDate = z
+  .union([
+    z.literal(""),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
+      error: "Use a valid date in YYYY-MM-DD format.",
+    }),
+  ])
+  .refine((value) => value === "" || isRealIsoDate(value), {
+    error: "Enter a real calendar date.",
+  })
+
+const SubscriberAdminSchema = z.object({
+
 const SubscriberAdminSchema = z.object({
   clientType: z.enum(["subscriber", "engagement"]).default("subscriber"),
   fullName: z.string().trim().min(1, { error: "A name is required." }).max(160),
@@ -122,6 +135,12 @@ const SubscriberAdminSchema = z.object({
   publicTier: z
     .enum(PUBLIC_TIER_NAMES as [string, ...string[]])
     .or(z.literal("")),
+  seats: z.coerce.number().int().min(1).max(500).default(1),
+  termStart: optionalIsoDate.default(""),
+  termEnd: optionalIsoDate.default(""),
+  seats: z.coerce.number().int().min(1).max(500).default(1),
+  termStart: optionalIsoDate.default(""),
+  termEnd: optionalIsoDate.default(""),
   level: z.enum(LEVELS).or(z.literal("")),
   seats: z.coerce.number().int().min(1).max(500).default(1),
   termStart: z.union([z.literal(""), z.string().trim().max(10)]).default(""),
@@ -147,6 +166,9 @@ export async function saveSubscriber(
     email: formData.get("email"),
     phone: formData.get("phone") ?? "",
     publicTier: formData.get("publicTier") ?? "",
+    seats: formData.get("seats") ?? 1,
+    termStart: formData.get("termStart") ?? "",
+    termEnd: formData.get("termEnd") ?? "",
     level: formData.get("level") ?? "",
     seats: formData.get("seats") ?? 1,
     termStart: formData.get("termStart") ?? "",
@@ -170,6 +192,20 @@ export async function saveSubscriber(
       },
     }
   }
+  const termStart = d.termStart || null
+  const termEnd = d.termEnd || null
+  let sql: ReturnType<typeof getSql>
+  try {
+    sql = getSql()
+  } catch {
+    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
+  const termStart = d.termStart || null
+  const termEnd = d.termEnd || null
+  let sql: ReturnType<typeof getSql>
+  try {
+    sql = getSql()
+  } catch {
+    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
   const sql = getSql()
   const termStart = d.termStart || null
   const termEnd = d.termEnd || null
@@ -198,9 +234,35 @@ export async function saveSubscriber(
     `) as { level: string | null }[]
     previousLevel = before[0]?.level ?? null
   }
+  let previousLevel: string | null = null
+  let outcome: LevelChangeOutcome = { direction: "none", revocationsQueued: 0 }
 
   try {
+    if (d.libraryLinkUrl) {
+      const duplicates = await sql`
+        select 1 from subscribers
+        where library_link_url = ${d.libraryLinkUrl}
+          and (${id}::uuid is null or id <> ${id}::uuid)
+        union all
+        select 1 from briefing_requests where private_link_url = ${d.libraryLinkUrl}
+        limit 1
+      `
+      if (duplicates.length > 0) {
+        return {
+          message:
+            "That private Papermark link is already assigned to another client.",
+        }
+      }
+    }
     if (id) {
+      const before = (await sql`
+        select level from subscribers where id = ${id} limit 1
+      `) as { level: string | null }[]
+      previousLevel = before[0]?.level ?? null
+    }
+
+    if (id) {
+      const updated = await sql`
       if (!UUID.test(id)) return { message: "Unknown subscriber." }
       await sql`
         update subscribers set
@@ -211,24 +273,46 @@ export async function saveSubscriber(
           level = ${level}, seats = ${seats},
           term_start = ${termStart}::date, term_end = ${termEnd}::date,
           invoice_ref = ${d.invoiceRef},
+          library_link_updated_at = case when library_link_url is distinct from ${d.libraryLinkUrl || null} then now() else library_link_updated_at end,
           library_link_url = ${d.libraryLinkUrl || null},
           note = ${d.note}, updated_at = now()
+        where id = ${id}
+        returning id
         where id = ${id} and client_type = 'subscriber'
       `
+      if (!updated[0]) return { message: "That subscriber no longer exists." }
     } else {
       await sql`
         insert into subscribers (
           full_name, name, organization, role_title, email, phone,
           client_type, public_tier, subscription_level, level, seats,
-          term_start, term_end, status, invoice_ref, library_link_url, note
+          term_start, term_end, status, invoice_ref, library_link_url, library_link_updated_at, note
         ) values (
           ${d.fullName}, ${d.fullName}, ${d.organisation}, ${d.roleTitle},
           ${d.email}, ${d.phone}, 'subscriber',
           ${d.publicTier}, ${d.publicTier},
           ${level}, ${seats}, ${termStart}::date, ${termEnd}::date,
+          'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null},
+          ${d.libraryLinkUrl ? new Date() : null}, ${d.note}
           'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null}, ${d.note}
         )
       `
+    }
+    if (id) {
+      outcome = await applyLevelChange({
+        subscriberId: id,
+        subscriberEmail: d.email,
+        oldLevel: previousLevel,
+        newLevel: level,
+        changedById: admin.id,
+        changedByName: admin.name,
+      })
+    }
+  } catch (error) {
+    return {
+      message: isUniqueViolation(error)
+        ? "A subscriber with that email address or private library link already exists."
+        : "The subscriber could not be saved. Please check the fields and try again.",
     }
   } catch {
     return { message: "A subscriber with that email address already exists." }
@@ -269,8 +353,14 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   await requireAdmin()
   if (!UUID.test(id)) return { message: "Unknown subscriber." }
 
-  const sql = getSql()
+  let sql: ReturnType<typeof getSql>
+  try {
+    sql = getSql()
+  } catch {
+    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
+  }
 
+  let rows: {
   const rows = (await sql`
     select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url
     from subscribers where id = ${id} limit 1
@@ -286,6 +376,14 @@ export async function activateSubscriber(id: string): Promise<FormState> {
     status: string
     library_link_url: string | null
   }[]
+  try {
+    rows = (await sql`
+      select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url
+      from subscribers where id = ${id} limit 1
+    `) as typeof rows
+  } catch {
+    return { message: "The subscriber could not be loaded for activation. Please try again." }
+  }
 
   const row = rows[0]
   if (!row) return { message: "That subscriber no longer exists." }
@@ -310,6 +408,18 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   if (!papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return { message: "Replace the private library link with a valid Papermark share link before activating." }
   }
+  let duplicates: unknown[]
+  try {
+    duplicates = await sql`
+      select 1 from subscribers
+      where library_link_url = ${row.library_link_url} and id <> ${id}
+      union all
+      select 1 from briefing_requests where private_link_url = ${row.library_link_url}
+      limit 1
+    `
+  } catch {
+    return { message: "Activation checks could not be completed. Please try again." }
+  }
   const duplicates = await sql`
     select 1 from subscribers
     where library_link_url = ${row.library_link_url} and id <> ${id}
@@ -330,6 +440,23 @@ export async function activateSubscriber(id: string): Promise<FormState> {
     }
   }
 
+  let token: string
+  try {
+    await sql`
+      update subscribers
+      set status = 'active',
+          term_start = coalesce(term_start, current_date),
+          updated_at = now()
+      where id = ${id}
+    `
+    token = await issueToken(id)
+  } catch {
+    refresh()
+    return {
+      message:
+        "The subscriber was not fully activated. Refresh the page and use Activate or Resend sign-in link again.",
+    }
+  }
   await sql`
     update subscribers
     set status = 'active',
@@ -341,6 +468,7 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   let mailed = true
   try {
     await sendWelcome({
+      subscriberId: id,
       email: row.email,
       fullName: row.full_name || row.name || "",
       publicTier: row.public_tier,
@@ -385,11 +513,7 @@ export async function resendSignInLink(id: string): Promise<FormState> {
   await requireAdmin()
   if (!UUID.test(id)) return { message: "Unknown subscriber." }
 
-  const sql = getSql()
-  const rows = (await sql`
-    select id, full_name, name, email, public_tier, term_end, status
-    from subscribers where id = ${id} limit 1
-  `) as {
+  let rows: {
     id: string
     full_name: string | null
     name: string
@@ -398,6 +522,15 @@ export async function resendSignInLink(id: string): Promise<FormState> {
     term_end: string | null
     status: string
   }[]
+  try {
+    const sql = getSql()
+    rows = (await sql`
+      select id, full_name, name, email, public_tier, term_end, status
+      from subscribers where id = ${id} limit 1
+    `) as typeof rows
+  } catch {
+    return { message: "The subscriber sign-in link could not be prepared. Please try again." }
+  }
 
   const row = rows[0]
   if (!row) return { message: "That subscriber no longer exists." }
@@ -405,9 +538,10 @@ export async function resendSignInLink(id: string): Promise<FormState> {
     return { message: "Only an active seat can be sent a sign-in link." }
   }
 
-  const token = await issueToken(id)
   try {
+    const token = await issueToken(id)
     await sendWelcome({
+      subscriberId: id,
       email: row.email,
       fullName: row.full_name || row.name || "",
       publicTier: row.public_tier,
@@ -478,6 +612,25 @@ export async function getAlertPreview(publicationId: string) {
 function startOfToday(): Date {
   const now = new Date()
   return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
+function isRealIsoDate(value: string): boolean {
+  const [year, month, day] = value.split("-").map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  )
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "23505",
+  )
 }
 
 function refresh() {

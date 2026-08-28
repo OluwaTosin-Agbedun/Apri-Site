@@ -3,6 +3,7 @@ import { getSql } from '@/lib/db'
 import { isSetupComplete, requireAdmin } from '@/lib/dal'
 import AdminShell from '@/components/AdminShell'
 import SecurityFindings from '@/components/SecurityFindings'
+import Link from 'next/link'
 
 export const metadata = { title: 'Overview · APRI' }
 export const dynamic = 'force-dynamic'
@@ -74,8 +75,11 @@ export default async function AdminDashboardPage() {
       <div className="border border-border bg-card/30">
         {recent.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            No publications yet. Run <code className="font-mono">pnpm run db:seed</code> to
-            load the four APRI publications, or add one under Publications.
+            <p>No publications have been published yet. Fetch open publications from Papermark or add a publication under Publications.</p>
+            <div className="mt-4 flex justify-center gap-3">
+              <Link href="/admin/documents" className="bg-accent text-white px-4 py-2 text-xs">Fetch from Papermark</Link>
+              <Link href="/admin/documents" className="border border-border px-4 py-2 text-xs">Manage Publications</Link>
+            </div>
           </div>
         ) : (
           <table className="w-full text-left text-sm">

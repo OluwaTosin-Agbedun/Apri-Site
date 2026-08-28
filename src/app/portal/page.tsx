@@ -10,6 +10,7 @@ import { subscriberSignOut } from "@/app/actions/subscriber-auth"
 import SiteFooter from "@/components/SiteFooter"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import { subscriberLibraryEmbedUrl } from "@/lib/papermark-embed"
+import { recordClientEvent } from "@/lib/client-engagement"
 
 export const dynamic = "force-dynamic"
 
@@ -23,6 +24,7 @@ const CONTACT = "intelligence@athenacentre.org"
 
 export default async function PortalPage() {
   const subscriber = await requirePortalPrincipal()
+  try { await recordClientEvent({type:subscriber.type,id:subscriber.id},"portal_opened",{dedupeMinutes:30}) } catch {}
 
   if (subscriber.type === "briefing") {
     return <BriefingPortal client={subscriber} />
@@ -77,6 +79,7 @@ export default async function PortalPage() {
             <p className="mt-3 text-xs text-muted-foreground">
               This library is unique to you. Downloads are controlled by its Papermark settings.
             </p>
+            <a href="/portal/open-private" target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-medium text-accent hover:text-accent-hover">Open Private Library</a>
             <a href={subscriber.libraryLinkUrl!} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-medium text-accent hover:text-accent-hover">Open Private Library</a>
           </section>
         ) : (
@@ -158,6 +161,7 @@ function BriefingPortal({
         </p>
         {client.hasAccess ? (
           <a
+            href="/portal/open-private"
             href={client.privateLinkUrl}
             target="_blank"
             rel="noreferrer"

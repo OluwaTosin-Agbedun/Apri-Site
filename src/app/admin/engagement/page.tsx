@@ -1,372 +1,49 @@
-import Link from 'next/link'
-import { requireAdmin } from '@/lib/dal'
-import AdminShell from '@/components/AdminShell'
-import {
-  getEngagement,
-  getEngagementWindow,
-  getEngagementSummary,
-  getUnmatchedViews,
-  getOpenEditionLeads,
-  REGULAR_SERIES,
-  type EngagementRow,
-} from '@/lib/engagement'
-import { deliverySummary } from '@/lib/delivery'
-import { isPapermarkConfigured } from '@/lib/papermark'
-import { levelLabelOrDash } from '@/lib/entitlements'
-import WindowForm from './window-form'
+import { requireAdmin } from "@/lib/dal"
+import AdminShell from "@/components/AdminShell"
+import { getClientEngagementDashboard } from "@/lib/client-engagement"
 
-export const metadata = { title: 'Engagement · APRI' }
-export const dynamic = 'force-dynamic'
+export const metadata = { title: "Engagement · APRI" }
+export const dynamic = "force-dynamic"
 
-/**
- * The attention list. Admin-only: gated by requireAdmin, and reachable only
- * from the admin navigation.
- */
-export default async function EngagementPage() {
+export default async function EngagementPage({searchParams}:{searchParams:Promise<{type?:string;status?:string;never?:string;failure?:string;activity?:string;from?:string;to?:string}>}) {
   const admin = await requireAdmin()
-
-  const delivery = deliverySummary()
-
-  // Read here rather than inferred from whether the job has run. Server-side
-  // only: these are never sent to the browser, just their presence.
-  const missingPollEnv = [
-    isPapermarkConfigured() ? null : 'PAPERMARK_API_TOKEN',
-    process.env.CRON_SECRET ? null : 'CRON_SECRET',
-  ].filter((v): v is string => v !== null)
-  const pollConfigured = missingPollEnv.length === 0
-
-  const window = await getEngagementWindow()
-  const [rows, summary, unmatched, leads] = await Promise.all([
-    getEngagement(window),
-    getEngagementSummary(),
-    getUnmatchedViews(25),
-    getOpenEditionLeads(100),
-  ])
-
-  const flagged = rows.filter((r) => r.flagged)
-  const expiring = rows.filter(
-    (r) => r.daysUntilTermEnd !== null && r.daysUntilTermEnd <= 30 && r.daysUntilTermEnd >= 0
-  )
-
-  return (
-    <AdminShell
-      admin={admin}
-      current="/admin/engagement"
-      title="Engagement"
-      description={
-        rows.length === 0
-          ? 'No active subscribers yet.'
-          : `${rows.length} active ${rows.length === 1 ? 'seat' : 'seats'}. ${flagged.length} flagged, ${expiring.length} ending within 30 days.`
-      }
-    >
-      <div className="border border-border bg-card/30 p-6 mb-8">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-4">
-          Document delivery
-        </h3>
-
-        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-3 text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-              Watermarking
-            </dt>
-            <dd className="text-foreground/80">
-              {delivery.watermarking === 'on' ? (
-                <span className="text-accent">On &mdash; names are stamped</span>
-              ) : (
-                <span>Off &mdash; no name is stamped</span>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-              Downloads
-            </dt>
-            <dd className="text-foreground/80">
-              {delivery.downloads === 'disabled' ? 'Disabled — view-only' : 'Enabled'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-              Catch-up poll
-            </dt>
-            <dd className="text-foreground/80">
-              {summary.lastPollAt ? `Ran ${formatDateTime(summary.lastPollAt)}` : 'Not yet run'}
-            </dd>
-          </div>
-        </dl>
-
-        <p className="mt-4 text-xs text-muted-foreground leading-relaxed max-w-2xl">
-          Access is issued to a named individual, gated on their email address, and every
-          view is logged &mdash; which is what identifies a reader while watermarking is off.
-          {delivery.watermarking === 'off' && (
-            <>
-              {' '}
-              To turn watermarking on, set <code>WATERMARKING_ENABLED=&quot;true&quot;</code>{' '}
-              and redeploy. All wording across the site and the emails follows that one
-              value; nothing here needs editing.
-            </>
-          )}
-        </p>
-      </div>
-
-      <div className="border border-border bg-card/30 p-6 mb-8">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-4">
-          Attention threshold
-        </h3>
-        <WindowForm current={window} />
-        <p className="mt-4 text-xs text-muted-foreground leading-relaxed max-w-2xl">
-          A seat is flagged when it has opened <strong>none</strong> of the last {window}{' '}
-          editions it was entitled to. Only regular series count (
-          {REGULAR_SERIES.join(', ')}) &mdash; board papers are ad hoc and excluded. Only
-          editions published after the seat&rsquo;s term began are counted, and a seat with
-          fewer than {window} such editions is never flagged.
-        </p>
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="border border-border bg-card/30 p-12 text-center text-sm text-muted-foreground">
-          No active subscribers to report on yet.
-        </div>
-      ) : (
-        <div className="border border-border bg-card/30 overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="border-b border-border bg-black/5 text-foreground/70">
-              <tr>
-                <th className="font-medium p-4">Subscriber</th>
-                <th className="font-medium p-4">Level</th>
-                <th className="font-medium p-4">Term ends</th>
-                <th className="font-medium p-4">Last opened</th>
-                <th className="font-medium p-4 text-right">Opens (90d)</th>
-                <th className="font-medium p-4 text-center">Recent editions</th>
-                <th className="font-medium p-4">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((row) => (
-                <Row key={row.id} row={row} window={window} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <section className="mt-12">
-        <h3 className="font-serif text-lg text-foreground mb-2">Unmatched views</h3>
-        <p className="text-xs text-muted-foreground leading-relaxed mb-5 max-w-2xl">
-          Opens we could not tie to a subscriber. Usually a link issued without its
-          Papermark link id recorded on the subscriber&rsquo;s record &mdash; add it and the
-          next sighting will attribute itself.{' '}
-          {summary.totalViews > 0 && (
-            <>
-              {summary.unmatchedViews} of {summary.totalViews} stored views are unmatched.
-            </>
-          )}
-        </p>
-
-        <div className="border border-border bg-card/30 overflow-x-auto">
-          {unmatched.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              Nothing unmatched. Every recorded open is tied to a subscriber.
-            </div>
-          ) : (
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="border-b border-border bg-black/5 text-foreground/70">
-                <tr>
-                  <th className="font-medium p-4">Viewed</th>
-                  <th className="font-medium p-4">Viewer email</th>
-                  <th className="font-medium p-4">Publication</th>
-                  <th className="font-medium p-4">Link id</th>
-                  <th className="font-medium p-4">Source</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {unmatched.map((v) => (
-                  <tr key={v.id} className="hover:bg-black/5 transition-colors">
-                    <td className="p-4 text-foreground/70">{formatDateTime(v.viewedAt)}</td>
-                    <td className="p-4 text-foreground/70">{v.viewerEmail ?? '—'}</td>
-                    <td className="p-4 text-foreground/70">{v.publicationTitle ?? '—'}</td>
-                    <td className="p-4">
-                      <code className="text-xs text-muted-foreground">
-                        {v.papermarkLinkId ?? '—'}
-                      </code>
-                    </td>
-                    <td className="p-4 text-xs text-muted-foreground">{v.source}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-
-      <section className="mt-12">
-        <h3 className="font-serif text-lg text-foreground mb-2">
-          Open-edition readers <span className="text-muted-foreground">(leads)</span>
-        </h3>
-        <p className="text-xs text-muted-foreground leading-relaxed mb-5 max-w-2xl">
-          People who verified an email to read a public edition. They are{' '}
-          <strong>leads, not subscribers</strong> &mdash; no account, no library, no person
-          record. Held in their own table and never mixed into the subscriber list.
-        </p>
-
-        <div className="border border-border bg-card/30 overflow-x-auto">
-          {leads.length === 0 ? (
-            <div className="p-10 text-center text-sm text-muted-foreground">
-              No open-edition readers recorded yet.
-            </div>
-          ) : (
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="border-b border-border bg-black/5 text-foreground/70">
-                <tr>
-                  <th className="font-medium p-4">Email</th>
-                  <th className="font-medium p-4">Last read</th>
-                  <th className="font-medium p-4">First seen</th>
-                  <th className="font-medium p-4 text-right">Opens</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {leads.map((lead) => (
-                  <tr key={lead.email} className="hover:bg-black/5 transition-colors">
-                    <td className="p-4 text-foreground/80">{lead.email}</td>
-                    <td className="p-4 text-foreground/70">
-                      {lead.lastPublicationTitle ?? '—'}
-                      <span className="block text-xs text-muted-foreground mt-0.5">
-                        {formatDate(lead.lastSeenAt)}
-                      </span>
-                    </td>
-                    <td className="p-4 text-foreground/70">{formatDate(lead.firstSeenAt)}</td>
-                    <td className="p-4 text-right tabular-nums text-foreground/70">
-                      {lead.viewCount}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-
-      {/*
-        Two separate facts, kept separate. Whether the credentials are present is
-        not the same as whether the job has ever executed -- conflating them made
-        this read as "add the keys" long after the keys were added.
-      */}
-      <p className="mt-8 text-xs text-muted-foreground leading-relaxed max-w-2xl">
-        Opens are recorded by the Papermark webhook, with a daily catch-up poll behind it.
-        {summary.lastPollAt ? (
-          ` Last poll ran ${formatDateTime(summary.lastPollAt)}.`
-        ) : pollConfigured ? (
-          <>
-            {' '}
-            The credentials are in place, but the poll has never run &mdash; something has
-            to call it on a schedule. Until it does, opens arrive only from the webhook.
-          </>
-        ) : (
-          <>
-            {' '}
-            The poll cannot run yet: {missingPollEnv.join(' and ')}{' '}
-            {missingPollEnv.length === 1 ? 'is' : 'are'} not set in this environment.
-          </>
-        )}{' '}
-        {summary.totalViews === 0 &&
-          'No opens have been recorded yet, so every active seat with enough editions behind it reads as flagged.'}
-      </p>
-    </AdminShell>
-  )
+  const filters = await searchParams
+  const {summary,rows} = await getClientEngagementDashboard()
+  const visible = (rows as any[]).filter((row) =>
+    (!filters.type || row.client_type===filters.type) &&
+    (!filters.status || row.status.toLowerCase()===filters.status) &&
+    (filters.never!=="1" || Number(row.signins)===0) &&
+    (filters.failure!=="1" || Number(row.failures)>0) &&
+    (filters.activity!=="recent" || (row.last_activity && new Date(row.last_activity)>=new Date(Date.now()-30*86400000))) &&
+    (filters.activity!=="none" || !row.last_activity) &&
+    (!filters.from || (row.last_activity && new Date(row.last_activity)>=new Date(filters.from))) &&
+    (!filters.to || (row.last_activity && new Date(row.last_activity)<new Date(`${filters.to}T23:59:59.999Z`))))
+  const neverSubscribers=(rows as any[]).filter(r=>r.client_type==="Subscriber"&&Number(r.signins)===0).length
+  const neverBriefings=(rows as any[]).filter(r=>r.client_type==="Briefing"&&Number(r.signins)===0).length
+  const cards=[
+    ["Active subscribers",summary?.active_subscribers??0],
+    ["Active briefing clients",summary?.active_briefings??0],
+    ["Portal visitors (30d)",summary?.visitors_30d??0],
+    ["Subscribers never signed in",neverSubscribers],
+    ["Briefings never signed in",neverBriefings],
+    ["Sign-in emails delivered",summary?.delivered??0],
+    ["Sign-in-link clicks",summary?.clicked??0],
+    ["Failed or bounced",summary?.failed??0],
+  ]
+  return <AdminShell admin={admin} current="/admin/engagement" title="Engagement" description="Subscriber and briefing activity, kept as separate principals.">
+    <p className="border border-border bg-card/30 p-4 mb-6 text-xs text-muted-foreground">Email-open information is approximate and may be affected by email privacy protection. Papermark analytics display as Not available until the API and saved link type expose them.</p>
+    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">{cards.map(([label,value])=><div key={String(label)} className="border border-border p-5"><p className="text-xs text-muted-foreground">{label}</p><p className="font-serif text-2xl mt-2">{value}</p></div>)}</div>
+    <form className="flex flex-wrap gap-3 mb-6 text-sm">
+      <select name="type" defaultValue={filters.type??""} className="border p-2"><option value="">All clients</option><option>Subscriber</option><option>Briefing</option></select>
+      <select name="status" defaultValue={filters.status??""} className="border p-2"><option value="">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="new">New</option></select>
+      <label className="p-2"><input type="checkbox" name="never" value="1" defaultChecked={filters.never==="1"}/> Never signed in</label>
+      <label className="p-2"><input type="checkbox" name="failure" value="1" defaultChecked={filters.failure==="1"}/> Email failure</label>
+      <select name="activity" defaultValue={filters.activity??""} className="border p-2"><option value="">Any activity</option><option value="recent">Active in 30 days</option><option value="none">No activity</option></select>
+      <input aria-label="Activity from" type="date" name="from" defaultValue={filters.from??""} className="border p-2"/>
+      <input aria-label="Activity to" type="date" name="to" defaultValue={filters.to??""} className="border p-2"/>
+      <button className="bg-foreground text-background px-4">Filter</button>
+    </form>
+    <div className="overflow-x-auto border border-border"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Client</th><th>Type</th><th>Status</th><th>Last portal visit</th><th>Visits</th><th>Last activity</th><th>Papermark analytics</th></tr></thead><tbody>{visible.map((r:any)=><tr key={`${r.client_type}-${r.id}`} className="border-b"><td className="p-3"><div>{r.name}</div><div className="text-xs text-muted-foreground">{r.email}</div></td><td>{r.client_type}</td><td>{r.status}</td><td>{format(r.last_portal_visit)}</td><td>{r.portal_visits}</td><td>{format(r.last_activity)}</td><td>Not available</td></tr>)}</tbody></table></div>
+  </AdminShell>
 }
-
-function Row({ row, window }: { row: EngagementRow; window: number }) {
-  return (
-    <tr
-      className={`hover:bg-black/5 transition-colors ${row.flagged ? 'bg-red-50/40' : ''}`}
-    >
-      <td className="p-4">
-        <Link
-          href={`/admin/subscribers/${row.id}`}
-          className="font-medium text-foreground hover:text-accent transition-colors"
-        >
-          {row.fullName || '—'}
-        </Link>
-        <span className="block text-xs text-muted-foreground mt-0.5">
-          {row.organisation || row.email}
-        </span>
-      </td>
-
-      <td className="p-4 text-foreground/70">
-        {levelLabelOrDash(row.level, row.seats)}
-      </td>
-
-      <td className="p-4 text-foreground/70">
-        {row.termEnd ? formatDate(row.termEnd) : '—'}
-        {row.daysUntilTermEnd !== null && (
-          <span
-            className={`block text-xs mt-0.5 ${
-              row.daysUntilTermEnd <= 30 ? 'text-red-700' : 'text-muted-foreground'
-            }`}
-          >
-            {row.daysUntilTermEnd < 0
-              ? `${Math.abs(row.daysUntilTermEnd)} days ago`
-              : `in ${row.daysUntilTermEnd} days`}
-          </span>
-        )}
-      </td>
-
-      <td className="p-4 text-foreground/70">
-        {row.lastOpenedAt ? formatDate(row.lastOpenedAt) : (
-          <span className="text-muted-foreground">Never</span>
-        )}
-      </td>
-
-      <td className="p-4 text-right tabular-nums text-foreground/70">
-        {row.opensLast90Days}
-      </td>
-
-      <td className="p-4 text-center tabular-nums text-foreground/70">
-        {row.editionsConsidered === 0 ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <>
-            {row.editionsOpened} / {row.editionsConsidered}
-          </>
-        )}
-      </td>
-
-      <td className="p-4">
-        {row.flagged ? (
-          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-700 border border-red-200">
-            Opened none of last {window}
-          </span>
-        ) : row.exemptReason === 'too-few-editions' ? (
-          <span className="text-xs text-muted-foreground">
-            Too few editions to judge
-          </span>
-        ) : (
-          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-accent/10 text-accent">
-            Engaged
-          </span>
-        )}
-      </td>
-    </tr>
-  )
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+function format(value:unknown){return value?new Date(String(value)).toLocaleString("en-GB"):"Never"}
