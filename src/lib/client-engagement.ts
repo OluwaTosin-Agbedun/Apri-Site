@@ -5,7 +5,7 @@ export type ClientPrincipal = { type: "subscriber" | "briefing"; id: string }
 export type EngagementEventType =
   | "signin_email_sent" | "email_delivered" | "email_opened" | "email_clicked"
   | "email_bounced" | "email_failed" | "signin_completed" | "portal_opened"
-  | "private_link_opened"
+  | "private_link_opened" | "document_downloaded"
 
 export async function recordClientEvent(
   principal: ClientPrincipal,

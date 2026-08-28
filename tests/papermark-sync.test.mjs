@@ -285,9 +285,10 @@ test('Athena Intelligence Updates group the same way', () => {
 })
 
 test('an unrecognised document is kept rather than lost', () => {
-  for (const title of ['Board Paper 2026.pdf', '', 'Q1 review', 'QIB-2026-01']) {
+  for (const title of ['Board Paper 2026.pdf', '', 'Q1 review']) {
     assert.equal(classifySyncedDocument(title), 'OTHER')
   }
+  assert.equal(classifySyncedDocument('QIB-2026-01'), 'QIB')
   assert.equal(sectionTypeLabel('OTHER'), 'Publication')
   assert.equal(sectionTypeLabel('MIN'), 'Monthly Intelligence Note')
   assert.equal(sectionTypeLabel('AIU'), 'Athena Intelligence Update')

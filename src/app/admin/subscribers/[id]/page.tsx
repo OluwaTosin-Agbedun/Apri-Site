@@ -6,7 +6,9 @@ import { getReachMonths } from "@/lib/provisioning"
 import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
 import SeatActions from "../seat-actions"
 import PapermarkConnectionPanel from "@/components/PapermarkConnectionPanel"
+import DataRoomPanel from "@/components/DataRoomPanel"
 import { getAssignableFolders } from "@/app/actions/papermark-client-library"
+import { resolveDataRoom, getDataRoomLink } from "@/lib/dataroom-dal"
 
 export const dynamic = "force-dynamic"
 
@@ -134,6 +136,14 @@ export default async function EditSubscriberPage({
 
   const folderResult = await getAssignableFolders("subscriber")
 
+  const room = await resolveDataRoom({
+    subscriberId: row.id,
+    publicTier: row.public_tier,
+  })
+  const drLink = room
+    ? await getDataRoomLink({ subscriberId: row.id, dataroomId: room.dataroomId })
+    : null
+
   const status = row.status.toLowerCase()
 
   return (
@@ -170,6 +180,24 @@ export default async function EditSubscriberPage({
           Copies needed.
         </p>
       </div>
+
+      <DataRoomPanel
+        subscriberId={row.id}
+        dataroomName={room?.dataroomName ?? null}
+        dataroomId={room?.dataroomId ?? null}
+        link={drLink ? {
+          id: drLink.id,
+          linkUrl: drLink.linkUrl,
+          assignedName: drLink.assignedName,
+          assignedEmail: drLink.assignedEmail,
+          allowDownload: drLink.allowDownload,
+          revokeState: drLink.revokeState,
+          createdAt: drLink.createdAt,
+          totalViews: drLink.totalViews,
+          uniqueViewers: drLink.uniqueViewers,
+          lastActivityAt: drLink.lastActivityAt,
+        } : null}
+      />
 
       <SubscriberForm draft={draft} folders={folderResult.folders} folderError={folderResult.error} />
       <PapermarkConnectionPanel link={row.library_link_url} updatedAt={row.library_link_updated_at} />

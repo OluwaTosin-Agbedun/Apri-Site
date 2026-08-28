@@ -238,7 +238,9 @@ export function describePapermarkFailure(
 // Classifying a synced document
 // ---------------------------------------------------------------------------
 
-export type LibrarySection = 'MIN' | 'AIU' | 'OTHER'
+export type LibrarySection = 'PLM' | 'AEO' | 'AIU' | 'MIN' | 'QIB' | 'OTHER'
+
+export const LIBRARY_SECTIONS: LibrarySection[] = ['PLM', 'AEO', 'AIU', 'MIN', 'QIB', 'OTHER']
 
 /**
  * Which portal section a synced Papermark document belongs in.
@@ -253,25 +255,34 @@ export type LibrarySection = 'MIN' | 'AIU' | 'OTHER'
  */
 export function classifySyncedDocument(title: string): LibrarySection {
   const value = title.trim().toUpperCase()
-  if (/^MIN[-_\s]/.test(value)) return 'MIN'
+  if (/^PLM[-_\s]/.test(value)) return 'PLM'
+  if (/^AEO[-_\s]/.test(value)) return 'AEO'
   if (/^AIU[-_\s]/.test(value)) return 'AIU'
+  if (/^MIN[-_\s]/.test(value)) return 'MIN'
+  if (/^QIB[-_\s]/.test(value)) return 'QIB'
   return 'OTHER'
 }
 
 /** The words a subscriber sees for a section. */
 export const SECTION_LABELS: Record<LibrarySection, string> = {
-  MIN: 'Monthly Intelligence Notes',
+  PLM: 'Political Landscape Monitor',
+  AEO: 'Election & Democratic Governance Monitor',
   AIU: 'Athena Intelligence Updates',
+  MIN: 'Monthly Intelligence Notes',
+  QIB: 'Quarterly Intelligence Briefs',
   OTHER: 'Other Assigned Publications',
 }
 
 /** The type shown on one card. */
 export function sectionTypeLabel(section: LibrarySection): string {
-  return section === 'MIN'
-    ? 'Monthly Intelligence Note'
-    : section === 'AIU'
-      ? 'Athena Intelligence Update'
-      : 'Publication'
+  switch (section) {
+    case 'PLM': return 'Political Landscape Monitor'
+    case 'AEO': return 'Election & Democratic Governance Monitor'
+    case 'AIU': return 'Athena Intelligence Update'
+    case 'MIN': return 'Monthly Intelligence Note'
+    case 'QIB': return 'Quarterly Intelligence Brief'
+    default: return 'Publication'
+  }
 }
 
 // ---------------------------------------------------------------------------

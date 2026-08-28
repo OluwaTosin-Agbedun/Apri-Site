@@ -8,6 +8,7 @@ import { seriesLabel } from "@/lib/entitlements"
 import { portalNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
 import { subscriberSignOut } from "@/app/actions/subscriber-auth"
 import SiteFooter from "@/components/SiteFooter"
+import PortalHeader from "@/components/PortalHeader"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import { subscriberLibraryEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
@@ -17,7 +18,7 @@ import {
   groupBySection,
   type SyncedClientDocument,
 } from "@/lib/papermark-client-library"
-import { SECTION_LABELS } from "@/lib/papermark-contract"
+import { SECTION_LABELS, LIBRARY_SECTIONS } from "@/lib/papermark-contract"
 
 export const dynamic = "force-dynamic"
 
@@ -84,6 +85,7 @@ export default async function PortalPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <PortalHeader
+        shell={SHELL}
         name={principal.fullName}
         organisation={principal.organisation}
         tier={principal.publicTier}
@@ -111,7 +113,7 @@ export default async function PortalPage() {
           )}
         </PortalSection>
 
-        {(["MIN", "AIU", "OTHER"] as const).map((section) =>
+        {LIBRARY_SECTIONS.map((section) =>
           sections[section].length === 0 ? null : (
             <PortalSection key={section} title={SECTION_LABELS[section]}>
               <DocumentGrid documents={sections[section]} />
@@ -208,6 +210,7 @@ async function BriefingPortal({
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <PortalHeader
+        shell={SHELL}
         name={client.fullName}
         organisation={client.organisation}
         tier="Private briefing"
@@ -364,50 +367,6 @@ function PublicationRow({ item }: { item: Item }) {
         </span>
       </div>
     </a>
-  )
-}
-
-export function PortalHeader({
-  name,
-  organisation,
-  tier,
-  termEnd,
-}: {
-  name: string
-  organisation: string
-  tier: string
-  termEnd: string | null
-}) {
-  const line = [organisation, tier].filter(Boolean).join(" · ")
-
-  return (
-    <header className="border-b border-border">
-      <div className={`${SHELL} py-5 flex items-start justify-between gap-4`}>
-        <div className="min-w-0">
-          <Link href="/" className="font-serif text-base text-foreground tracking-tight">
-            APRI
-          </Link>
-          <p className="text-xs text-muted-foreground mt-1 truncate">
-            {name}
-            {line && <span className="hidden sm:inline"> &middot; {line}</span>}
-          </p>
-          {termEnd && (
-            <p className="text-xs text-muted-foreground/70 mt-0.5">
-              Access until {formatDate(termEnd)}
-            </p>
-          )}
-        </div>
-
-        <form action={subscriberSignOut}>
-          <button
-            type="submit"
-            className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer shrink-0 py-2"
-          >
-            Sign out
-          </button>
-        </form>
-      </div>
-    </header>
   )
 }
 

@@ -137,8 +137,11 @@ export function groupBySection(
   documents: SyncedClientDocument[],
 ): Record<LibrarySection, SyncedClientDocument[]> {
   const grouped: Record<LibrarySection, SyncedClientDocument[]> = {
-    MIN: [],
+    PLM: [],
+    AEO: [],
     AIU: [],
+    MIN: [],
+    QIB: [],
     OTHER: [],
   }
   for (const document of documents) grouped[document.section].push(document)

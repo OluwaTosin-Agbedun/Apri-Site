@@ -137,6 +137,70 @@ async function readErrorBody(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * One authenticated Papermark request, of any method.
+ *
+ * The single place a bearer token is attached. Every caller in the application
+ * goes through here or through `call`, so there is exactly one line of code
+ * that touches the credential and it lives in a `server-only` module — a client
+ * component importing this file is a build error rather than a leak.
+ *
+ * Timeouts are enforced: a Papermark outage that never answers must not hold a
+ * server action open until the platform kills it.
+ */
+export async function papermarkRequest<T>(
+  path: string,
+  options: { method?: string; body?: unknown; timeoutMs?: number } = {},
+): Promise<T> {
+  const token = requireToken()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 20_000)
+
+  let response: Response
+  try {
+    response = await fetch(`${BASE}${path}`, {
+      method: options.method ?? 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+  } catch (error) {
+    throw new PapermarkError(
+      error instanceof Error && error.name === 'AbortError'
+        ? 'Papermark did not answer in time. Try again shortly.'
+        : 'Could not reach Papermark. Check network access.',
+    )
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (!response.ok) {
+    const failure = describePapermarkFailure(response.status, await readErrorBody(response))
+    throw new PapermarkError(failure.message, failure)
+  }
+
+  if (response.status === 204) return undefined as T
+
+  try {
+    return (await response.json()) as T
+  } catch {
+    throw new PapermarkError('Papermark returned a response that was not JSON.')
+  }
+}
+
+/** One page of a cursor-paginated list, unwrapped from either envelope shape. */
+export async function papermarkFetch<T>(
+  path: string,
+  legacyKey: string,
+): Promise<{ items: T[]; next: string | null }> {
+  return unwrap<T>(await papermarkRequest<unknown>(path), legacyKey)
+}
+
 async function call<T>(path: string): Promise<T> {
   const token = requireToken()
 

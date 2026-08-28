@@ -5,7 +5,9 @@ import AdminShell from "@/components/AdminShell"
 import BriefingForm from "./briefing-form"
 import BriefingDeleteControl from "../briefing-delete-control"
 import PapermarkConnectionPanel from "@/components/PapermarkConnectionPanel"
+import BriefingDataRoomPanel from "@/components/BriefingDataRoomPanel"
 import { getAssignableFolders } from "@/app/actions/papermark-client-library"
+import { getDataRoomLink } from "@/lib/dataroom-dal"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const dynamic = "force-dynamic"
 export default async function BriefingDetails({
@@ -28,13 +30,22 @@ export default async function BriefingDetails({
   `) as { ready: boolean }[]
   // Keep the detail page usable before the additive portal migration is applied.
   // Tagged queries avoid constructing SQL from the route parameter.
+  const hasDrColumn = (await sql`
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='briefing_requests'
+      and column_name='papermark_dataroom_id'
+  `).length > 0
   const rows = (schema?.ready
-    ? await sql`select id,name,organization,role_title,email,phone,briefing_type,
-        format,timeline,sector,description,audience_size,location,status,
-        private_link_url,papermark_folder_id,updated_at,private_link_updated_at from briefing_requests where id=${id} limit 1`
+    ? hasDrColumn
+      ? await sql`select id,name,organization,role_title,email,phone,briefing_type,
+          format,timeline,sector,description,audience_size,location,status,
+          private_link_url,papermark_folder_id,papermark_dataroom_id,updated_at,private_link_updated_at from briefing_requests where id=${id} limit 1`
+      : await sql`select id,name,organization,role_title,email,phone,briefing_type,
+          format,timeline,sector,description,audience_size,location,status,
+          private_link_url,papermark_folder_id,null::text as papermark_dataroom_id,updated_at,private_link_updated_at from briefing_requests where id=${id} limit 1`
     : await sql`select id,name,organization,role_title,email,phone,briefing_type,
         format,timeline,sector,description,audience_size,location,status,
-        null::text as private_link_url,null::text as papermark_folder_id,null::timestamptz as updated_at,null::timestamptz as private_link_updated_at from briefing_requests where id=${id} limit 1`) as {
+        null::text as private_link_url,null::text as papermark_folder_id,null::text as papermark_dataroom_id,null::timestamptz as updated_at,null::timestamptz as private_link_updated_at from briefing_requests where id=${id} limit 1`) as {
       id: string
       name: string
       organization: string
@@ -51,6 +62,7 @@ export default async function BriefingDetails({
       status: string
       private_link_url: string | null
       papermark_folder_id: string | null
+      papermark_dataroom_id: string | null
       updated_at: string | null
       private_link_updated_at: string | null
     }[]
@@ -73,6 +85,31 @@ export default async function BriefingDetails({
     librarySyncedAt = null
   }
 
+  let briefingDrLink: {
+    id: string; linkUrl: string; assignedName: string;
+    allowDownload: boolean; revokeState: string; createdAt: string;
+    totalViews: number | null;
+  } | null = null
+  if (r.papermark_dataroom_id) {
+    try {
+      const drLink = await getDataRoomLink({
+        briefingRequestId: r.id,
+        dataroomId: r.papermark_dataroom_id,
+      })
+      if (drLink) {
+        briefingDrLink = {
+          id: drLink.id,
+          linkUrl: drLink.linkUrl,
+          assignedName: drLink.assignedName,
+          allowDownload: drLink.allowDownload,
+          revokeState: drLink.revokeState,
+          createdAt: drLink.createdAt,
+          totalViews: drLink.totalViews,
+        }
+      }
+    } catch {}
+  }
+
   return (
     <AdminShell
       admin={admin}
@@ -80,6 +117,11 @@ export default async function BriefingDetails({
       title={r.name}
       description="Edit and activate this briefing client without creating a subscriber record."
     >
+      <BriefingDataRoomPanel
+        briefingRequestId={r.id}
+        dataroomId={r.papermark_dataroom_id}
+        link={briefingDrLink}
+      />
       <BriefingForm
         draft={{
           id: r.id,

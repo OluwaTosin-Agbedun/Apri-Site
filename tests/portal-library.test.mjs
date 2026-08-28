@@ -36,7 +36,7 @@ test('every section the brief names is rendered, and empty ones are hidden', () 
   assert.equal(SECTION_LABELS.OTHER, 'Other Assigned Publications')
 
   assert.match(portal, /"Latest updates"/)
-  assert.match(portal, /\["MIN", "AIU", "OTHER"\] as const/)
+  assert.match(portal, /LIBRARY_SECTIONS\.map/)
   // A section with nothing in it renders nothing at all.
   assert.match(portal, /sections\[section\]\.length === 0 \? null/)
 })

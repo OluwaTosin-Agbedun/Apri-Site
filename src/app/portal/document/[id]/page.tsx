@@ -6,7 +6,7 @@ import { papermarkEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import SiteFooter from "@/components/SiteFooter"
-import { PortalHeader } from "../../page"
+import PortalHeader from "@/components/PortalHeader"
 
 export const dynamic = "force-dynamic"
 
@@ -55,6 +55,7 @@ export default async function PortalDocumentPage({
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <PortalHeader
+        shell={SHELL}
         name={principal.fullName}
         organisation={principal.organisation}
         tier={principal.type === "briefing" ? "Private briefing" : principal.publicTier}

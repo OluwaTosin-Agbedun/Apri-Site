@@ -4,6 +4,7 @@ import { isSetupComplete, requireAdmin } from '@/lib/dal'
 import AdminShell from '@/components/AdminShell'
 import SecurityFindings from '@/components/SecurityFindings'
 import Link from 'next/link'
+import { getDataRoomStats } from '@/lib/dataroom-dal'
 
 export const metadata = { title: 'Overview · APRI' }
 export const dynamic = 'force-dynamic'
@@ -28,6 +29,11 @@ export default async function AdminDashboardPage() {
     pending: number
     new_briefings: number
   }[]
+
+  let drStats: Awaited<ReturnType<typeof getDataRoomStats>> | null = null
+  try {
+    drStats = await getDataRoomStats()
+  } catch {}
 
   const recent = (await sql`
     select id, title, kicker, papermark_link, cta_mode, created_at
@@ -123,6 +129,47 @@ export default async function AdminDashboardPage() {
           </table>
         )}
       </div>
+
+      {drStats && (
+        <>
+          <h3 className="font-serif text-lg text-foreground mb-4 mt-12">Data Rooms</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="border border-border p-6 bg-card/30">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-4">
+                Configured Levels
+              </p>
+              <p className="text-3xl font-serif text-foreground">
+                {drStats.configuredLevels} / {drStats.totalLevels}
+              </p>
+            </div>
+            <div className="border border-border p-6 bg-card/30">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-4">
+                Active Links
+              </p>
+              <p className="text-3xl font-serif text-foreground">{drStats.activeLinks}</p>
+            </div>
+            <div className="border border-border p-6 bg-card/30">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-4">
+                Expiring (30 days)
+              </p>
+              <p className="text-3xl font-serif text-foreground">{drStats.expiringLinks}</p>
+            </div>
+            {drStats.syncErrors > 0 && (
+              <div className="border border-red-200 p-6 bg-red-50/30">
+                <p className="text-xs font-medium uppercase tracking-wider text-red-700 mb-4">
+                  Sync Errors
+                </p>
+                <p className="text-3xl font-serif text-red-700">{drStats.syncErrors}</p>
+              </div>
+            )}
+          </div>
+          <div className="mt-4">
+            <Link href="/admin/datarooms" className="text-sm text-accent hover:text-accent-hover transition-colors">
+              Manage Data Rooms &rarr;
+            </Link>
+          </div>
+        </>
+      )}
     </AdminShell>
   )
 }

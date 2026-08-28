@@ -82,6 +82,20 @@ import { applyLevelChange, type LevelChangeOutcome } from "@/lib/level-changes"
 import { fieldErrors, type FormState } from "@/lib/definitions"
 import { papermarkEmbedUrl } from "@/lib/papermark-embed"
 import { normalisePapermarkUrl } from "@/lib/papermark-embed"
+import {
+  resolveDataRoom,
+  getDataRoomLink,
+  saveDataRoomLink,
+  recordAssignment,
+  assignDataRoomToSubscriber,
+} from "@/lib/dataroom-dal"
+import { createDataRoomLink } from "@/lib/papermark-datarooms"
+import { watermarkText } from "@/lib/papermark-dataroom-contract"
+import {
+  reassignDataRoomOnLevelChange,
+  updateDataRoomLinkExpiry,
+  revokeAllDataRoomLinks,
+} from "@/lib/dataroom-lifecycle"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -186,6 +200,8 @@ export async function saveSubscriber(
     return { message: "Subscriber storage is temporarily unavailable. Please try again." }
   }
   let previousLevel: string | null = null
+  let previousPublicTier: string | null = null
+  let previousTermEnd: string | null = null
   let outcome: LevelChangeOutcome = { direction: "none", revocationsQueued: 0 }
 
   try {
@@ -216,9 +232,11 @@ export async function saveSubscriber(
     }
     if (id) {
       const before = (await sql`
-        select level from subscribers where id = ${id} limit 1
-      `) as { level: string | null }[]
+        select level, public_tier, term_end from subscribers where id = ${id} limit 1
+      `) as { level: string | null; public_tier: string | null; term_end: string | null }[]
       previousLevel = before[0]?.level ?? null
+      previousPublicTier = before[0]?.public_tier ?? null
+      previousTermEnd = before[0]?.term_end ?? null
     }
 
     if (id) {
@@ -264,6 +282,27 @@ export async function saveSubscriber(
         changedById: admin.id,
         changedByName: admin.name,
       })
+
+      if (previousPublicTier !== d.publicTier && d.publicTier) {
+        try {
+          await reassignDataRoomOnLevelChange({
+            subscriberId: id,
+            oldPublicTier: previousPublicTier,
+            newPublicTier: d.publicTier,
+            changedById: admin.id,
+            changedByName: admin.name,
+          })
+        } catch {}
+      }
+
+      if (termEnd && termEnd !== previousTermEnd) {
+        try {
+          await updateDataRoomLinkExpiry({
+            subscriberId: id,
+            newTermEnd: termEnd,
+          })
+        } catch {}
+      }
     }
   } catch (error) {
     return {
@@ -397,6 +436,49 @@ export async function activateSubscriber(id: string): Promise<FormState> {
         "The subscriber was not fully activated. Refresh the page and use Activate or Resend sign-in link again.",
     }
   }
+
+  let drNote = ""
+  try {
+    const room = await resolveDataRoom({ subscriberId: id, publicTier: row.public_tier })
+    if (room) {
+      const existingLink = await getDataRoomLink({ subscriberId: id, dataroomId: room.dataroomId })
+      if (!existingLink) {
+        const drResult = await createDataRoomLink({
+          dataroomId: room.dataroomId,
+          assignedName: row.full_name || row.name,
+          assignedEmail: row.email,
+          expiresAt: row.term_end,
+        })
+        if (drResult.ok) {
+          await saveDataRoomLink({
+            subscriberId: id,
+            dataroomId: room.dataroomId,
+            papermarkLinkId: drResult.value.linkId,
+            linkUrl: drResult.value.url,
+            assignedName: row.full_name || row.name,
+            assignedEmail: row.email,
+            watermarkEnabled: true,
+            watermarkText: watermarkText(row.full_name || row.name, row.email),
+            allowDownload: drResult.value.settings.allow_download,
+            screenshotProtection: drResult.value.settings.enable_screenshot_protection,
+            expiresAt: drResult.value.settings.expires_at,
+          })
+          await assignDataRoomToSubscriber(id, room.dataroomId)
+          const admin = await requireAdmin()
+          await recordAssignment({
+            subscriberId: id,
+            newDataroomId: room.dataroomId,
+            newLinkId: drResult.value.linkId,
+            reason: "Auto-created on activation",
+            changedById: admin.id,
+            changedByName: admin.name,
+          })
+          drNote = " Data Room link created."
+        }
+      }
+    }
+  } catch {}
+
   let mailed = true
   try {
     await sendWelcome({
@@ -417,8 +499,8 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   return {
     ok: true,
     message: mailed
-      ? `Seat activated at ${granted}, and the welcome email has been sent.`
-      : `Seat activated at ${granted}, but the welcome email could not be sent. Check the email configuration.`,
+      ? `Seat activated at ${granted}, and the welcome email has been sent.${drNote}`
+      : `Seat activated at ${granted}, but the welcome email could not be sent. Check the email configuration.${drNote}`,
   }
 }
 

@@ -1,13 +1,15 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse, after } from 'next/server'
 import { recordView, refreshLastViewed, type IncomingView } from '@/lib/view-attribution'
+import { getSql } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * POST /api/papermark/webhook
  *
- * Records document view events against the subscriber who opened them.
+ * Records document view events, download events, and document lifecycle
+ * changes from Papermark.
  *
  * Unconfigured until PAPERMARK_WEBHOOK_SECRET is set, at which point it becomes
  * live with no code change. While the secret is absent it answers 503 and does
@@ -15,19 +17,15 @@ export const dynamic = 'force-dynamic'
  * write view records for any subscriber, which is the one thing that would make
  * the engagement figures worthless.
  *
- * The signature is checked before the body is parsed, and the database work
- * happens after the response is sent, so a slow write cannot cause Papermark to
- * time out and retry.
+ * Uses the papermark_webhook_events table for idempotency: a repeated delivery
+ * is acknowledged but not processed a second time.
  */
 export async function POST(request: Request) {
   const secret = process.env.PAPERMARK_WEBHOOK_SECRET
   if (!secret) {
-    // No detail about why: the response goes to an unauthenticated caller.
     return NextResponse.json({ error: 'Not configured.' }, { status: 503 })
   }
 
-  // The raw body is needed for the signature, so read text and parse by hand.
-  // Calling request.json() first would consume the stream.
   let raw: string
   try {
     raw = await request.text()
@@ -55,37 +53,236 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Bad request.' }, { status: 400 })
   }
 
-  const events = readEvents(payload)
+  const eventType = readEventType(payload)
+  const eventId = readEventId(payload)
 
-  // Nothing recognised. Acknowledged rather than retried forever -- a 4xx here
-  // would make Papermark redeliver an event we will never handle.
+  if (eventType && /view/i.test(eventType)) {
+    return handleViewEvents(payload, eventId)
+  }
+
+  if (eventType && /document\.(created|updated|deleted)/i.test(eventType)) {
+    return handleDocumentEvent(payload, eventType, eventId)
+  }
+
+  if (eventType && /link\.downloaded/i.test(eventType)) {
+    return handleDownloadEvent(payload, eventId)
+  }
+
+  if (eventType && /link\.(created|updated)/i.test(eventType)) {
+    return handleLinkEvent(payload, eventType, eventId)
+  }
+
+  // Unrecognised event type — acknowledge so Papermark does not retry.
+  return NextResponse.json({ ok: true, stored: 0 })
+}
+
+// ---------------------------------------------------------------------------
+// View events (existing behaviour)
+// ---------------------------------------------------------------------------
+
+function handleViewEvents(payload: unknown, eventId: string | null) {
+  const events = readViewEvents(payload)
   if (events.length === 0) return NextResponse.json({ ok: true, stored: 0 })
 
-  // Respond now; write after. `after` runs once the response has been flushed,
-  // so Papermark sees a fast 200 regardless of database latency.
   after(async () => {
+    if (eventId) {
+      const alreadyProcessed = await checkIdempotency(eventId)
+      if (alreadyProcessed) return
+    }
+
     for (const event of events) {
       try {
         const { attribution } = await recordView(event)
         if (attribution.subscriberId) {
           await refreshLastViewed(attribution.subscriberId)
         }
-      } catch {
-        // One malformed event must not abandon the rest of the batch. Nothing
-        // is logged: the payload carries a viewer's email address, and the
-        // daily poll will pick up anything lost here.
-      }
+      } catch {}
     }
+
+    if (eventId) await markProcessed(eventId, 'view')
   })
 
   return NextResponse.json({ ok: true, accepted: events.length })
 }
 
-/**
- * HMAC-SHA256 over the raw body, compared in constant time.
- *
- * Accepts a bare hex digest or a `sha256=` prefixed one, since providers differ.
- */
+// ---------------------------------------------------------------------------
+// Document lifecycle events
+// ---------------------------------------------------------------------------
+
+function handleDocumentEvent(payload: unknown, eventType: string, eventId: string | null) {
+  after(async () => {
+    if (eventId) {
+      const alreadyProcessed = await checkIdempotency(eventId)
+      if (alreadyProcessed) return
+    }
+
+    try {
+      const data = readData(payload)
+      const documentId = str(data.document_id ?? data.documentId ?? data.id)
+      const dataroomId = str(data.dataroom_id ?? data.dataroomId)
+
+      if (!documentId) return
+
+      const sql = getSql()
+
+      if (/deleted/i.test(eventType) && dataroomId) {
+        await sql`
+          update papermark_dataroom_documents
+          set is_present = false, removed_at = now(), updated_at = now()
+          where papermark_dataroom_id = ${dataroomId}
+            and papermark_document_id = ${documentId}
+            and is_present = true
+        `
+      } else if (dataroomId) {
+        const title = str(data.name ?? data.document_name ?? data.title) ?? ''
+        const numPages = num(data.num_pages ?? data.numPages)
+        const contentType = str(data.content_type ?? data.contentType)
+
+        await sql`
+          insert into papermark_dataroom_documents
+            (papermark_dataroom_id, papermark_document_id, title, num_pages, content_type)
+          values (${dataroomId}, ${documentId}, ${title}, ${numPages}, ${contentType})
+          on conflict (papermark_dataroom_id, papermark_document_id) do update set
+            title = coalesce(nullif(excluded.title, ''), papermark_dataroom_documents.title),
+            num_pages = coalesce(excluded.num_pages, papermark_dataroom_documents.num_pages),
+            content_type = coalesce(excluded.content_type, papermark_dataroom_documents.content_type),
+            last_seen_at = now(),
+            is_present = true,
+            removed_at = null,
+            updated_at = now()
+        `
+      }
+    } catch {}
+
+    if (eventId) await markProcessed(eventId, eventType)
+  })
+
+  return NextResponse.json({ ok: true, accepted: 1 })
+}
+
+// ---------------------------------------------------------------------------
+// Download events
+// ---------------------------------------------------------------------------
+
+function handleDownloadEvent(payload: unknown, eventId: string | null) {
+  after(async () => {
+    if (eventId) {
+      const alreadyProcessed = await checkIdempotency(eventId)
+      if (alreadyProcessed) return
+    }
+
+    try {
+      const data = readData(payload)
+      const viewId = str(data.view_id ?? data.viewId ?? data.id)
+      const linkId = str(data.link_id ?? data.linkId)
+      const downloadedAt = str(data.downloaded_at ?? data.downloadedAt)
+
+      if (!viewId) return
+
+      const sql = getSql()
+
+      await sql`
+        update document_views set downloaded = true
+        where papermark_view_id = ${viewId}
+      `
+
+      if (linkId) {
+        const linkRows = (await sql`
+          select subscriber_id, briefing_request_id
+          from papermark_dataroom_links
+          where papermark_link_id = ${linkId} limit 1
+        `) as { subscriber_id: string | null; briefing_request_id: string | null }[]
+
+        const link = linkRows[0]
+        if (link && (link.subscriber_id || link.briefing_request_id)) {
+          await sql`
+            insert into client_engagement_events
+              (subscriber_id, briefing_request_id, event_type, webhook_event_id, occurred_at)
+            values (
+              ${link.subscriber_id}::uuid, ${link.briefing_request_id}::uuid,
+              'document_downloaded', ${'dl-' + viewId},
+              coalesce(${downloadedAt}::timestamptz, now())
+            )
+            on conflict (webhook_event_id) where webhook_event_id is not null do nothing
+          `
+        }
+      }
+    } catch {}
+
+    if (eventId) await markProcessed(eventId, 'link.downloaded')
+  })
+
+  return NextResponse.json({ ok: true, accepted: 1 })
+}
+
+// ---------------------------------------------------------------------------
+// Link lifecycle events
+// ---------------------------------------------------------------------------
+
+function handleLinkEvent(payload: unknown, eventType: string, eventId: string | null) {
+  after(async () => {
+    if (eventId) {
+      const alreadyProcessed = await checkIdempotency(eventId)
+      if (alreadyProcessed) return
+    }
+
+    try {
+      const data = readData(payload)
+      const linkId = str(data.link_id ?? data.linkId ?? data.id)
+      if (!linkId) return
+
+      const sql = getSql()
+
+      const expiresAt = str(data.expires_at ?? data.expiresAt)
+      const allowDownload = data.allow_download === true || data.allowDownload === true
+
+      await sql`
+        update papermark_dataroom_links set
+          expires_at = coalesce(${expiresAt}::timestamptz, expires_at),
+          allow_download = ${allowDownload},
+          last_synced_at = now(),
+          updated_at = now()
+        where papermark_link_id = ${linkId}
+      `
+    } catch {}
+
+    if (eventId) await markProcessed(eventId, eventType)
+  })
+
+  return NextResponse.json({ ok: true, accepted: 1 })
+}
+
+// ---------------------------------------------------------------------------
+// Idempotency via papermark_webhook_events
+// ---------------------------------------------------------------------------
+
+async function checkIdempotency(eventId: string): Promise<boolean> {
+  try {
+    const sql = getSql()
+    const rows = await sql`
+      select 1 from papermark_webhook_events where event_id = ${eventId} limit 1
+    `
+    return rows.length > 0
+  } catch {
+    return false
+  }
+}
+
+async function markProcessed(eventId: string, eventType: string): Promise<void> {
+  try {
+    const sql = getSql()
+    await sql`
+      insert into papermark_webhook_events (event_id, event_type, processed_at, outcome)
+      values (${eventId}, ${eventType}, now(), 'processed')
+      on conflict (event_id) do update set processed_at = now(), outcome = 'processed'
+    `
+  } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Signature verification
+// ---------------------------------------------------------------------------
+
 function verifySignature(body: string, header: string, secret: string): boolean {
   if (!header) return false
 
@@ -98,28 +295,39 @@ function verifySignature(body: string, header: string, secret: string): boolean 
   return timingSafeEqual(a, b)
 }
 
-/**
- * Narrows an untrusted payload to the view events we store.
- *
- * Handles a single event, a `data` wrapper, and a batch under `events` or
- * `data`, because the exact envelope is not confirmed until the secret is live.
- * Field names follow Papermark's documented View object -- id, link_id,
- * document_id, viewer_email, viewed_at, downloaded_at -- with snake_case and
- * camelCase both accepted.
- */
-function readEvents(payload: unknown): IncomingView[] {
+// ---------------------------------------------------------------------------
+// Payload parsing
+// ---------------------------------------------------------------------------
+
+function readEventType(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null
+  const root = payload as Record<string, unknown>
+  return str(root.type ?? root.event ?? root.event_type)
+}
+
+function readEventId(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null
+  const root = payload as Record<string, unknown>
+  return str(root.event_id ?? root.eventId ?? root.webhook_id ?? root.id)
+}
+
+function readData(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object') return {}
+  const root = payload as Record<string, unknown>
+  if (root.data && typeof root.data === 'object' && !Array.isArray(root.data)) {
+    return root.data as Record<string, unknown>
+  }
+  return root
+}
+
+function readViewEvents(payload: unknown): IncomingView[] {
   if (!payload || typeof payload !== 'object') return []
   const root = payload as Record<string, unknown>
-
-  const type = str(root.type ?? root.event)
-  // Only view events are stored. A link created or a document updated is not an
-  // open and must not count as engagement.
-  if (type && !/view/i.test(type)) return []
 
   const batch = arr(root.events) ?? arr(root.data)
   if (batch) {
     return batch
-      .map((item) => readOne(item))
+      .map((item) => readOneView(item))
       .filter((v): v is IncomingView => v !== null)
   }
 
@@ -128,16 +336,14 @@ function readEvents(payload: unknown): IncomingView[] {
       ? (root.data as Record<string, unknown>)
       : root
 
-  const one = readOne(single)
+  const one = readOneView(single)
   return one ? [one] : []
 }
 
-function readOne(value: unknown): IncomingView | null {
+function readOneView(value: unknown): IncomingView | null {
   if (!value || typeof value !== 'object') return null
   const d = value as Record<string, unknown>
 
-  // Without an id the row cannot be deduplicated, so it is dropped rather than
-  // stored under a fabricated key.
   const papermarkViewId = str(d.id ?? d.view_id ?? d.viewId)
   if (!papermarkViewId) return null
 
@@ -162,7 +368,6 @@ function str(value: unknown): string | null {
     : null
 }
 
-/** Seconds may arrive as milliseconds-precision floats; stored as whole seconds. */
 function num(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
   return Math.round(value)
