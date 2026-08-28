@@ -28,6 +28,8 @@ import {
   seatsForPublicTier,
 } from "@/lib/entitlements"
 import type { FormState } from "@/lib/definitions"
+import PapermarkFolderSelector from "@/components/PapermarkFolderSelector"
+import type { PapermarkFolder } from "@/lib/papermark"
 
 export type SubscriberDraft = {
   id: string | null
@@ -45,6 +47,7 @@ export type SubscriberDraft = {
   invoiceRef: string
   libraryLinkUrl: string
   note: string
+  papermarkFolderId: string
 }
 
 const field =
@@ -52,6 +55,7 @@ const field =
 const label =
   "block text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2"
 
+export default function SubscriberForm({ draft, folders = [], folderError }: { draft: SubscriberDraft; folders?: PapermarkFolder[]; folderError?: string }) {
 export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
   const router = useRouter()
   const action = saveSubscriber.bind(null, draft.id)
@@ -246,6 +250,11 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
       </div>
 
       <div className="pt-6 border-t border-border">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
+          Library link
+        </h3>
+
+        {draft.id && <div className="mb-6"><PapermarkFolderSelector kind="subscriber" id={draft.id} value={draft.papermarkFolderId} folders={folders} error={folderError} /></div>}
         <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">Library link</h3>
         <div>
           <label htmlFor="libraryLinkUrl" className={label}>

@@ -113,6 +113,31 @@ const optionalIsoDate = z
       error: "Use a valid date in YYYY-MM-DD format.",
     }),
   ])
+  ])
+  .default("")
+
+const optionalIsoDate = z
+  .union([
+    z.literal(""),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
+      error: "Use a valid date in YYYY-MM-DD format.",
+    }),
+  ])
+  .refine((value) => value === "" || isRealIsoDate(value), {
+    error: "Enter a real calendar date.",
+  })
+
+const SubscriberAdminSchema = z.object({
+  ])
+  .default("")
+
+const optionalIsoDate = z
+  .union([
+    z.literal(""),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, {
+      error: "Use a valid date in YYYY-MM-DD format.",
+    }),
+  ])
   .refine((value) => value === "" || isRealIsoDate(value), {
     error: "Enter a real calendar date.",
   })
@@ -138,6 +163,9 @@ const SubscriberAdminSchema = z.object({
   seats: z.coerce.number().int().min(1).max(500).default(1),
   termStart: optionalIsoDate.default(""),
   termEnd: optionalIsoDate.default(""),
+  invoiceRef: z.string().trim().max(120).default(""),
+  libraryLinkUrl: httpsOrBlank,
+  papermarkFolderId: z.string().trim().max(200).default(""),
   seats: z.coerce.number().int().min(1).max(500).default(1),
   termStart: optionalIsoDate.default(""),
   termEnd: optionalIsoDate.default(""),
@@ -169,6 +197,9 @@ export async function saveSubscriber(
     seats: formData.get("seats") ?? 1,
     termStart: formData.get("termStart") ?? "",
     termEnd: formData.get("termEnd") ?? "",
+    invoiceRef: formData.get("invoiceRef") ?? "",
+    libraryLinkUrl: normalisePapermarkUrl(String(formData.get("libraryLinkUrl") ?? "")),
+    papermarkFolderId: formData.get("papermarkFolderId") ?? "",
     level: formData.get("level") ?? "",
     seats: formData.get("seats") ?? 1,
     termStart: formData.get("termStart") ?? "",
@@ -192,6 +223,20 @@ export async function saveSubscriber(
       },
     }
   }
+  const termStart = d.termStart || null
+  const termEnd = d.termEnd || null
+  let sql: ReturnType<typeof getSql>
+  try {
+    sql = getSql()
+  } catch {
+    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
+  const termStart = d.termStart || null
+  const termEnd = d.termEnd || null
+  let sql: ReturnType<typeof getSql>
+  try {
+    sql = getSql()
+  } catch {
+    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
   const termStart = d.termStart || null
   const termEnd = d.termEnd || null
   let sql: ReturnType<typeof getSql>
@@ -254,6 +299,24 @@ export async function saveSubscriber(
         }
       }
     }
+    if (d.papermarkFolderId) {
+      const folderDuplicates = await sql`
+        select 1 from subscribers where papermark_folder_id=${d.papermarkFolderId}
+          and lower(status)='active' and (${id}::uuid is null or id<>${id}::uuid)
+        union all
+        select 1 from briefing_requests where papermark_folder_id=${d.papermarkFolderId}
+          and lower(status)='active' limit 1`
+      if (folderDuplicates.length) return { message:"That private Papermark folder is assigned to another active client." }
+    }
+    if (id) {
+      const before = (await sql`
+        select level from subscribers where id = ${id} limit 1
+      `) as { level: string | null }[]
+      previousLevel = before[0]?.level ?? null
+    }
+
+    if (id) {
+      const updated = await sql`
     if (id) {
       const before = (await sql`
         select level from subscribers where id = ${id} limit 1
@@ -275,6 +338,7 @@ export async function saveSubscriber(
           invoice_ref = ${d.invoiceRef},
           library_link_updated_at = case when library_link_url is distinct from ${d.libraryLinkUrl || null} then now() else library_link_updated_at end,
           library_link_url = ${d.libraryLinkUrl || null},
+          papermark_folder_id = ${d.papermarkFolderId || null},
           note = ${d.note}, updated_at = now()
         where id = ${id}
         returning id
@@ -286,12 +350,15 @@ export async function saveSubscriber(
         insert into subscribers (
           full_name, name, organization, role_title, email, phone,
           client_type, public_tier, subscription_level, level, seats,
+          term_start, term_end, status, invoice_ref, library_link_url, papermark_folder_id, library_link_updated_at, note
           term_start, term_end, status, invoice_ref, library_link_url, library_link_updated_at, note
         ) values (
           ${d.fullName}, ${d.fullName}, ${d.organisation}, ${d.roleTitle},
           ${d.email}, ${d.phone}, 'subscriber',
           ${d.publicTier}, ${d.publicTier},
           ${level}, ${seats}, ${termStart}::date, ${termEnd}::date,
+          'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null}, ${d.papermarkFolderId || null},
+          ${d.libraryLinkUrl ? new Date() : null}, ${d.note}
           'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null},
           ${d.libraryLinkUrl ? new Date() : null}, ${d.note}
           'pending', ${d.invoiceRef}, ${d.libraryLinkUrl || null}, ${d.note}
@@ -375,6 +442,11 @@ export async function activateSubscriber(id: string): Promise<FormState> {
     term_end: string | null
     status: string
     library_link_url: string | null
+    papermark_folder_id: string | null
+  }[]
+  try {
+    rows = (await sql`
+      select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url, papermark_folder_id
   }[]
   try {
     rows = (await sql`
@@ -399,17 +471,25 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   if (!row.term_end) {
     return { message: "Set a term end date before activating this seat." }
   }
+  if (!row.library_link_url && !row.papermark_folder_id) {
   if (!row.library_link_url) {
     return {
       message:
         "Set the subscriber's unique private Papermark library link before activating.",
     }
   }
+  if (row.library_link_url && !papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
   if (!papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return { message: "Replace the private library link with a valid Papermark share link before activating." }
   }
   let duplicates: unknown[]
   try {
+    if (row.papermark_folder_id) {
+      const folderDuplicates = await sql`
+        select 1 from subscribers where papermark_folder_id=${row.papermark_folder_id} and id<>${id} and lower(status)='active'
+        union all select 1 from briefing_requests where papermark_folder_id=${row.papermark_folder_id} and lower(status)='active' limit 1`
+      if (folderDuplicates.length) return { message:"That private folder is assigned to another active client." }
+    }
     duplicates = await sql`
       select 1 from subscribers
       where library_link_url = ${row.library_link_url} and id <> ${id}

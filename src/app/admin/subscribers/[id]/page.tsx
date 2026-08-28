@@ -6,6 +6,7 @@ import { getReachMonths } from "@/lib/provisioning"
 import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
 import SeatActions from "../seat-actions"
 import PapermarkConnectionPanel from "@/components/PapermarkConnectionPanel"
+import { getAssignableFolders } from "@/app/actions/papermark-client-library"
 
 export const dynamic = "force-dynamic"
 
@@ -26,6 +27,7 @@ const BLANK: SubscriberDraft = {
   invoiceRef: "",
   libraryLinkUrl: "",
   note: "",
+  papermarkFolderId: "",
 }
 
 type Row = {
@@ -48,6 +50,7 @@ type Row = {
   last_viewed_at: string | null
   updated_at: string | null
   library_link_updated_at: string | null
+  papermark_folder_id: string | null
   client_type: string
 }
 
@@ -89,6 +92,7 @@ export default async function EditSubscriberPage({
   const rows = (await sql`
     select s.id, s.full_name, s.name, s.organization, s.role_title, s.email, s.phone,
            s.public_tier, s.level, s.seats, s.term_start, s.term_end, s.status,
+           s.invoice_ref, s.library_link_url, s.papermark_folder_id, s.note, s.last_viewed_at, s.updated_at, s.library_link_updated_at,
            s.invoice_ref, s.library_link_url, s.note, s.last_viewed_at, s.updated_at, s.library_link_updated_at,
           s.invoice_ref, s.library_link_url, s.note, s.last_viewed_at, s.client_type,
            (select count(*)::int from publication_access pa
@@ -124,7 +128,10 @@ export default async function EditSubscriberPage({
     invoiceRef: row.invoice_ref,
     libraryLinkUrl: row.library_link_url ?? "",
     note: row.note,
+    papermarkFolderId: row.papermark_folder_id ?? "",
   }
+
+  const folderResult = await getAssignableFolders("subscriber")
 
   const status = row.status.toLowerCase()
 
@@ -149,6 +156,7 @@ export default async function EditSubscriberPage({
           status={status}
           hasLevel={Boolean(row.public_tier && row.level)}
           hasTermEnd={Boolean(row.term_end)}
+          hasLibraryLink={Boolean(row.library_link_url || row.papermark_folder_id)}
           hasLibraryLink={Boolean(row.library_link_url)}
           liveLinks={Number(row.live_links ?? 0)}
         />
@@ -163,6 +171,7 @@ export default async function EditSubscriberPage({
         </p>
       </div>
 
+      <SubscriberForm draft={draft} folders={folderResult.folders} folderError={folderResult.error} />
       <SubscriberForm draft={draft} />
       <PapermarkConnectionPanel link={row.library_link_url} updatedAt={row.library_link_updated_at} />
     </AdminShell>

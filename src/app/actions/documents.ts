@@ -10,7 +10,7 @@ const STATUSES = ['draft', 'published', 'archived'] as const
 type Status = (typeof STATUSES)[number]
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-function refresh() {
+function refreshDocumentAdminPaths() {
   revalidatePath('/admin/documents')
   revalidatePath('/admin')
 
@@ -83,7 +83,7 @@ export async function setDocumentStatus(
     `
   }
 
-  refresh()
+  refreshDocumentAdminPaths()
   return { ok: true, message: `Publication set to ${next}.` }
 }
 
@@ -96,6 +96,7 @@ export async function deleteDocument(id: string): Promise<FormState> {
   // associations. No Papermark API is called, so its original and link remain.
   const rows = await sql`delete from documents where id=${id} returning id`
   if (!rows[0]) return { message: 'That publication no longer exists.' }
+  refreshDocumentAdminPaths()
   refresh()
   return { ok:true, message:'Publication deleted from APRI. The Papermark original was not changed.' }
 }
@@ -185,7 +186,7 @@ export async function saveDocument(
     return { message: 'That web address (slug) is already in use.' }
   }
 
-  refresh()
+  refreshDocumentAdminPaths()
   return { ok: true, message: 'Saved.' }
 }
 

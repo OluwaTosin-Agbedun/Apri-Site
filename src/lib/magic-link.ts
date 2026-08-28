@@ -178,6 +178,7 @@ export async function signInWithToken(token: string): Promise<SignInResult> {
     const rows = (await sql`
       select id from briefing_requests
       where id = ${principal.id} and status = 'Active'
+        and (coalesce(private_link_url,'') <> '' or papermark_folder_id is not null)
         and private_link_url is not null and private_link_url <> ''
       limit 1
     `) as { id: string }[]

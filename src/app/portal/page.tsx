@@ -11,6 +11,7 @@ import SiteFooter from "@/components/SiteFooter"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import { subscriberLibraryEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
+import { getSyncedClientDocuments, type SyncedClientDocument } from "@/lib/papermark-client-library"
 
 export const dynamic = "force-dynamic"
 
@@ -37,6 +38,7 @@ export default async function PortalPage() {
   }
 
   const library = await getLibraryFor(subscriber)
+  const privateDocuments = await getSyncedClientDocuments(subscriber)
   await touchLastViewed(subscriber.id)
 
   const grouped = groupBySeries(library)
@@ -70,6 +72,7 @@ export default async function PortalPage() {
               } available.`}
         </p>
 
+        {privateDocuments.length > 0 ? <PrivateDocumentLibrary documents={privateDocuments} /> : embedUrl ? (
         {embedUrl ? (
           <section className="mb-10" aria-labelledby="private-library-heading">
             <h2 id="private-library-heading" className="sr-only">
@@ -137,6 +140,7 @@ export default async function PortalPage() {
   )
 }
 
+async function BriefingPortal({
 function BriefingPortal({
   client,
 }: {
@@ -144,6 +148,7 @@ function BriefingPortal({
     type: "briefing"
   }>
 }) {
+  const privateDocuments = await getSyncedClientDocuments(client)
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <PortalHeader
@@ -159,6 +164,11 @@ function BriefingPortal({
         <p className="text-sm text-foreground/60 mb-8">
           This link is unique to you. Please do not share it.
         </p>
+        {client.hasAccess && privateDocuments.length > 0 ? (
+          <PrivateDocumentLibrary documents={privateDocuments} />
+        ) : client.hasAccess ? (
+          <a
+            href="/portal/open-private"
         {client.hasAccess ? (
           <a
             href="/portal/open-private"
@@ -178,6 +188,14 @@ function BriefingPortal({
       </main>
     </div>
   )
+}
+
+function PrivateDocumentLibrary({documents}:{documents:SyncedClientDocument[]}) {
+  return <section className="space-y-3" aria-label="Private Papermark library">
+    {documents.map(document => <a key={document.id} href={document.shareUrl} target="_blank" rel="noreferrer" className="block border border-border bg-card/30 p-5 hover:border-accent transition-colors">
+      <span className="font-serif text-lg">{document.title}</span><span className="float-right text-accent" aria-hidden>&rarr;</span>
+    </a>)}
+  </section>
 }
 
 // ---------------------------------------------------------------------------

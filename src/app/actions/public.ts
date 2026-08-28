@@ -123,6 +123,9 @@ export async function requestAccess(
   if (typeof decoy === "string" && decoy.trim() !== "") return ACCEPTED
 
   const requestedTier = String(formData.get("subscriptionLevel") ?? "")
+  const submittedSeats = formData.get("seats")
+  const effectiveSeats = seatsForSubscriptionRequest(requestedTier, submittedSeats)
+  if (effectiveSeats === null) {
   const enforcedSeats = seatsForSubscriptionRequest(requestedTier, formData.get("seats"))
   if (enforcedSeats === null) {
     return {
@@ -142,6 +145,7 @@ export async function requestAccess(
     email: formData.get("email"),
     phone: formData.get("phone"),
     roleTitle: formData.get("roleTitle") ?? "",
+    seats: effectiveSeats,
     seats: enforcedSeats,
     subscriptionLevel: requestedTier,
     note: formData.get("note") ?? "",
@@ -181,7 +185,7 @@ export async function requestAccess(
         terms_accepted_at
       ) values (
         ${name}, ${name}, ${organization}, ${email}, ${phone}, ${roleTitle},
-        ${subscriptionLevel}, ${subscriptionLevel}, ${level}, ${seats}, ${note}, 'Pending',
+        ${subscriptionLevel}, ${subscriptionLevel}, ${level}, ${effectiveSeats}, ${note}, 'Pending',
         now()
       )
     `
@@ -197,6 +201,7 @@ export async function requestAccess(
         subscription_level = ${subscriptionLevel},
         public_tier = ${subscriptionLevel},
         level = ${level},
+        seats = ${effectiveSeats},
         seats = ${seats},
         note = ${note},
         status = 'Pending',
@@ -216,6 +221,7 @@ export async function requestAccess(
         email,
         phone,
         roleTitle,
+        seats: effectiveSeats,
         seats,
         subscriptionLevel,
         note,

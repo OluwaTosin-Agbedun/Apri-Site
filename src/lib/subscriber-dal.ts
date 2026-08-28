@@ -33,6 +33,7 @@ export type CurrentSubscriber = {
   termEnd: string | null
   status: string
   libraryLinkUrl: string | null
+  papermarkFolderId: string | null
   /** True when status is active and the term has not run out. */
   hasAccess: boolean
 }
@@ -49,6 +50,7 @@ type SubscriberRow = {
   term_end: string | null
   status: string
   library_link_url: string | null
+  papermark_folder_id: string | null
 }
 
 function toSubscriber(row: SubscriberRow): CurrentSubscriber {
@@ -72,6 +74,7 @@ function toSubscriber(row: SubscriberRow): CurrentSubscriber {
     termEnd,
     status,
     libraryLinkUrl: row.library_link_url,
+    papermarkFolderId: row.papermark_folder_id,
     hasAccess: status === "active" && termCurrent,
   }
 }
@@ -98,7 +101,7 @@ export const getCurrentSubscriber = cache(
     if (session.principalType !== "subscriber") return null
     const rows = (await sql`
       select id, full_name, name, organization, email, role_title,
-             level, public_tier, term_end, status, library_link_url
+             level, public_tier, term_end, status, library_link_url, papermark_folder_id
       from subscribers
       where id = ${session.principalId}
       limit 1
@@ -116,6 +119,7 @@ export type CurrentBriefingClient = {
   organisation: string
   email: string
   privateLinkUrl: string
+  papermarkFolderId: string | null
   hasAccess: boolean
 }
 
@@ -129,6 +133,7 @@ export async function requirePortalPrincipal(): Promise<CurrentSubscriber | Curr
   }
   const sql = getSql()
   const rows = (await sql`
+    select id, name, organization, email, status, private_link_url, papermark_folder_id
     select id, name, organization, email, status, private_link_url
     from briefing_requests where id = ${session.principalId} limit 1
   `) as {
@@ -138,6 +143,7 @@ export async function requirePortalPrincipal(): Promise<CurrentSubscriber | Curr
     email: string
     status: string
     private_link_url: string | null
+    papermark_folder_id: string | null
   }[]
   const row = rows[0]
   if (!row) redirect("/portal/sign-in")
@@ -148,6 +154,8 @@ export async function requirePortalPrincipal(): Promise<CurrentSubscriber | Curr
     organisation: row.organization,
     email: row.email,
     privateLinkUrl: row.private_link_url ?? "",
+    papermarkFolderId: row.papermark_folder_id,
+    hasAccess: row.status === "Active" && Boolean(row.private_link_url || row.papermark_folder_id),
     hasAccess: row.status === "Active" && Boolean(row.private_link_url),
   }
 }

@@ -28,6 +28,7 @@ const Schema = z.object({
       .max(500)
       .pipe(z.url({ protocol: /^https$/, error: "Must be an https:// URL." })),
   ]),
+  papermarkFolderId: z.string().trim().max(200).default(""),
 })
 
 export async function saveBriefing(
@@ -77,6 +78,14 @@ export async function saveBriefing(
         }
       }
     }
+    if (d.papermarkFolderId) {
+      const folderDuplicates = await sql`
+        select 1 from briefing_requests where papermark_folder_id=${d.papermarkFolderId}
+          and id<>${id} and lower(status)='active'
+        union all select 1 from subscribers where papermark_folder_id=${d.papermarkFolderId}
+          and lower(status)='active' limit 1`
+      if (folderDuplicates.length) return { message:"That private Papermark folder is assigned to another active client." }
+    }
     const rows =
       await sql`update briefing_requests set name=${d.name}, organization=${d.organization},
       email=${d.email}, phone=${d.phone}, role_title=${d.roleTitle},
@@ -84,6 +93,7 @@ export async function saveBriefing(
       sector=${d.sector}, description=${d.description}, audience_size=${d.audienceSize},
       location=${d.location},
       private_link_updated_at=case when private_link_url is distinct from ${d.privateLinkUrl || null} then now() else private_link_updated_at end,
+      private_link_url=${d.privateLinkUrl || null}, papermark_folder_id=${d.papermarkFolderId || null}, updated_at=now()
       private_link_url=${d.privateLinkUrl || null}, updated_at=now()
       where id=${id} returning id`
     if (!rows[0]) return { message: "That briefing request no longer exists." }
@@ -143,17 +153,31 @@ export async function activateBriefing(id: string): Promise<FormState> {
       name: string
       email: string
       private_link_url: string | null
+      papermark_folder_id: string | null
     }[]
   try {
     if (!(await briefingPortalSchemaReady(sql))) {
       return { message: "The briefing portal database setup is incomplete. Contact the site administrator." }
     }
+    rows = (await sql`select id,name,email,private_link_url,papermark_folder_id from briefing_requests where id=${id} limit 1`) as typeof rows
     rows = (await sql`select id,name,email,private_link_url from briefing_requests where id=${id} limit 1`) as typeof rows
   } catch {
     return { message: "The briefing request could not be loaded for activation. Please try again." }
   }
   const row = rows[0]
   if (!row) return { message: "That briefing request no longer exists." }
+  if (!row.private_link_url && !row.papermark_folder_id)
+    return { message: "Set the private briefing link before activating." }
+  if (row.private_link_url && !papermarkEmbedUrl(row.private_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN))
+    return { message: "Replace the private briefing link with a valid Papermark share link before activating." }
+  let duplicates: unknown[]
+  try {
+    if (row.papermark_folder_id) {
+      const folderDuplicates = await sql`
+        select 1 from briefing_requests where papermark_folder_id=${row.papermark_folder_id} and id<>${id} and lower(status)='active'
+        union all select 1 from subscribers where papermark_folder_id=${row.papermark_folder_id} and lower(status)='active' limit 1`
+      if (folderDuplicates.length) return { message:"That private folder is assigned to another active client." }
+    }
   if (!row.private_link_url)
     return { message: "Set the private briefing link before activating." }
   if (!papermarkEmbedUrl(row.private_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN))
@@ -217,6 +241,7 @@ export async function resendBriefingSignInLink(id: string): Promise<FormState> {
   if (!UUID.test(id)) return { message: "Unknown briefing request." }
   let sql: ReturnType<typeof getSql>
   let rows: {
+      id:string; name:string; email:string; status:string; private_link_url:string|null; papermark_folder_id:string|null
       id:string; name:string; email:string; status:string; private_link_url:string|null
     }[]
   try {
@@ -224,11 +249,14 @@ export async function resendBriefingSignInLink(id: string): Promise<FormState> {
     if (!(await briefingPortalSchemaReady(sql))) {
       return { message: "The briefing portal database setup is incomplete. Contact the site administrator." }
     }
+    rows = (await sql`select id,name,email,status,private_link_url,papermark_folder_id
     rows = (await sql`select id,name,email,status,private_link_url
       from briefing_requests where id=${id} limit 1`) as typeof rows
   } catch {
     return { message: "The briefing sign-in link could not be prepared. Please try again." }
   }
+  const row = rows[0]
+  if (!row || row.status !== "Active" || (!row.private_link_url && !row.papermark_folder_id)) {
   const sql = getSql()
   if (!(await briefingPortalSchemaReady(sql))) {
     return { message: "Apply the briefing portal migration before sending sign-in." }

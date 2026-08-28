@@ -29,6 +29,7 @@ export type PapermarkFolder = {
   id: string
   name: string
   parent_id?: string | null
+  parentId?: string | null
   path?: string
 }
 
@@ -154,6 +155,41 @@ export async function listDocumentsInFolder(
     'documents'
   )
   return items
+}
+
+/** Direct children of one configured root; never returns a team-wide folder list. */
+export async function listFoldersInRoot(rootFolderId: string): Promise<PapermarkFolder[]> {
+  const root = rootFolderId.trim()
+  if (!root) throw new PapermarkError('The Papermark root folder is not configured.')
+  const { items } = unwrap<PapermarkFolder>(
+    await call<unknown>(`/v1/folders?parent_id=${encodeURIComponent(root)}`),
+    'folders'
+  )
+  return items.filter((folder) => (folder.parent_id ?? folder.parentId ?? root) === root)
+}
+
+/** Reuse an exact-email protected link where possible, otherwise create one. */
+export async function ensurePrivateDocumentLink(args: {
+  documentId: string
+  email: string
+  name: string
+}): Promise<MintResult> {
+  const links = await listLinks(args.documentId)
+  for (const link of links) {
+    if (!link.id || link.isArchived) continue
+    const detail = await getLinkDetail(link.id)
+    const allow = detail.ok ? detail.link.allow_list ?? [] : []
+    if (detail.ok && detail.link.email_protected && allow.length === 1 &&
+        allow[0]?.toLowerCase() === args.email.toLowerCase()) {
+      const url = resolveShareUrl(link)
+      if (url) return { ok: true, url, linkId: link.id }
+    }
+  }
+  return mintSubscriberLink({
+    papermarkDocumentId: args.documentId,
+    subscriberEmail: args.email,
+    subscriberName: args.name,
+  })
 }
 
 /**
