@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { accessBadge, type Visibility } from '@/lib/entitlements'
+import { accessBadge, tierNameForVisibility, type Level, type Visibility } from '@/lib/entitlements'
 
 /**
  * The public-facing access gate for one publication.
@@ -10,9 +10,6 @@ import { accessBadge, type Visibility } from '@/lib/entitlements'
  * who viewed source. Only `open_link_url` -- the email-gated link an
  * administrator sets for a genuinely OPEN piece -- is ever emitted.
  */
-
-const PORTAL_ENABLED =
-  process.env.NEXT_PUBLIC_SUBSCRIBER_PORTAL_ENABLED === 'true'
 
 export function AccessBadge({ visibility }: { visibility: Visibility }) {
   const isOpen = visibility === 'OPEN'
@@ -43,13 +40,10 @@ export function AccessAction({
     className ??
     'inline-flex items-center bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors'
 
-  // OPEN: the email-gated Papermark link, and only if it is a real https
-  // address. A blank or malformed value falls through to the enquiry route
-  // rather than rendering a broken anchor.
   if (visibility === 'OPEN' && openLinkUrl?.startsWith('https://')) {
     return (
       <a href={openLinkUrl} target="_blank" rel="noreferrer" className={base}>
-        Read now
+        Access Open Edition
       </a>
     )
   }
@@ -57,16 +51,18 @@ export function AccessAction({
   if (visibility === 'OPEN') {
     return (
       <Link href="/access" className={base}>
-        Request access
+        Access Open Edition
       </Link>
     )
   }
 
-  // Paid. While the portal is hidden there is nowhere to sign in to, so the
-  // only offer is to enquire.
+  // Subscriber-only: always link to the access page with the minimum level
+  // preselected. The public card never links to the portal -- a visitor who
+  // is not yet a subscriber needs to request access, not see a sign-in wall.
+  const level = encodeURIComponent(tierNameForVisibility(visibility as Level))
   return (
-    <Link href={PORTAL_ENABLED ? '/portal' : '/access'} className={base}>
-      {PORTAL_ENABLED ? 'Open in your library' : 'Request access'}
+    <Link href={`/access?level=${level}#subscribe`} className={base}>
+      Request Access &rarr;
     </Link>
   )
 }

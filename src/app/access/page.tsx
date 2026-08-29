@@ -2,6 +2,7 @@ import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import AccessForm from '@/app/access-form'
 import { accessNotice, BRIEFINGS_SEPARATE_NOTICE } from '@/lib/delivery'
+import { TIER_DESCRIPTIONS, tierDisplayName } from '@/lib/entitlements'
 
 export const metadata = {
   title: 'Subscription Access · APRI',
@@ -20,32 +21,12 @@ export const metadata = {
  * buyer who read that would have expected one login to pass around.
  */
 const SUBSCRIPTION_LEVELS = [
-  {
-    title: 'Individual Access',
-    description:
-      'You receive every published intelligence note, briefing and update, issued to you by name for your own use.',
-  },
-  {
-    title: 'Professional Team Access',
-    description:
-      'The same publications as Individual Access, for a team. Each colleague is named separately and reads their own copy, so access is never shared or passed around.',
-  },
-  {
-    title: 'Political Monitor',
-    description:
-      'You receive the Political Landscape Monitor and the Athena Election Observatory assessments, which track Nigeria’s democratic, electoral and political landscape.',
-  },
-  {
-    title: 'Executive Intelligence',
-    description:
-      'You receive everything APRI publishes, including the Monthly Intelligence Note, the Quarterly Outlook and Intelligence Updates, and your briefing requests are treated as a priority.',
-  },
-  {
-    title: 'Board Intelligence Access',
-    description:
-      'Our most senior tier, written for boards and board risk committees. It includes every publication, priority access to bespoke briefings, and direct engagement with the intelligence team.',
-  },
-]
+  'Individual Access',
+  'Professional Team Access',
+  'Political Monitor',
+  'Executive Intelligence',
+  'Board Briefing',
+] as const
 
 /**
  * Read on the server and passed to the form as a prop, rather than read in the
@@ -65,7 +46,7 @@ export default async function AccessPage({
   const params = await searchParams
   const requested = Array.isArray(params.level) ? params.level[0] : params.level
   const defaultLevel =
-    requested && SUBSCRIPTION_LEVELS.some((l) => l.title === requested)
+    requested && SUBSCRIPTION_LEVELS.some((l) => tierDisplayName(l) === requested || l === requested)
       ? requested
       : ''
 
@@ -95,28 +76,31 @@ export default async function AccessPage({
             dropdown -- so the level travels with the click.
           */}
           <div className="space-y-6">
-            {SUBSCRIPTION_LEVELS.map((level, index) => (
-              <a
-                key={level.title}
-                href={`/access?level=${encodeURIComponent(level.title)}#subscribe`}
-                className="group panel-interactive block p-8 sm:p-10 lg:p-12"
-              >
-                <div className="flex items-baseline gap-4 mb-3">
-                  <span className="text-xs text-accent tabular-nums">
-                    {String(index + 1).padStart(2, '0')}
+            {SUBSCRIPTION_LEVELS.map((storedName, index) => {
+              const displayName = tierDisplayName(storedName)
+              return (
+                <a
+                  key={storedName}
+                  href={`/access?level=${encodeURIComponent(storedName)}#subscribe`}
+                  className="group panel-interactive block p-8 sm:p-10 lg:p-12"
+                >
+                  <div className="flex items-baseline gap-4 mb-3">
+                    <span className="text-xs text-accent tabular-nums">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <h3 className="font-serif text-xl text-foreground group-hover:text-accent transition-colors">
+                      {displayName}
+                    </h3>
+                  </div>
+                  <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl ml-8">
+                    {TIER_DESCRIPTIONS[storedName] ?? ''}
+                  </p>
+                  <span className="inline-flex items-center text-sm font-medium text-accent mt-6 ml-8 group-hover:translate-x-1 transition-transform">
+                    Request Access &rarr;
                   </span>
-                  <h3 className="font-serif text-xl text-foreground group-hover:text-accent transition-colors">
-                    {level.title}
-                  </h3>
-                </div>
-                <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl ml-8">
-                  {level.description}
-                </p>
-                <span className="inline-flex items-center text-sm font-medium text-accent mt-6 ml-8 group-hover:translate-x-1 transition-transform">
-                  Subscribe to {level.title} &rarr;
-                </span>
-              </a>
-            ))}
+                </a>
+              )
+            })}
           </div>
         </section>
 

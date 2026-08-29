@@ -53,7 +53,7 @@ export default async function AdminDocumentsPage() {
       admin={admin}
       current="/admin/documents"
       title="Publications"
-      description="Manage open public editions. Only Open items that you publish appear on the public Publications page."
+      description="Manage publications. Published items appear on the public Publications page — Open editions with a read link, subscriber-only items as metadata teasers."
       actions={
         <Link
           href="/admin/documents/new"

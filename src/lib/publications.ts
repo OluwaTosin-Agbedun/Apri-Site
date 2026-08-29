@@ -86,6 +86,19 @@ function toPublication(row: Row): Publication {
   }
 }
 
+/**
+ * Strip private URLs from publications for public consumption.
+ *
+ * Non-OPEN publications must never expose papermarkLink (the subscriber Data
+ * Room address) or openLinkUrl (meaningless for restricted content). This runs
+ * after toPublication so the admin-facing full object is never passed through
+ * by accident — public queries always call this.
+ */
+function toPublicPublication(pub: Publication): Publication {
+  if (pub.visibility === 'OPEN') return pub
+  return { ...pub, papermarkLink: '', openLinkUrl: null }
+}
+
 const SELECT_COLUMNS = `
   id, slug, section_label, kicker, title, strapline, product_line,
   description, frequency, audience, attribution, cta_label, cta_mode,
@@ -124,18 +137,18 @@ async function publicRead(
   }
 }
 
-/** Published publications, for the public site. */
+/** Published publications, for the public site. Both OPEN and subscriber-only. */
 export async function getPublishedPublications(): Promise<Publication[]> {
   const rows = await publicRead(async () => {
     const sql = getSql()
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
-       where is_published = true and status = 'published' and visibility = 'OPEN'
+       where is_published = true and status = 'published'
        order by sort_order asc, created_at desc`
     )) as Row[]
   }, 'published list')
 
-  return rows.map(toPublication)
+  return rows.map(toPublication).map(toPublicPublication)
 }
 
 /** Published OPEN editions, for the public Publications page. */
@@ -152,19 +165,19 @@ export async function getOpenPublications(): Promise<Publication[]> {
   return rows.map(toPublication)
 }
 
-/** Single publication by slug, for detail pages. */
+/** Single publication by slug, for detail pages. OPEN and subscriber-only. */
 export async function getPublicationBySlug(slug: string): Promise<Publication | null> {
   const rows = await publicRead(async () => {
     const sql = getSql()
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
-       where slug = $1 and is_published = true and status = 'published' and visibility = 'OPEN'
+       where slug = $1 and is_published = true and status = 'published'
        limit 1`,
       [slug]
     )) as Row[]
   }, 'lookup by slug')
 
-  return rows[0] ? toPublication(rows[0]) : null
+  return rows[0] ? toPublicPublication(toPublication(rows[0])) : null
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from 'react'
 import { requestAccess } from '@/app/actions/public'
-import { PUBLIC_TIER_NAMES } from '@/lib/entitlements'
+import { PUBLIC_TIER_NAMES, tierDisplayName } from '@/lib/entitlements'
 
 /**
  * The subscription enquiry form.
@@ -118,33 +118,6 @@ export default function AccessForm({
       </div>
 
       <div>
-        <label htmlFor="phone" className={labelClass}>
-          Phone
-        </label>
-        {/*
-          type=tel with inputMode=tel opens the numeric keypad on a phone. The
-          pattern is deliberately permissive -- it takes +234…, 0803… and spaced
-          or dashed forms -- because the server normalises to one shape, and a
-          strict pattern only rejects people who typed a real number.
-        */}
-        <input
-          id="phone"
-          name="phone"
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel"
-          pattern="[0-9+()\-.\s]{7,40}"
-          required
-          placeholder="+234 803 123 4567"
-          className={field}
-        />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Local or international format both work.
-        </p>
-        <Err messages={state?.errors?.phone} />
-      </div>
-
-      <div>
         <label htmlFor="organization" className={labelClass}>
           Organisation
         </label>
@@ -189,7 +162,7 @@ export default function AccessForm({
           <option value="">Select an access level</option>
           {PUBLIC_TIER_NAMES.map((level) => (
             <option key={level} value={level}>
-              {level}
+              {tierDisplayName(level)}
             </option>
           ))}
         </select>
@@ -223,14 +196,6 @@ export default function AccessForm({
           <Err messages={state?.errors?.seats} />
         </div>
       )}
-
-      <div>
-        <label htmlFor="note" className={labelClass}>
-          Anything we should know?
-        </label>
-        <input id="note" name="note" type="text" className={field} />
-        <Err messages={state?.errors?.note} />
-      </div>
 
       {/*
         Sits above the button and gates it. The links open in a new tab so a

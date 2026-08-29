@@ -24,9 +24,9 @@ const RANK: Record<Level, number> = { L1: 1, L2: 2, L3: 3, L4: 4 }
  * level; they differ only in how many named seats the organisation buys.
  */
 export const PUBLIC_TIERS = [
-  { name: 'Individual Access', level: 'L2', defaultSeats: 1 },
-  { name: 'Professional Team Access', level: 'L2', defaultSeats: 5 },
-  { name: 'Political Monitor', level: 'L1', defaultSeats: 1 },
+  { name: 'Individual Access', level: 'L1', defaultSeats: 1 },
+  { name: 'Professional Team Access', level: 'L1', defaultSeats: 5 },
+  { name: 'Political Monitor', level: 'L2', defaultSeats: 1 },
   { name: 'Executive Intelligence', level: 'L3', defaultSeats: 1 },
   { name: 'Board Briefing', level: 'L4', defaultSeats: 1 },
 ] as const satisfies readonly {
@@ -103,24 +103,24 @@ export function visibilitiesForLevel(level: Level): Level[] {
 // ---------------------------------------------------------------------------
 
 const LEVEL_NAMES: Record<Level, string> = {
-  L1: 'Political Monitor',
-  L2: 'Individual Access / Professional Team Access',
+  L1: 'Individual Access / Professional Team Access',
+  L2: 'Political Monitor',
   L3: 'Executive Intelligence',
-  L4: 'Board Intelligence Access',
+  L4: 'Board Intelligence',
 }
 
 /**
  * The single public name for a level, for "and above" phrasing.
  *
- * L2 resolves to Individual Access rather than naming both tiers: "Individual
+ * L1 resolves to Individual Access rather than naming both tiers: "Individual
  * Access and above" already includes Professional Team Access, and listing both
  * would read as two separate thresholds to someone deciding what to buy.
  */
 const LEVEL_BASE_NAMES: Record<Level, string> = {
-  L1: 'Political Monitor',
-  L2: 'Individual Access',
+  L1: 'Individual Access',
+  L2: 'Political Monitor',
   L3: 'Executive Intelligence',
-  L4: 'Board Intelligence Access',
+  L4: 'Board Intelligence',
 }
 
 /**
@@ -131,37 +131,50 @@ const LEVEL_BASE_NAMES: Record<Level, string> = {
  * value would break existing records and mappings, so the rename is display-only.
  */
 const TIER_DISPLAY_OVERRIDES: Record<string, string> = {
-  'Board Briefing': 'Board Intelligence Access',
+  'Board Briefing': 'Board Intelligence',
 }
 
 export function tierDisplayName(storedName: string): string {
   return TIER_DISPLAY_OVERRIDES[storedName] ?? storedName
 }
 
+export const TIER_DESCRIPTIONS: Record<string, string> = {
+  'Individual Access':
+    'Core APRI publications for one named reader.',
+  'Professional Team Access':
+    'The same core access for a small team of individually named readers.',
+  'Political Monitor':
+    'Organisational access to continuing political and regulatory monitoring, including the Monthly Intelligence Note, Political Landscape Monitor, Quarterly Outlook, Election Watch and relevant intelligence updates.',
+  'Executive Intelligence':
+    'Full APRI intelligence plus the executive layer, scheduled executive briefings and priority sector-specific intelligence access.',
+  'Board Briefing':
+    'Full APRI intelligence, priority bespoke analysis, direct engagement with the intelligence team and the annual Board Political & Regulatory Briefing.',
+}
+
 /**
- * The two L2 tiers are the same content at the same level; only the number of
+ * The two L1 tiers are the same content at the same level; only the number of
  * named seats separates them. Given a seat count we can say which one it is,
- * so a one-seat L2 is not mislabelled as a team.
+ * so a one-seat L1 is not mislabelled as a team.
  */
-const L2_SINGLE = 'Individual Access'
-const L2_TEAM = 'Professional Team Access'
+const L1_SINGLE = 'Individual Access'
+const L1_TEAM = 'Professional Team Access'
 
 /**
  * The name for a level, without its code.
  *
- * `seats` disambiguates L2: one seat is Individual Access, more than one is
+ * `seats` disambiguates L1: one seat is Individual Access, more than one is
  * Professional Team Access. Omit it where seats are unknown -- a publication's
  * minimum level, for instance -- and both names are shown.
  */
 export function levelName(level: Level, seats?: number | null): string {
-  if (level === 'L2' && typeof seats === 'number' && seats > 0) {
-    return seats === 1 ? L2_SINGLE : L2_TEAM
+  if (level === 'L1' && typeof seats === 'number' && seats > 0) {
+    return seats === 1 ? L1_SINGLE : L1_TEAM
   }
   return LEVEL_NAMES[level]
 }
 
 /**
- * The admin label: `L1 — Political Monitor`.
+ * The admin label: `L1 — Individual Access / Professional Team Access`.
  *
  * The code is kept alongside the name so the label stays unambiguous -- two of
  * the five public tier names share a level, and the code is what the database
@@ -203,7 +216,7 @@ export function visibilityBadge(visibility: Visibility): string {
  */
 export function minimumLevelLabel(visibility: Visibility): string {
   if (visibility === 'OPEN') return 'Open to all readers'
-  // Board Intelligence Access is the top level, so "and above" would name nothing further.
+  // Board Intelligence is the top level, so "and above" would name nothing further.
   if (visibility === 'L4') return LEVEL_BASE_NAMES.L4
   return `${LEVEL_BASE_NAMES[visibility]} and above`
 }
@@ -213,10 +226,19 @@ export function minimumLevelLabel(visibility: Visibility): string {
  * public tier a reader would recognise, never the internal level code.
  */
 export function accessBadge(visibility: Visibility): string {
-  if (visibility === 'OPEN') return 'Open — read now'
-  // Composed from minimumLevelLabel so the public badge and the tier naming
-  // cannot drift apart.
-  return `Subscribers — ${minimumLevelLabel(visibility)}`
+  if (visibility === 'OPEN') return 'Open Edition — verified email required'
+  return `Subscriber Access — ${minimumLevelLabel(visibility)}`
+}
+
+/**
+ * The stored tier name whose level matches a visibility code.
+ *
+ * Used to build the preselected `/access?level=` link on subscriber-only
+ * publication cards. Returns the single-seat tier for a given level so the
+ * access page opens at the right entry point.
+ */
+export function tierNameForVisibility(visibility: Level): string {
+  return PUBLIC_TIERS.find((t) => t.level === visibility && t.defaultSeats === 1)?.name ?? LEVEL_BASE_NAMES[visibility]
 }
 
 /** Human label for a publication series code. */

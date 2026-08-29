@@ -1,6 +1,6 @@
 import "server-only"
 import { Resend } from "resend"
-import { seriesLabel } from "./entitlements"
+import { seriesLabel, tierDisplayName } from "./entitlements"
 import { emailNotice } from "./delivery"
 import { APRI_PRODUCTION_URL, portalVerificationUrl } from "./app-url"
 import { recordClientEvent, type ClientPrincipal } from "./client-engagement"
@@ -140,7 +140,7 @@ export async function sendWelcome(args: {
       </p>
 
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin:0 0 24px;">
-        ${args.publicTier ? row("Subscription", args.publicTier) : ""}
+        ${args.publicTier ? row("Subscription", tierDisplayName(args.publicTier)) : ""}
         ${args.termEnd ? row("Access until", formatDate(args.termEnd)) : ""}
       </table>
 

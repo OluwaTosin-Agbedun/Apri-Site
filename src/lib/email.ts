@@ -1,5 +1,6 @@
 import "server-only"
 import { Resend } from "resend"
+import { tierDisplayName } from "./entitlements"
 
 let _resend: Resend | null = null
 
@@ -110,13 +111,13 @@ export async function sendAccessRequestNotification(d: {
 
           <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin-bottom:24px;">
             ${summaryRow("Email", d.email)}
-            ${summaryRow("Phone", d.phone)}
+            ${d.phone ? summaryRow("Phone", d.phone) : ""}
             ${summaryRow("Seats needed", seatLine)}
             ${
               d.subscriptionLevel
                 ? summaryRow(
                     "Level of interest",
-                    `${d.subscriptionLevel} (advisory)`,
+                    `${tierDisplayName(d.subscriptionLevel)} (advisory)`,
                   )
                 : ""
             }

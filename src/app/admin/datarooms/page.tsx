@@ -1,7 +1,7 @@
 import { requireOwner } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
 import { getLevelRoomMappings, getDataRoomStats } from "@/lib/dataroom-dal"
-import { PUBLIC_TIERS } from "@/lib/entitlements"
+import { PUBLIC_TIERS, tierDisplayName } from "@/lib/entitlements"
 import DataRoomMappingForm, { MappingActions } from "./dataroom-form"
 
 export const dynamic = "force-dynamic"
@@ -61,7 +61,7 @@ export default async function DataRoomsPage() {
             <tbody className="divide-y divide-border">
               {mappings.map((m) => (
                 <tr key={m.publicTier} className="hover:bg-black/5 transition-colors">
-                  <td className="p-4 font-medium text-foreground">{m.publicTier}</td>
+                  <td className="p-4 font-medium text-foreground">{tierDisplayName(m.publicTier)}</td>
                   <td className="p-4 text-foreground/70">{m.dataroomName || m.dataroomId}</td>
                   <td className="p-4 text-foreground/70">
                     {m.lastSyncedAt

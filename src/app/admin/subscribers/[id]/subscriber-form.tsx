@@ -26,6 +26,7 @@ import { saveSubscriber } from "@/app/actions/subscribers"
 import {
   PUBLIC_TIERS,
   seatsForPublicTier,
+  tierDisplayName,
 } from "@/lib/entitlements"
 import type { FormState } from "@/lib/definitions"
 
@@ -188,7 +189,7 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
               <option value="">Not set</option>
               {PUBLIC_TIERS.map((t) => (
                 <option key={t.name} value={t.name}>
-                  {t.name}
+                  {tierDisplayName(t.name)}
                 </option>
               ))}
             </select>

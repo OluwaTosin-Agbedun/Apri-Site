@@ -143,11 +143,7 @@ export default async function HomePage() {
             </p>
           </div>
 
-          {documents.length === 0 ? (
-            <p className="text-sm text-muted-foreground border border-border bg-card/30 p-8">
-              No publications are currently listed.
-            </p>
-          ) : (
+          {documents.length === 0 ? null : (
             <div className="space-y-16">
               {PUBLICATION_SECTIONS.map((section) => {
                 const items = documents.filter((doc) => doc.section === section)
@@ -179,10 +175,13 @@ export default async function HomePage() {
             </h2>
             <ul className="space-y-4 text-sm text-foreground/80">
               {[
-                'Political Power & Coalition Stability',
-                'Government & Regulatory Watch',
-                'Policy Implementation Tracker',
-                'State-Level Political & Operating Risk',
+                'Political Power & Coalition Dynamics',
+                'Executive & Legislative Watch',
+                'Government & Regulatory Intelligence',
+                'Policy Implementation & Institutional Behaviour',
+                'Sector Exposure & Operating Risk',
+                'State-Level Political Risk',
+                'Election & Transition Risk',
                 'Political Economy Outlook',
               ].map((item) => (
                 <li key={item} className="flex gap-3">
@@ -195,11 +194,11 @@ export default async function HomePage() {
 
           <section>
             <h2 className="font-serif text-xl sm:text-2xl text-foreground section-head mb-8 tracking-tight">
-              Designed For
+              Built for consequential decisions.
             </h2>
             <p className="text-sm text-foreground/80 leading-relaxed mb-8">
-              Boards, CEOs, strategy teams, risk officers, government relations teams,
-              investors and regulated businesses.
+              For boards and executives responsible for strategy, risk, investment,
+              government relations and regulated operations in Nigeria.
             </p>
             <Link
               href="/services"
@@ -209,6 +208,33 @@ export default async function HomePage() {
             </Link>
           </section>
         </div>
+
+        {/* The APRI Approach */}
+        <section className="mb-24 pt-16 border-t border-border">
+          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-4 tracking-tight">
+            The APRI Approach
+          </h2>
+          <p className="font-serif text-base sm:text-lg text-foreground/70 italic mb-8">
+            Signal. Interpretation. Implication.
+          </p>
+          <p className="text-sm text-foreground/80 leading-relaxed mb-10 max-w-4xl">
+            APRI distinguishes political noise from developments that can materially
+            affect regulation, capital allocation, market access and corporate strategy.
+            Our analysis combines political intelligence, regulatory monitoring,
+            institutional analysis and sector-specific assessment.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">What changed</h3>
+            </div>
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">Why it matters</h3>
+            </div>
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">What to watch</h3>
+            </div>
+          </div>
+        </section>
 
         {/* Subscription Access */}
         <section id="access" className="mb-24 pt-16 border-t border-border scroll-mt-28">

@@ -67,17 +67,7 @@ export const SubscriberSchema = z.object({
   name: z.string().trim().min(1, { error: 'Enter your full name.' }).max(160),
   organization: z.string().trim().min(1, { error: 'Enter your organisation.' }).max(200),
   email,
-  // Required, per the brief: a phone number is how we reach a board member
-  // within one business day.
-  // Accepts +234…, 0803… and 234… alike; normalised before storage.
-  phone: z
-    .string()
-    .trim()
-    .min(7, { error: 'Enter a phone number we can reach you on.' })
-    .max(40)
-    .refine((v) => (v.match(/\d/g) ?? []).length >= 7, {
-      error: 'That does not look like a phone number.',
-    }),
+  phone: z.string().trim().max(40).default(''),
   roleTitle: z
     .string()
     .trim()

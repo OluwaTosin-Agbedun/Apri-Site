@@ -123,14 +123,14 @@ test("subscriber DAL only returns subscribers, not briefing clients", () => {
   assert.match(dal, /export async function requirePortalPrincipal\(\): Promise<CurrentSubscriber>/)
 })
 
-test("Board Intelligence Access display name is applied", () => {
+test("Board Intelligence display name is applied", () => {
   const entitlements = read("src/lib/entitlements.ts")
-  assert.match(entitlements, /Board Intelligence Access/)
+  assert.match(entitlements, /'Board Briefing': 'Board Intelligence'/)
   assert.match(entitlements, /tierDisplayName/)
 
   const access = read("src/app/access/page.tsx")
-  assert.match(access, /Board Intelligence Access/)
-  assert.doesNotMatch(access, /title: 'Board Briefing'/)
+  assert.match(access, /tierDisplayName\(storedName\)/)
+  assert.match(access, /TIER_DESCRIPTIONS\[storedName\]/)
 })
 
 test("engagement page shows only subscriber metrics", () => {

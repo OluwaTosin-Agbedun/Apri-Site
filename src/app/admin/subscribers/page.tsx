@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { requireAdmin } from "@/lib/dal"
 import { getSql } from "@/lib/db"
+import { tierDisplayName } from "@/lib/entitlements"
 import AdminShell from "@/components/AdminShell"
 import SeatActions from "./seat-actions"
 
@@ -133,7 +134,7 @@ export default async function AdminSubscribersPage({ searchParams }: {
                       {sub.organization || "—"}
                     </td>
                     <td className="p-4 text-foreground/70">
-                      {sub.public_tier || "—"}
+                      {sub.public_tier ? tierDisplayName(sub.public_tier) : "—"}
                       {sub.seats > 1 && (
                         <span className="text-xs text-muted-foreground">
                           {" "}

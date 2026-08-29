@@ -271,8 +271,9 @@ function PortalFooter() {
   return (
     <div className="mt-8 pt-8 border-t border-border">
       <p className="text-xs text-muted-foreground leading-relaxed max-w-4xl">
-        Your access is personal to you and every view is logged. Documents are
-        licensed for your own use — please do not forward or redistribute them.
+        Your access is personal to you and every view is logged. APRI intelligence
+        is issued for the exclusive use of authorised readers and may not be
+        redistributed.
         Questions:{" "}
         <a
           href={`mailto:${CONTACT}`}

@@ -32,17 +32,19 @@ export default async function PublicationsPage() {
             Publications
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            Open APRI editions available to authorised readers. Papermark
-            verifies your email before a document opens.
+            APRI intelligence products. Open editions are available to verified
+            readers; subscriber-only publications are accessible through your
+            subscription.
           </p>
         </header>
 
         <div className="space-y-8">
-          {publications.length === 0 && (
-            <p className="border border-border bg-card/30 p-8 text-sm text-muted-foreground">
-              No open publications are currently available.
+          {publications.length === 0 ? (
+            <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl">
+              Publications will be listed here once available. For enquiries, contact us
+              or use <a href="/access" className="text-accent hover:text-accent-hover transition-colors">Request Access</a>.
             </p>
-          )}
+          ) : null}
           {publications.map((doc) => (
             <Link
               key={doc.id}

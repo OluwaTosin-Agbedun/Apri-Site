@@ -158,7 +158,7 @@ export async function requestAccess(
     name: formData.get("name"),
     organization: formData.get("organization"),
     email: formData.get("email"),
-    phone: formData.get("phone"),
+    phone: formData.get("phone") ?? "",
     roleTitle: formData.get("roleTitle") ?? "",
     seats: seatCount,
     subscriptionLevel: requestedTier,

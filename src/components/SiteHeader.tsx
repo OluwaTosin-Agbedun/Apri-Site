@@ -43,9 +43,9 @@ export default function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-hairline bg-background/90 backdrop-blur-md">
       <div className="max-w-5xl lg:max-w-6xl mx-auto px-6">
         <div className="flex items-center justify-between h-24">
-          <Link href="/" className="group" onClick={() => setIsOpen(false)}>
-            <span className="font-serif text-lg text-foreground tracking-tight">APRI</span>
-            <span className="hidden sm:inline text-xs text-muted-foreground ml-3 pl-3 border-l border-accent/40">
+          <Link href="/" className="group flex flex-col" onClick={() => setIsOpen(false)}>
+            <span className="font-serif text-lg text-foreground tracking-tight leading-none">APRI</span>
+            <span className="text-[10px] sm:text-xs text-muted-foreground tracking-wide leading-tight mt-0.5">
               Athena Political &amp; Regulatory Intelligence
             </span>
           </Link>

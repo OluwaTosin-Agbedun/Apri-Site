@@ -10,6 +10,7 @@ import {
   fetchAvailableDataRooms,
 } from "@/app/actions/datarooms"
 import type { FormState } from "@/lib/definitions"
+import { tierDisplayName } from "@/lib/entitlements"
 
 const field =
   "w-full border border-border bg-background p-3 text-sm focus:outline-none focus:border-accent"
@@ -61,7 +62,7 @@ export default function DataRoomMappingForm({
             <select name="publicTier" className={field} required>
               <option value="">Select a level</option>
               {unmappedTiers.map((tier) => (
-                <option key={tier} value={tier}>{tier}</option>
+                <option key={tier} value={tier}>{tierDisplayName(tier)}</option>
               ))}
             </select>
           </div>

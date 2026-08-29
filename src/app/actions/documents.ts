@@ -141,8 +141,12 @@ export async function saveDocument(
   // several un-coded drafts as duplicates of one another.
   const code = d.code || null
   const editionDate = d.editionDate || null
-  const openLinkUrl = d.openLinkUrl || null
   const pageCount = d.pageCount === '' ? null : d.pageCount
+
+  // A public link is only meaningful for OPEN editions. Silently clear it for
+  // restricted publications so a stale value from a visibility change cannot
+  // leak into the public site.
+  const openLinkUrl = d.visibility === 'OPEN' ? (d.openLinkUrl || null) : null
 
   try {
     if (id) {

@@ -47,8 +47,8 @@ export function accessNotice(): string {
   return (
     'Access is restricted to named individuals. Email verification is required ' +
     'before a document opens, every copy is individually identified to the ' +
-    'person it was issued to, and every view is logged. Documents are ' +
-    'view-only and must not be redistributed.'
+    'person it was issued to, and every view is logged. APRI intelligence is ' +
+    'issued for the exclusive use of authorised readers and may not be redistributed.'
   )
 }
 
@@ -60,7 +60,7 @@ export function accessNotice(): string {
  * included discovers otherwise at the worst moment.
  */
 export const BRIEFINGS_SEPARATE_NOTICE =
-  'Briefings are commissioned separately and are not part of a subscription.'
+  'Briefing entitlements vary by subscription level. Additional bespoke and in-person briefings may be commissioned separately.'
 
 /** The note at the foot of a subscriber's own library. */
 export function portalNotice(): string {
@@ -71,8 +71,8 @@ export function portalNotice(): string {
   return (
     watermark +
     'Your access is personal to you, verified by your email address, and every ' +
-    'view is logged. Documents are view-only and licensed for your own use — ' +
-    'please do not forward or redistribute them.'
+    'view is logged. APRI intelligence is issued for the exclusive use of ' +
+    'authorised readers and may not be redistributed.'
   )
 }
 
@@ -80,9 +80,9 @@ export function portalNotice(): string {
 export function emailNotice(): string {
   return WATERMARKING_ENABLED
     ? 'Issued to you as part of your APRI subscription and marked with your name. ' +
-        'Your access is personal, view-only and logged; please do not forward it.'
-    : 'Issued to you as part of your APRI subscription. Your access is personal to ' +
-        'you, view-only and logged; please do not forward or redistribute it.'
+        'APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed.'
+    : 'Issued to you as part of your APRI subscription. ' +
+        'APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed.'
 }
 
 /** A short label for the admin's delivery panel. */

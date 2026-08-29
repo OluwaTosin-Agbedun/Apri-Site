@@ -157,7 +157,7 @@ async function checkOne(row: {
   if (link.allow_download === true) {
     out.push({
       kind: 'downloads-enabled',
-      detail: 'Downloads are enabled on this link. All documents are view-only.',
+      detail: 'Downloads are enabled on this link.',
     })
   }
 
