@@ -14,6 +14,11 @@ import {
   updateDataRoomLink,
 } from './papermark-datarooms'
 import { watermarkText } from './papermark-dataroom-contract'
+import {
+  revokeAllDocumentLinks,
+  ensureAllDocumentLinks,
+  updateDocumentLinkExpiry,
+} from './document-links'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -80,6 +85,7 @@ export async function reassignDataRoomOnLevelChange(args: {
         changedByName: args.changedByName,
       })
     }
+    await revokeAllDocumentLinks(sub.id)
   }
 
   if (!newRoom) {
@@ -122,6 +128,8 @@ export async function reassignDataRoomOnLevelChange(args: {
     changedByName: args.changedByName,
   })
 
+  try { await ensureAllDocumentLinks(sub.id) } catch {}
+
   return oldRoom ? { action: 'reassigned' } : { action: 'created' }
 }
 
@@ -163,6 +171,8 @@ export async function revokeAllDataRoomLinks(args: {
     count++
   }
 
+  await revokeAllDocumentLinks(args.subscriberId)
+
   return count
 }
 
@@ -203,6 +213,13 @@ export async function updateDataRoomLinkExpiry(args: {
       count++
     }
   }
+
+  try {
+    await updateDocumentLinkExpiry({
+      subscriberId: args.subscriberId,
+      newTermEnd: args.newTermEnd,
+    })
+  } catch {}
 
   return count
 }

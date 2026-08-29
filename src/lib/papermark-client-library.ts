@@ -12,6 +12,7 @@ import {
   portalTypeLabel,
   type PortalCategoryKey,
 } from "./papermark-dataroom-contract"
+import { getDocumentLinkByDocRowId } from "./dataroom-dal"
 
 export type SyncedClientDocument = {
   id: string
@@ -84,7 +85,7 @@ export async function getDataRoomDocumentsForSubscriber(
 
   const rows = (await sql`
     select id, papermark_document_id, dataroom_document_id,
-           title, category, num_pages, content_type,
+           title, category, folder_path, num_pages, content_type,
            papermark_created_at, papermark_updated_at, first_seen_at
     from papermark_dataroom_documents
     where papermark_dataroom_id = ${link.papermark_dataroom_id}
@@ -98,6 +99,7 @@ export async function getDataRoomDocumentsForSubscriber(
     dataroom_document_id: string | null
     title: string
     category: string | null
+    folder_path: string | null
     num_pages: number | null
     content_type: string | null
     papermark_created_at: string | null
@@ -108,7 +110,11 @@ export async function getDataRoomDocumentsForSubscriber(
   const previousVisit = options.previousVisit ?? null
 
   const documents: DataRoomDocument[] = rows.map((row) => {
-    const cat = categoriseDataRoomDocument({ title: row.title, category: row.category })
+    const cat = categoriseDataRoomDocument({
+      title: row.title,
+      category: row.category,
+      folderPath: row.folder_path,
+    })
     return {
       id: row.id,
       papermarkDocumentId: row.papermark_document_id,
@@ -143,11 +149,20 @@ export async function getDataRoomDocumentsForSubscriber(
 
 /**
  * One Data Room document, but only if it belongs to this subscriber's room.
+ *
+ * Returns the per-document personal link URL when one exists. The viewer uses
+ * this URL directly — it targets the specific document and produces a working
+ * Papermark embed, unlike the old ?documentId= construction on the Data Room
+ * link which is not a documented Papermark mechanism.
  */
 export async function getDataRoomDocumentForSubscriber(
   subscriberId: string,
   documentRowId: string,
-): Promise<{ document: DataRoomDocument; linkUrl: string; allowDownload: boolean } | null> {
+): Promise<{
+  document: DataRoomDocument
+  documentLinkUrl: string | null
+  allowDownload: boolean
+} | null> {
   if (!documentRowId || documentRowId.length > 200) return null
   const sql = getSql()
 
@@ -170,7 +185,7 @@ export async function getDataRoomDocumentForSubscriber(
 
   const rows = (await sql`
     select id, papermark_document_id, dataroom_document_id,
-           title, category, num_pages, content_type,
+           title, category, folder_path, num_pages, content_type,
            papermark_created_at, papermark_updated_at, first_seen_at
     from papermark_dataroom_documents
     where id = ${documentRowId}::uuid
@@ -183,6 +198,7 @@ export async function getDataRoomDocumentForSubscriber(
     dataroom_document_id: string | null
     title: string
     category: string | null
+    folder_path: string | null
     num_pages: number | null
     content_type: string | null
     papermark_created_at: string | null
@@ -193,7 +209,16 @@ export async function getDataRoomDocumentForSubscriber(
   const row = rows[0]
   if (!row) return null
 
-  const cat = categoriseDataRoomDocument({ title: row.title, category: row.category })
+  const docLink = await getDocumentLinkByDocRowId({
+    subscriberId,
+    documentRowId,
+  })
+
+  const cat = categoriseDataRoomDocument({
+    title: row.title,
+    category: row.category,
+    folderPath: row.folder_path,
+  })
   return {
     document: {
       id: row.id,
@@ -212,8 +237,8 @@ export async function getDataRoomDocumentForSubscriber(
         ? new Date(row.first_seen_at).toISOString() : null,
       badge: null,
     },
-    linkUrl: link.link_url,
-    allowDownload: link.allow_download,
+    documentLinkUrl: docLink?.linkUrl ?? null,
+    allowDownload: docLink?.allowDownload ?? link.allow_download,
   }
 }
 

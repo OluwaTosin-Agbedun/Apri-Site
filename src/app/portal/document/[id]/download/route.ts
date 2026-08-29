@@ -22,7 +22,7 @@ export async function GET(
     redirect("/portal")
   }
 
-  if (!result.allowDownload) {
+  if (!result.allowDownload || !result.documentLinkUrl) {
     redirect(`/portal/document/${encodeURIComponent(documentRowId)}`)
   }
 
@@ -33,18 +33,5 @@ export async function GET(
     )
   } catch {}
 
-  const targetUrl = result.document.dataroomDocumentId
-    ? buildDownloadUrl(result.linkUrl, result.document.dataroomDocumentId)
-    : result.linkUrl
-  redirect(targetUrl)
-}
-
-function buildDownloadUrl(linkUrl: string, dataroomDocumentId: string): string {
-  try {
-    const url = new URL(linkUrl)
-    url.searchParams.set("documentId", dataroomDocumentId)
-    return url.toString()
-  } catch {
-    return linkUrl
-  }
+  redirect(result.documentLinkUrl)
 }

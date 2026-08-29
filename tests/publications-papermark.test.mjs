@@ -35,10 +35,18 @@ test("new fetched records are unpublished OPEN drafts with no audience tags", ()
   assert.doesNotMatch(route, /['"]L2['"]|Individual Access|Professional Access/)
 })
 
-test("public list and detail queries require both published state and OPEN visibility", () => {
+test("public list and detail queries require published state and strip non-OPEN links", () => {
   const publications = read("src/lib/publications.ts")
-  const required = /is_published = true and status = 'published' and visibility = 'OPEN'/g
-  assert.equal(publications.match(required)?.length, 2)
+
+  // Published list and detail queries filter on is_published + status.
+  const publishedGuard = /is_published = true and status = 'published'/g
+  assert.equal(publications.match(publishedGuard)?.length, 2)
+
+  // Non-OPEN items have their share links stripped by toPublicPublication
+  // so they appear as teasers on the public site.
+  assert.match(publications, /toPublicPublication/)
+  assert.match(publications, /if \(pub\.visibility === 'OPEN'\) return pub/)
+  assert.match(publications, /papermarkLink: ''/)
 
   const listPage = read("src/app/publications/page.tsx")
   const detailPage = read("src/app/publications/[slug]/page.tsx")

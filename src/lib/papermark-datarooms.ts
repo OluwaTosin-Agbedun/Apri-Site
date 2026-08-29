@@ -7,8 +7,10 @@ import {
 } from './papermark'
 import {
   dataRoomLinkSettings,
+  documentLinkSettings,
   watermarkConfig,
   type DataRoomLinkSettings,
+  type DocumentLinkSettings,
 } from './papermark-dataroom-contract'
 import { papermarkExpiresAt } from './papermark-contract'
 
@@ -225,6 +227,12 @@ export type MintedDataRoomLink = {
   settings: DataRoomLinkSettings
 }
 
+export type MintedDocumentLink = {
+  linkId: string
+  url: string
+  settings: DocumentLinkSettings
+}
+
 /**
  * Creates one unique Data Room link for one named person.
  *
@@ -336,4 +344,54 @@ export async function revokeDataRoomLink(linkId: string): Promise<ServiceResult<
   if (result.ok) return { ok: true, value: true }
   if (result.status === 404) return { ok: true, value: true }
   return result
+}
+
+// ---------------------------------------------------------------------------
+// Document-target links
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates one share link targeting a single Papermark document.
+ *
+ * This is the fix for broken document delivery. The previous approach appended
+ * `?documentId=` to a Data Room share URL, which is not a documented Papermark
+ * mechanism and produces a broken viewer. This function creates a real
+ * document-target link via `POST /v1/links` with `document_id`, which Papermark
+ * recognises as a first-class share link.
+ */
+export async function createDocumentLink(args: {
+  documentId: string
+  assignedName: string
+  assignedEmail: string
+  expiresAt: string | Date | null
+  documentTitle?: string
+}): Promise<ServiceResult<MintedDocumentLink>> {
+  const expiry = papermarkExpiresAt(args.expiresAt)
+  if (!expiry.ok) {
+    return {
+      ok: false,
+      status: null,
+      message: `Papermark needs a complete date and time for the link expiry. ${expiry.reason}`,
+    }
+  }
+
+  const settings = documentLinkSettings({
+    documentId: args.documentId,
+    assignedName: args.assignedName,
+    assignedEmail: args.assignedEmail,
+    expiresAt: expiry.value,
+    documentTitle: args.documentTitle,
+  })
+
+  return attempt(async () => {
+    const link = await papermarkRequest<DataRoomLink>('/v1/links', {
+      method: 'POST',
+      body: settings,
+    })
+    const url = link.url
+    if (!link.id || !url || !url.startsWith('https://')) {
+      throw new PapermarkError('Papermark created a link with no usable address.')
+    }
+    return { linkId: link.id, url, settings }
+  }, 'Creating the personal document link')
 }

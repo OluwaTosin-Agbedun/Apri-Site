@@ -92,6 +92,23 @@ export async function getRoomForLevel(publicTier: string): Promise<{
   return row ? { dataroomId: row.papermark_dataroom_id, dataroomName: row.dataroom_name } : null
 }
 
+export async function getActiveSubscriberIdsForRoom(
+  dataroomId: string,
+): Promise<string[]> {
+  const sql = getSql()
+  const rows = (await sql`
+    select distinct l.subscriber_id
+    from papermark_dataroom_links l
+    join subscribers s on s.id = l.subscriber_id
+    where l.papermark_dataroom_id = ${dataroomId}
+      and l.revoke_state = 'live'
+      and l.subscriber_id is not null
+      and s.client_type = 'subscriber'
+      and lower(s.status) = 'active'
+  `) as { subscriber_id: string }[]
+  return rows.map((r) => r.subscriber_id)
+}
+
 // ---------------------------------------------------------------------------
 // Subscriber Data Room assignment
 // ---------------------------------------------------------------------------
@@ -284,6 +301,7 @@ export async function syncDataRoomDocuments(
     title: string
     category: string
     folderId?: string | null
+    folderPath?: string | null
     numPages?: number | null
     contentType?: string | null
     createdAt?: string | null
@@ -312,7 +330,9 @@ export async function syncDataRoomDocuments(
         await sql`
           update papermark_dataroom_documents set
             title = ${doc.title}, category = ${doc.category},
-            folder_id = ${doc.folderId ?? null}, num_pages = ${doc.numPages ?? null},
+            folder_id = ${doc.folderId ?? null},
+            folder_path = ${doc.folderPath ?? null},
+            num_pages = ${doc.numPages ?? null},
             content_type = ${doc.contentType ?? null},
             papermark_created_at = ${doc.createdAt ?? null}::timestamptz,
             papermark_updated_at = ${doc.updatedAt ?? null}::timestamptz,
@@ -332,11 +352,12 @@ export async function syncDataRoomDocuments(
       await sql`
         insert into papermark_dataroom_documents (
           papermark_dataroom_id, papermark_document_id, dataroom_document_id,
-          title, category, folder_id, num_pages, content_type,
+          title, category, folder_id, folder_path, num_pages, content_type,
           papermark_created_at, papermark_updated_at, version_key
         ) values (
           ${dataroomId}, ${doc.documentId}, ${doc.dataroomDocumentId ?? null},
           ${doc.title}, ${doc.category}, ${doc.folderId ?? null},
+          ${doc.folderPath ?? null},
           ${doc.numPages ?? null}, ${doc.contentType ?? null},
           ${doc.createdAt ?? null}::timestamptz, ${doc.updatedAt ?? null}::timestamptz,
           ${doc.versionKey}
@@ -614,6 +635,158 @@ export async function assignDataRoomToSubscriber(
     update subscribers set papermark_dataroom_id = ${dataroomId}, updated_at = now()
     where id = ${subscriberId}::uuid
   `
+}
+
+// ---------------------------------------------------------------------------
+// Per-document subscriber links
+// ---------------------------------------------------------------------------
+
+export type DocumentLinkRecord = {
+  id: string
+  subscriberId: string
+  papermarkDocumentId: string
+  papermarkLinkId: string
+  linkUrl: string
+  assignedName: string
+  assignedEmail: string
+  allowDownload: boolean
+  expiresAt: string | null
+  revokeState: string
+  createdAt: string
+}
+
+export async function getDocumentLink(args: {
+  subscriberId: string
+  papermarkDocumentId: string
+}): Promise<DocumentLinkRecord | null> {
+  const sql = getSql()
+  const rows = (await sql`
+    select id, subscriber_id, papermark_document_id, papermark_link_id,
+           link_url, assigned_name, assigned_email, allow_download,
+           expires_at, revoke_state, created_at
+    from papermark_subscriber_document_links
+    where subscriber_id = ${args.subscriberId}::uuid
+      and papermark_document_id = ${args.papermarkDocumentId}
+      and revoke_state = 'live'
+    limit 1
+  `) as Record<string, unknown>[]
+  return rows[0] ? mapDocLinkRow(rows[0]) : null
+}
+
+export async function getDocumentLinkByDocRowId(args: {
+  subscriberId: string
+  documentRowId: string
+}): Promise<DocumentLinkRecord | null> {
+  const sql = getSql()
+  const rows = (await sql`
+    select dl.id, dl.subscriber_id, dl.papermark_document_id, dl.papermark_link_id,
+           dl.link_url, dl.assigned_name, dl.assigned_email, dl.allow_download,
+           dl.expires_at, dl.revoke_state, dl.created_at
+    from papermark_subscriber_document_links dl
+    join papermark_dataroom_documents dd
+      on dd.papermark_document_id = dl.papermark_document_id
+    where dl.subscriber_id = ${args.subscriberId}::uuid
+      and dd.id = ${args.documentRowId}::uuid
+      and dl.revoke_state = 'live'
+    limit 1
+  `) as Record<string, unknown>[]
+  return rows[0] ? mapDocLinkRow(rows[0]) : null
+}
+
+export async function saveDocumentLink(args: {
+  subscriberId: string
+  papermarkDocumentId: string
+  papermarkLinkId: string
+  linkUrl: string
+  assignedName: string
+  assignedEmail: string
+  watermarkText: string
+  allowDownload: boolean
+  screenshotProtection: boolean
+  expiresAt: string | null
+}): Promise<string> {
+  const sql = getSql()
+  const rows = (await sql`
+    insert into papermark_subscriber_document_links (
+      subscriber_id, papermark_document_id, papermark_link_id, link_url,
+      assigned_name, assigned_email, watermark_text,
+      allow_download, screenshot_protection, expires_at
+    ) values (
+      ${args.subscriberId}::uuid, ${args.papermarkDocumentId},
+      ${args.papermarkLinkId}, ${args.linkUrl},
+      ${args.assignedName}, ${args.assignedEmail}, ${args.watermarkText},
+      ${args.allowDownload}, ${args.screenshotProtection},
+      ${args.expiresAt ? args.expiresAt : null}::timestamptz
+    )
+    on conflict (subscriber_id, papermark_document_id)
+      where revoke_state = 'live' do nothing
+    returning id
+  `) as { id: string }[]
+  return rows[0]?.id ?? ''
+}
+
+export async function markDocumentLinkRevoked(linkId: string): Promise<void> {
+  const sql = getSql()
+  await sql`
+    update papermark_subscriber_document_links
+    set revoke_state = 'revoked', revoked_at = now(), updated_at = now()
+    where id = ${linkId}::uuid
+  `
+}
+
+export async function getLiveDocumentLinksForSubscriber(
+  subscriberId: string,
+): Promise<DocumentLinkRecord[]> {
+  const sql = getSql()
+  const rows = (await sql`
+    select id, subscriber_id, papermark_document_id, papermark_link_id,
+           link_url, assigned_name, assigned_email, allow_download,
+           expires_at, revoke_state, created_at
+    from papermark_subscriber_document_links
+    where subscriber_id = ${subscriberId}::uuid
+      and revoke_state = 'live'
+    order by created_at desc
+  `) as Record<string, unknown>[]
+  return rows.map(mapDocLinkRow)
+}
+
+export async function getDocumentsNeedingLinks(args: {
+  subscriberId: string
+  dataroomId: string
+}): Promise<{ papermarkDocumentId: string; title: string }[]> {
+  const sql = getSql()
+  const rows = (await sql`
+    select dd.papermark_document_id, dd.title
+    from papermark_dataroom_documents dd
+    where dd.papermark_dataroom_id = ${args.dataroomId}
+      and dd.is_present = true
+      and not exists (
+        select 1 from papermark_subscriber_document_links dl
+        where dl.subscriber_id = ${args.subscriberId}::uuid
+          and dl.papermark_document_id = dd.papermark_document_id
+          and dl.revoke_state = 'live'
+      )
+  `) as { papermark_document_id: string; title: string }[]
+  return rows.map((r) => ({
+    papermarkDocumentId: r.papermark_document_id,
+    title: r.title,
+  }))
+}
+
+function mapDocLinkRow(r: Record<string, unknown>): DocumentLinkRecord {
+  return {
+    id: String(r.id ?? ''),
+    subscriberId: String(r.subscriber_id ?? ''),
+    papermarkDocumentId: String(r.papermark_document_id ?? ''),
+    papermarkLinkId: String(r.papermark_link_id ?? ''),
+    linkUrl: String(r.link_url ?? ''),
+    assignedName: String(r.assigned_name ?? ''),
+    assignedEmail: String(r.assigned_email ?? ''),
+    allowDownload: r.allow_download === true,
+    expiresAt: r.expires_at ? String(r.expires_at) : null,
+    revokeState: String(r.revoke_state ?? 'live'),
+    createdAt: String(r.created_at ?? ''),
+  }
 }
 
 // ---------------------------------------------------------------------------

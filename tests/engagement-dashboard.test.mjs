@@ -242,11 +242,11 @@ test("dataroom-sync cron is protected by CRON_SECRET", () => {
   assert.match(route, /reconcileAllDataRooms/)
 })
 
-test("vercel.json schedules dataroom-sync every 15 minutes", () => {
+test("vercel.json schedules dataroom-sync daily at 04:00 UTC", () => {
   const config = JSON.parse(read("vercel.json"))
   const sync = config.crons.find((c) => c.path === "/api/cron/dataroom-sync")
   assert.ok(sync, "dataroom-sync cron entry missing")
-  assert.equal(sync.schedule, "*/15 * * * *")
+  assert.equal(sync.schedule, "0 4 * * *")
 })
 
 // ---------------------------------------------------------------------------

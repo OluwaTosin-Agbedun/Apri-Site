@@ -78,6 +78,22 @@ export type DataRoomLinkSettings = {
   show_banner: boolean
 }
 
+export type DocumentLinkSettings = {
+  document_id: string
+  name: string
+  expires_at: string | null
+  email_protected: boolean
+  email_authenticated: boolean
+  allow_list: string[]
+  deny_list: string[]
+  enable_watermark: boolean
+  watermark_config: WatermarkConfig
+  enable_screenshot_protection: boolean
+  allow_download: boolean
+  enable_agreement: boolean
+  show_banner: boolean
+}
+
 /**
  * The body for one person's Data Room link.
  *
@@ -109,6 +125,41 @@ export function dataRoomLinkSettings(args: {
     watermark_config: watermarkConfig(args.assignedName, args.assignedEmail),
     enable_screenshot_protection: true,
     allow_download: args.allowDownload !== false,
+    enable_agreement: false,
+    show_banner: false,
+  }
+}
+
+/**
+ * The body for one person's per-document link.
+ *
+ * Identical security posture to the Data Room link: no email gate, watermarked,
+ * screenshot-protected, downloads enabled. The only structural difference is
+ * `document_id` instead of `dataroom_id`, which gives Papermark a real target
+ * and produces a working embed rather than the broken grey iframe the Data Room
+ * URL + `?documentId=` construction creates.
+ */
+export function documentLinkSettings(args: {
+  documentId: string
+  assignedName: string
+  assignedEmail: string
+  expiresAt: string | null
+  documentTitle?: string
+}): DocumentLinkSettings {
+  const who = args.assignedName.trim() || args.assignedEmail.trim() || 'recipient'
+  const label = args.documentTitle ? ` — ${args.documentTitle.slice(0, 60)}` : ''
+  return {
+    document_id: args.documentId,
+    name: `APRI — ${who}${label}`,
+    expires_at: args.expiresAt,
+    email_protected: false,
+    email_authenticated: false,
+    allow_list: [],
+    deny_list: [],
+    enable_watermark: true,
+    watermark_config: watermarkConfig(args.assignedName, args.assignedEmail),
+    enable_screenshot_protection: true,
+    allow_download: true,
     enable_agreement: false,
     show_banner: false,
   }
@@ -171,14 +222,22 @@ function leadingCode(value: string): string | null {
 export function categoriseDataRoomDocument(args: {
   title: string
   category?: string | null
+  folderPath?: string | null
 }): PortalCategoryKey {
   // The folder an editor filed it in comes first: that is a decision, and a
-  // file name is only a habit.
-  const folder = (args.category ?? '').trim().toUpperCase()
-  if (folder) {
+  // file name is only a habit. Check both the stored category (which may be a
+  // prior classification result like 'MIN') and the raw folder path from
+  // Papermark (which may be a human-readable name like 'Monthly Intelligence
+  // Notes').
+  for (const source of [args.category, args.folderPath]) {
+    const folder = (source ?? '').trim().toUpperCase()
+    if (!folder) continue
     for (const category of PORTAL_CATEGORIES) {
       for (const code of category.codes) {
         if (folder.includes(code)) return category.key
+      }
+      if (category.key !== 'OTHER' && folder.includes(category.label.toUpperCase())) {
+        return category.key
       }
     }
   }

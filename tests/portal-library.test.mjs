@@ -43,8 +43,8 @@ test('every section the brief names is rendered, and empty ones are hidden', () 
   assert.match(portal, /LIBRARY_SECTIONS\.map/)
   assert.match(portal, /sections\[section\]\.length === 0 \? null/)
 
-  // DR pipeline uses PORTAL_CATEGORIES
-  assert.match(portal, /PORTAL_CATEGORIES\.map/)
+  // DR pipeline uses PORTAL_CATEGORIES (filtered then mapped)
+  assert.match(portal, /PORTAL_CATEGORIES\.filter/)
 })
 
 test('Latest Publications always shows content for DR subscribers', () => {
@@ -69,13 +69,13 @@ test('a card shows the title, the type, a date and a badge only when earned', ()
 // ---------------------------------------------------------------------------
 
 test('the portal uses the desktop width, with safe gutters and a column grid', () => {
-  // Up to 1600px, gutters of 24px rising to 32px -- not a reading measure.
+  // Up to 1600px, gutters of 16px rising to 32px then 48px -- not a reading measure.
   assert.match(portal, /max-w-\[1600px\]/)
-  assert.match(portal, /px-6 sm:px-8/)
+  assert.match(portal, /px-4 sm:px-8/)
   assert.doesNotMatch(portal.slice(0, portal.indexOf('function LockedLibrary')), /max-w-3xl/)
 
   // Multiple columns on a desktop, one on a phone.
-  assert.match(portal, /grid-cols-1 md:grid-cols-2 xl:grid-cols-3/)
+  assert.match(portal, /grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4/)
 })
 
 test('the viewer fills the content width and has a practical desktop height', () => {

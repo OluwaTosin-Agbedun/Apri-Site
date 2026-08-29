@@ -8,6 +8,7 @@ import {
   syncDataRoomForLevel,
   syncAndNotify,
   fetchAvailableDataRooms,
+  prepareDocumentLinksForLevel,
 } from "@/app/actions/datarooms"
 import type { FormState } from "@/lib/definitions"
 import { tierDisplayName } from "@/lib/entitlements"
@@ -115,6 +116,8 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
   const [notifyMsg, setNotifyMsg] = useState("")
   const [deleting, setDeleting] = useState("")
   const [deleteMsg, setDeleteMsg] = useState("")
+  const [preparing, setPreparing] = useState("")
+  const [prepareMsg, setPrepareMsg] = useState("")
   const [tier, setTier] = useState("")
   const router = useRouter()
 
@@ -150,6 +153,16 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
     if (result?.ok) router.refresh()
   }
 
+  async function handlePrepareLinks() {
+    if (!tier) return
+    setPreparing(tier)
+    setPrepareMsg("")
+    const result = await prepareDocumentLinksForLevel(tier)
+    setPrepareMsg(result?.message ?? "")
+    setPreparing("")
+    if (result?.ok) router.refresh()
+  }
+
   return (
     <div className="mt-6 pt-6 border-t border-border">
       <p className={label}>Quick actions on an existing mapping</p>
@@ -182,6 +195,14 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
         </button>
         <button
           type="button"
+          onClick={handlePrepareLinks}
+          disabled={!tier || preparing !== ""}
+          className={btnSecondary}
+        >
+          {preparing ? "Preparing links..." : "Prepare document links"}
+        </button>
+        <button
+          type="button"
           onClick={handleDelete}
           disabled={!tier || deleting !== ""}
           className="border border-red-300 px-4 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
@@ -191,6 +212,7 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
       </div>
       {syncMsg && <p className="text-sm text-foreground/70 mt-2">{syncMsg}</p>}
       {notifyMsg && <p className="text-sm text-foreground/70 mt-2">{notifyMsg}</p>}
+      {prepareMsg && <p className="text-sm text-foreground/70 mt-2">{prepareMsg}</p>}
       {deleteMsg && <p className="text-sm text-foreground/70 mt-2">{deleteMsg}</p>}
     </div>
   )

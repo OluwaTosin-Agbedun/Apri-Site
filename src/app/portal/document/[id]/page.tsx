@@ -19,16 +19,8 @@ export const metadata = {
   robots: { index: false, follow: false },
 }
 
-const SHELL = "w-full max-w-[1600px] mx-auto px-6 sm:px-8"
+const SHELL = "w-full max-w-[1600px] mx-auto px-4 sm:px-8 lg:px-12"
 
-/**
- * One document, read inside APRI.
- *
- * Tries the Data Room pipeline first (for subscribers with an active DR link),
- * then falls back to the legacy folder-synced pipeline. In both cases the
- * query is scoped to the authenticated principal's own database id, so a
- * subscriber who pastes another client's document id gets a 404.
- */
 export default async function PortalDocumentPage({
   params,
 }: {
@@ -49,8 +41,9 @@ export default async function PortalDocumentPage({
           title={drResult.document.title}
           categoryLabel={drResult.document.categoryLabel}
           numPages={drResult.document.numPages}
-          linkUrl={drResult.linkUrl}
-          dataroomDocumentId={drResult.document.dataroomDocumentId}
+          documentLinkUrl={drResult.documentLinkUrl}
+          allowDownload={drResult.allowDownload}
+          documentRowId={decodedId}
         />
       )
     }
@@ -113,7 +106,9 @@ export default async function PortalDocumentPage({
 
         {embedUrl ? (
           <>
-            <PapermarkEmbed src={embedUrl} title={document.title} />
+            <div className="w-full" style={{ height: "calc(100dvh - 14rem)" }}>
+              <PapermarkEmbed src={embedUrl} title={document.title} />
+            </div>
             <p className="mt-4 text-xs text-muted-foreground leading-relaxed max-w-4xl">
               This copy was issued to you by name. If the viewer asks you to confirm your
               email address, that is Papermark&rsquo;s own document-security check on the
@@ -138,27 +133,22 @@ export default async function PortalDocumentPage({
   )
 }
 
-/**
- * Document viewer for Data Room documents.
- *
- * Deep-links to the exact document within the subscriber's personal Data Room
- * link by appending `?documentId={dataroomDocumentId}` — the parameter
- * Papermark's data room viewer uses to navigate directly to a document.
- */
 async function DataRoomDocumentView({
   principal,
   title,
   categoryLabel,
   numPages,
-  linkUrl,
-  dataroomDocumentId,
+  documentLinkUrl,
+  allowDownload,
+  documentRowId,
 }: {
   principal: Awaited<ReturnType<typeof requirePortalPrincipal>>
   title: string
   categoryLabel: string
   numPages: number | null
-  linkUrl: string
-  dataroomDocumentId: string | null
+  documentLinkUrl: string | null
+  allowDownload: boolean
+  documentRowId: string
 }) {
   try {
     await recordClientEvent(
@@ -167,8 +157,9 @@ async function DataRoomDocumentView({
     )
   } catch {}
 
-  const targetUrl = buildDataRoomDocumentUrl(linkUrl, dataroomDocumentId)
-  const embedUrl = papermarkEmbedUrl(targetUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)
+  const embedUrl = documentLinkUrl
+    ? papermarkEmbedUrl(documentLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)
+    : null
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -203,21 +194,33 @@ async function DataRoomDocumentView({
             )}
           </div>
 
-          {embedUrl && (
-            <a
-              href={embedUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-foreground/60 hover:text-accent transition-colors shrink-0"
-            >
-              Open in a new tab
-            </a>
-          )}
+          <div className="flex items-center gap-4 shrink-0">
+            {allowDownload && documentLinkUrl && (
+              <Link
+                href={`/portal/document/${encodeURIComponent(documentRowId)}/download`}
+                className="text-sm text-foreground/60 hover:text-foreground transition-colors"
+              >
+                Open to download
+              </Link>
+            )}
+            {documentLinkUrl && (
+              <a
+                href={documentLinkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-foreground/60 hover:text-accent transition-colors"
+              >
+                Open in a new tab
+              </a>
+            )}
+          </div>
         </div>
 
         {embedUrl ? (
           <>
-            <PapermarkEmbed src={embedUrl} title={title} />
+            <div className="w-full" style={{ height: "calc(100dvh - 14rem)" }}>
+              <PapermarkEmbed src={embedUrl} title={title} />
+            </div>
             <p className="mt-4 text-xs text-muted-foreground leading-relaxed max-w-4xl">
               This copy was issued to you by name and every view is logged. If the viewer asks
               you to confirm your email address, that is Papermark&rsquo;s document-security check:
@@ -227,8 +230,8 @@ async function DataRoomDocumentView({
         ) : (
           <div className="border border-border bg-card/30 p-8" role="alert">
             <p className="text-sm text-foreground/70 leading-relaxed">
-              This document cannot be opened at the moment. Please contact APRI and we
-              will check its secure link.
+              This document&rsquo;s personal link is being prepared. Please check back shortly, or
+              contact APRI if it remains unavailable.
             </p>
           </div>
         )}
@@ -239,25 +242,4 @@ async function DataRoomDocumentView({
       </div>
     </div>
   )
-}
-
-/**
- * Constructs the deep-link URL for a specific document within a Data Room.
- *
- * Papermark's data room viewer accepts `?documentId=` to navigate directly to
- * one document. When `dataroomDocumentId` is null the base link is returned —
- * the subscriber lands on the room's document list rather than an error page.
- */
-function buildDataRoomDocumentUrl(
-  linkUrl: string,
-  dataroomDocumentId: string | null,
-): string {
-  if (!dataroomDocumentId) return linkUrl
-  try {
-    const url = new URL(linkUrl)
-    url.searchParams.set("documentId", dataroomDocumentId)
-    return url.toString()
-  } catch {
-    return linkUrl
-  }
 }

@@ -36,7 +36,7 @@ export const metadata = {
 
 const CONTACT = "intelligence@athenacentre.org"
 
-const SHELL = "w-full max-w-[1600px] mx-auto px-6 sm:px-8"
+const SHELL = "w-full max-w-[1600px] mx-auto px-4 sm:px-8 lg:px-12"
 
 export default async function PortalPage() {
   const principal = await requirePortalPrincipal()
@@ -123,12 +123,18 @@ async function DataRoomPortal({
           )}
         </PortalSection>
 
-        {PORTAL_CATEGORIES.map(({ key }) =>
+        {PORTAL_CATEGORIES.filter(({ key }) => key !== "OTHER").map(({ key }) =>
           categories[key as PortalCategoryKey].length === 0 ? null : (
             <PortalSection key={key} title={portalCategoryLabel(key as PortalCategoryKey)}>
               <DataRoomGrid documents={categories[key as PortalCategoryKey]} />
             </PortalSection>
           ),
+        )}
+
+        {categories.OTHER.length > 0 && (
+          <PortalSection title={portalCategoryLabel("OTHER")}>
+            <DataRoomGrid documents={categories.OTHER} />
+          </PortalSection>
         )}
 
         <PortalFooter />
@@ -293,7 +299,7 @@ function PortalFooter() {
 
 function DataRoomGrid({ documents }: { documents: DataRoomDocument[] }) {
   return (
-    <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
       {documents.map((doc) => (
         <li key={doc.id}>
           <DataRoomCard document={doc} />
@@ -306,10 +312,10 @@ function DataRoomGrid({ documents }: { documents: DataRoomDocument[] }) {
 function DataRoomCard({ document }: { document: DataRoomDocument }) {
   const date = document.papermarkUpdatedAt || document.papermarkCreatedAt
   return (
-    <div className="flex h-full flex-col justify-between border border-border bg-card/30 p-6 min-h-[11rem]">
-      <div>
+    <div className="flex h-full flex-col justify-between border border-border bg-card/30 p-5 sm:p-6 min-h-[11rem]">
+      <div className="min-w-0">
         <div className="flex items-start justify-between gap-3 mb-3">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground truncate">
             {document.categoryLabel}
           </span>
           {document.badge && (
@@ -322,7 +328,7 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
             </span>
           )}
         </div>
-        <h3 className="font-serif text-lg text-foreground leading-snug">
+        <h3 className="font-serif text-lg text-foreground leading-snug break-words">
           {document.title}
         </h3>
         {document.numPages && (
@@ -332,19 +338,19 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
         )}
       </div>
       <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-border">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground truncate">
           {date ? formatDate(date) : ""}
         </span>
-        <div className="flex gap-3">
+        <div className="flex gap-3 shrink-0">
           <Link
             href={`/portal/document/${encodeURIComponent(document.id)}/download`}
-            className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors"
+            className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors py-1"
           >
             Download
           </Link>
           <Link
             href={`/portal/document/${encodeURIComponent(document.id)}`}
-            className="text-sm font-medium text-accent hover:text-accent-hover transition-colors"
+            className="text-sm font-medium text-accent hover:text-accent-hover transition-colors py-1"
           >
             View <span aria-hidden>&rarr;</span>
           </Link>
@@ -360,7 +366,7 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
 
 function LegacyDocumentGrid({ documents }: { documents: SyncedClientDocument[] }) {
   return (
-    <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
       {documents.map((document) => (
         <li key={document.id}>
           <LegacyDocumentCard document={document} />
@@ -374,11 +380,11 @@ function LegacyDocumentCard({ document }: { document: SyncedClientDocument }) {
   return (
     <Link
       href={`/portal/document/${encodeURIComponent(document.id)}`}
-      className="flex h-full flex-col justify-between border border-border bg-card/30 p-6 hover:border-accent transition-colors group min-h-[9rem]"
+      className="flex h-full flex-col justify-between border border-border bg-card/30 p-5 sm:p-6 hover:border-accent transition-colors group min-h-[9rem]"
     >
-      <div>
+      <div className="min-w-0">
         <div className="flex items-start justify-between gap-3 mb-3">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground truncate">
             {document.typeLabel}
           </span>
           {document.isNew && (
@@ -387,15 +393,15 @@ function LegacyDocumentCard({ document }: { document: SyncedClientDocument }) {
             </span>
           )}
         </div>
-        <h3 className="font-serif text-lg text-foreground leading-snug group-hover:text-accent transition-colors">
+        <h3 className="font-serif text-lg text-foreground leading-snug group-hover:text-accent transition-colors break-words">
           {document.title}
         </h3>
       </div>
       <div className="flex items-center justify-between gap-3 mt-5">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground truncate">
           {document.changedAt ? formatDate(document.changedAt) : ""}
         </span>
-        <span className="text-sm font-medium text-accent">
+        <span className="text-sm font-medium text-accent shrink-0">
           View <span aria-hidden>&rarr;</span>
         </span>
       </div>
@@ -467,7 +473,7 @@ function LockedLibrary({ name }: { name: string }) {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border">
-        <div className="max-w-md mx-auto px-6 h-20 flex items-center justify-between">
+        <div className="max-w-md mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
           <Link href="/" className="font-serif text-base text-foreground tracking-tight">
             APRI
           </Link>
@@ -482,7 +488,7 @@ function LockedLibrary({ name }: { name: string }) {
         </div>
       </header>
 
-      <main className="flex-1 max-w-md w-full mx-auto px-6 py-16">
+      <main className="flex-1 max-w-md w-full mx-auto px-4 sm:px-6 py-16">
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-4 leading-tight tracking-tight">
           Your access has ended
         </h1>
@@ -502,7 +508,7 @@ function LockedLibrary({ name }: { name: string }) {
         </a>
       </main>
 
-      <div className="max-w-md w-full mx-auto px-6 pb-10">
+      <div className="max-w-md w-full mx-auto px-4 sm:px-6 pb-10">
         <SiteFooter />
       </div>
     </div>

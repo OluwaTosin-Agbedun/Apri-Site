@@ -121,8 +121,13 @@ export async function syncDataRoomForLevel(publicTier: string): Promise<FormStat
     documentId: d.document_id,
     dataroomDocumentId: d.id,
     title: d.document_name,
-    category: categoriseDataRoomDocument({ title: d.document_name, category: d.folder_path }),
+    category: categoriseDataRoomDocument({
+      title: d.document_name,
+      category: d.folder_path,
+      folderPath: d.folder_path,
+    }),
     folderId: d.folder_id,
+    folderPath: d.folder_path ?? null,
     numPages: d.num_pages,
     contentType: d.content_type,
     createdAt: d.created,
@@ -376,6 +381,82 @@ export async function removeSubscriberSeat(seatId: string): Promise<FormState> {
   return removed
     ? { ok: true, message: "Seat removed." }
     : { message: "That seat does not exist." }
+}
+
+// ---------------------------------------------------------------------------
+// Prepare document links (owner-only backfill)
+// ---------------------------------------------------------------------------
+
+export async function prepareDocumentLinks(subscriberId: string): Promise<FormState> {
+  await requireOwner()
+  if (!UUID.test(subscriberId)) return { message: "Unknown subscriber." }
+
+  const { ensureAllDocumentLinks } = await import("@/lib/document-links")
+  const result = await ensureAllDocumentLinks(subscriberId)
+
+  refresh()
+  if (result.errors > 0 && result.created === 0) {
+    return { message: `Could not create document links. ${result.errors} error${result.errors === 1 ? "" : "s"}.` }
+  }
+  return {
+    ok: true,
+    message: [
+      result.created > 0 ? `${result.created} document link${result.created === 1 ? "" : "s"} created.` : null,
+      result.skipped > 0 ? `${result.skipped} already existed.` : null,
+      result.errors > 0 ? `${result.errors} failed.` : null,
+      result.created === 0 && result.skipped === 0 && result.errors === 0 ? "No documents need links." : null,
+    ].filter(Boolean).join(" "),
+  }
+}
+
+export async function prepareDocumentLinksForLevel(publicTier: string): Promise<FormState> {
+  await requireOwner()
+  if (!(PUBLIC_TIER_NAMES as readonly string[]).includes(publicTier)) return { message: "Unknown subscription level." }
+
+  const room = await resolveDataRoom({ publicTier })
+  if (!room) return { message: `No Data Room mapped for ${publicTier}.` }
+
+  const { getActiveSubscriberIdsForRoom } = await import("@/lib/dataroom-dal")
+  const subscriberIds = await getActiveSubscriberIdsForRoom(room.dataroomId)
+  if (subscriberIds.length === 0) return { ok: true, message: "No active subscribers with a live link for this level." }
+
+  const { ensureAllDocumentLinks } = await import("@/lib/document-links")
+
+  let totalCreated = 0
+  let totalSkipped = 0
+  let totalFailed = 0
+  let processed = 0
+
+  for (const subId of subscriberIds) {
+    try {
+      const result = await ensureAllDocumentLinks(subId)
+      totalCreated += result.created
+      totalSkipped += result.skipped
+      totalFailed += result.errors
+      processed++
+    } catch {
+      totalFailed++
+    }
+  }
+
+  refresh()
+
+  if (totalFailed > 0 && totalCreated === 0) {
+    return {
+      message: `Could not create document links for ${subscriberIds.length} subscriber${subscriberIds.length === 1 ? "" : "s"}. ${totalFailed} error${totalFailed === 1 ? "" : "s"}.`,
+    }
+  }
+
+  return {
+    ok: true,
+    message: [
+      `${processed} subscriber${processed === 1 ? "" : "s"} processed.`,
+      totalCreated > 0 ? `${totalCreated} link${totalCreated === 1 ? "" : "s"} created.` : null,
+      totalSkipped > 0 ? `${totalSkipped} already existed.` : null,
+      totalFailed > 0 ? `${totalFailed} failed.` : null,
+      totalCreated === 0 && totalSkipped === 0 && totalFailed === 0 ? "All documents already have links." : null,
+    ].filter(Boolean).join(" "),
+  }
 }
 
 // ---------------------------------------------------------------------------
