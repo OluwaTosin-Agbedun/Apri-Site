@@ -179,13 +179,13 @@ export function documentLinkSettings(args: {
  * still unrecognised lands in Other rather than being dropped.
  */
 export const PORTAL_CATEGORIES = [
-  { key: 'PLM', label: 'Political Landscape Monitor', codes: ['PLM'] },
-  { key: 'AEO', label: 'Election & Democratic Governance Monitor', codes: ['AEO'] },
-  { key: 'AIU', label: 'Athena Intelligence Updates', codes: ['AIU'] },
-  { key: 'MIN', label: 'Monthly Intelligence Notes', codes: ['MIN'] },
-  { key: 'QIB', label: 'Quarterly Intelligence Briefs', codes: ['QIB'] },
-  { key: 'OTHER', label: 'Other Assigned Publications', codes: [] },
-] as const satisfies readonly { key: string; label: string; codes: readonly string[] }[]
+  { key: 'PLM', label: 'Political Landscape Monitor', codes: ['PLM'], aliases: [] as string[] },
+  { key: 'AEO', label: 'Election & Democratic Governance Monitor', codes: ['AEO'], aliases: ['election watch'] },
+  { key: 'AIU', label: 'Athena Intelligence Updates', codes: ['AIU'], aliases: [] as string[] },
+  { key: 'MIN', label: 'Monthly Intelligence Notes', codes: ['MIN'], aliases: [] as string[] },
+  { key: 'QIB', label: 'Quarterly Intelligence Briefs', codes: ['QIB'], aliases: [] as string[] },
+  { key: 'OTHER', label: 'Other Assigned Publications', codes: [] as string[], aliases: [] as string[] },
+] as const satisfies readonly { key: string; label: string; codes: readonly string[]; aliases: readonly string[] }[]
 
 export type PortalCategoryKey = (typeof PORTAL_CATEGORIES)[number]['key']
 
@@ -231,6 +231,28 @@ function leadingCode(value: string): string | null {
   return match ? match[1]! : null
 }
 
+/**
+ * Normalise a folder path segment for classification matching.
+ *
+ * 1. Decode URI characters safely.
+ * 2. Convert to lowercase.
+ * 3. Replace hyphens and underscores with spaces.
+ * 4. Remove harmless leading numeric prefixes (e.g. "04-", "04_", "04 ").
+ * 5. Collapse repeated whitespace.
+ * 6. Trim.
+ */
+export function normaliseSegment(raw: string): string {
+  let s: string
+  try { s = decodeURIComponent(raw) } catch { s = raw }
+  return s
+    .toLowerCase()
+    .replace(/[-_]+/g, ' ')
+    .replace(/&/g, ' ')
+    .replace(/^\d+\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function categoriseDataRoomDocument(args: {
   title: string
   category?: string | null
@@ -239,23 +261,37 @@ export function categoriseDataRoomDocument(args: {
   // The folder an editor filed it in comes first: that is a decision, and a
   // file name is only a habit. Check both the stored category (which may be a
   // prior classification result like 'MIN') and the raw folder path from
-  // Papermark (which may be a human-readable name like 'Monthly Intelligence
-  // Notes' or 'Monthly Intelligence Note').
+  // Papermark (which may be a slug like '/monthly-intelligence-note' or a
+  // human-readable name like 'Monthly Intelligence Notes').
   for (const source of [args.category, args.folderPath]) {
-    const folder = (source ?? '').trim().toUpperCase()
-    if (!folder) continue
+    const raw = (source ?? '').trim()
+    if (!raw) continue
+
+    // First check the raw value for 3-letter codes (case-insensitive).
+    const upper = raw.toUpperCase()
     for (const category of PORTAL_CATEGORIES) {
       for (const code of category.codes) {
-        if (folder.includes(code)) return category.key
+        if (upper.includes(code)) return category.key
       }
-      if (category.key !== 'OTHER') {
-        const upperLabel = category.label.toUpperCase()
-        if (folder.includes(upperLabel)) return category.key
-        // Papermark folders may use singular forms (e.g. "Monthly Intelligence
-        // Note" instead of "Monthly Intelligence Notes"). Match both.
-        if (upperLabel.endsWith('S') && folder.includes(upperLabel.slice(0, -1))) {
-          return category.key
-        }
+    }
+
+    // Normalise every path segment, then match against labels and aliases.
+    const segments = raw.split('/').map(normaliseSegment).filter(Boolean)
+    const joined = segments.join(' ')
+
+    for (const category of PORTAL_CATEGORIES) {
+      if (category.key === 'OTHER') continue
+      // Normalize the label the same way: strip &, lower, collapse spaces
+      const label = category.label.toLowerCase().replace(/&/g, '').replace(/\s+/g, ' ').trim()
+      // Plural label
+      if (joined.includes(label)) return category.key
+      // Singular form (strip trailing 's')
+      if (label.endsWith('s') && joined.includes(label.slice(0, -1))) {
+        return category.key
+      }
+      // Explicit aliases (e.g. "election watch" → AEO)
+      for (const alias of category.aliases) {
+        if (joined.includes(alias)) return category.key
       }
     }
   }
@@ -269,6 +305,38 @@ export function categoriseDataRoomDocument(args: {
   }
 
   return 'OTHER'
+}
+
+/**
+ * Maps a PortalCategoryKey to the series code stored on a documents record.
+ * Returns empty string for OTHER (no series).
+ */
+export function categoryToSeries(key: PortalCategoryKey): string {
+  return key === 'OTHER' ? '' : key
+}
+
+/**
+ * Maps a PortalCategoryKey to the default visibility level for new publications.
+ * Falls back to 'L1' when the tier is unknown.
+ */
+export function categoryToDefaultVisibility(
+  key: PortalCategoryKey,
+  publicTier?: string | null,
+): string {
+  if (publicTier) {
+    if (publicTier === 'Individual Access' || publicTier === 'Professional Team Access') return 'L1'
+    if (publicTier === 'Political Monitor') return 'L2'
+    if (publicTier === 'Executive Intelligence') return 'L3'
+    if (publicTier === 'Board Intelligence' || publicTier === 'Board Briefing') return 'L4'
+  }
+  switch (key) {
+    case 'PLM': return 'L1'
+    case 'MIN': return 'L1'
+    case 'AIU': return 'L2'
+    case 'QIB': return 'L3'
+    case 'AEO': return 'L1'
+    default: return 'L1'
+  }
 }
 
 // ---------------------------------------------------------------------------

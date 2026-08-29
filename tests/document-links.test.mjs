@@ -12,6 +12,9 @@ import { readFileSync } from 'node:fs'
 
 import {
   categoriseDataRoomDocument,
+  normaliseSegment,
+  categoryToSeries,
+  categoryToDefaultVisibility,
   documentLinkSettings,
   humaniseFilename,
   watermarkText,
@@ -831,4 +834,274 @@ test('cross-subscriber isolation: viewer requires principal match', () => {
   const src = read('src/app/portal/document/[id]/page.tsx')
   assert.match(src, /principal\.id/)
   assert.doesNotMatch(src, /searchParams.*get\(['"]subscriberId/)
+})
+
+// ---------------------------------------------------------------------------
+// 26. Slug-path normalisation
+// ---------------------------------------------------------------------------
+
+test('normalise: hyphens become spaces', () => {
+  assert.equal(normaliseSegment('monthly-intelligence-note'), 'monthly intelligence note')
+})
+
+test('normalise: underscores become spaces', () => {
+  assert.equal(normaliseSegment('monthly_intelligence_note'), 'monthly intelligence note')
+})
+
+test('normalise: numeric prefix removed', () => {
+  assert.equal(normaliseSegment('04-monthly-intelligence-note'), 'monthly intelligence note')
+})
+
+test('normalise: numeric prefix with underscore removed', () => {
+  assert.equal(normaliseSegment('04_monthly_intelligence_note'), 'monthly intelligence note')
+})
+
+test('normalise: URI-encoded chars decoded', () => {
+  assert.equal(normaliseSegment('Monthly%20Intelligence%20Note'), 'monthly intelligence note')
+})
+
+test('normalise: mixed case lowered', () => {
+  assert.equal(normaliseSegment('Monthly-Intelligence-Note'), 'monthly intelligence note')
+})
+
+test('normalise: collapses repeated whitespace', () => {
+  assert.equal(normaliseSegment('monthly   intelligence   note'), 'monthly intelligence note')
+})
+
+// ---------------------------------------------------------------------------
+// 27. Slug-path classifier: exact live path
+// ---------------------------------------------------------------------------
+
+test('category: exact live path /monthly-intelligence-note classifies as MIN', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'APRI_End_to_End_Flow_Guide.pdf',
+      folderPath: '/monthly-intelligence-note',
+    }),
+    'MIN',
+  )
+})
+
+test('category: slug /athena-intelligence-updates classifies as AIU', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/athena-intelligence-updates',
+    }),
+    'AIU',
+  )
+})
+
+test('category: slug /quarterly-intelligence-brief classifies as QIB', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/quarterly-intelligence-brief',
+    }),
+    'QIB',
+  )
+})
+
+test('category: slug /political-landscape-monitor classifies as PLM', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/political-landscape-monitor',
+    }),
+    'PLM',
+  )
+})
+
+test('category: slug /election-democratic-governance-monitor classifies as AEO', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/election-democratic-governance-monitor',
+    }),
+    'AEO',
+  )
+})
+
+test('category: slug /election-watch classifies as AEO', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/election-watch',
+    }),
+    'AEO',
+  )
+})
+
+test('category: numeric prefix /04-monthly-intelligence-note classifies as MIN', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/04-monthly-intelligence-note',
+    }),
+    'MIN',
+  )
+})
+
+test('category: nested slug /publications/monthly-intelligence-note classifies as MIN', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/publications/monthly-intelligence-note',
+    }),
+    'MIN',
+  )
+})
+
+// ---------------------------------------------------------------------------
+// 28. DAL: category recalculated on unchanged version_key
+// ---------------------------------------------------------------------------
+
+test('DAL: upsert recalculates category unconditionally in unchanged branch', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function syncDataRoomDocuments'))
+  const elseBranch = fn.slice(fn.indexOf('} else {'))
+  assert.match(elseBranch, /category = \$\{doc\.category\}/)
+  assert.doesNotMatch(elseBranch, /category = coalesce/)
+})
+
+test('DAL: upsert unchanged branch does not bump version_key', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function syncDataRoomDocuments'))
+  const elseBranch = fn.slice(fn.indexOf('} else {'), fn.indexOf('} else {') + 500)
+  assert.doesNotMatch(elseBranch, /version_key/)
+})
+
+test('DAL: upsert unchanged branch does not update updated_at', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function syncDataRoomDocuments'))
+  const elseBranch = fn.slice(fn.indexOf('} else {'), fn.indexOf('} else {') + 500)
+  assert.doesNotMatch(elseBranch, /updated_at/)
+})
+
+test('sync action: syncDataRoomForLevel does not call syncAndNotify or sendNotification', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  const start = src.indexOf('async function syncDataRoomForLevel')
+  const end = src.indexOf('\n// ---', start + 10)
+  const fn = src.slice(start, end > start ? end : undefined)
+  assert.doesNotMatch(fn, /syncAndNotify/)
+  assert.doesNotMatch(fn, /sendNotification/)
+})
+
+// ---------------------------------------------------------------------------
+// 29. Admin: Create / Edit publication details buttons
+// ---------------------------------------------------------------------------
+
+test('admin: missing publication shows Create publication details button', () => {
+  const src = read('src/app/admin/datarooms/page.tsx')
+  assert.match(src, /CreatePublicationButton/)
+})
+
+test('admin: linked publication shows Edit publication details link', () => {
+  const src = read('src/app/admin/datarooms/page.tsx')
+  assert.match(src, /Edit publication details/)
+})
+
+test('admin: Link existing publication action available', () => {
+  const src = read('src/app/admin/datarooms/page.tsx')
+  assert.match(src, /LinkExistingPublication/)
+})
+
+test('admin: createPublicationForDocument action exists and requires owner', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  assert.match(src, /async function createPublicationForDocument/)
+  const fn = src.slice(src.indexOf('async function createPublicationForDocument'))
+  assert.match(fn, /requireOwner/)
+})
+
+test('admin: createPublicationForDocument creates draft, unpublished record', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  assert.match(fn, /\$\{'draft'\}/)
+  assert.match(fn, /\$\{false\}/)
+})
+
+test('admin: createPublicationForSyncedDocument sets papermark_document_id', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  assert.match(fn, /papermark_document_id/)
+})
+
+test('admin: createPublicationForSyncedDocument links publication_id immediately', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  assert.match(fn, /set publication_id =/)
+})
+
+test('admin: createPublicationForSyncedDocument reuses existing record by Papermark ID', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  assert.match(fn, /select id from documents/)
+  assert.match(fn, /where papermark_document_id =/)
+})
+
+test('admin: createPublicationForSyncedDocument does not create open_link_url', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  assert.doesNotMatch(fn, /open_link_url/)
+})
+
+// ---------------------------------------------------------------------------
+// 30. categoryToSeries and categoryToDefaultVisibility
+// ---------------------------------------------------------------------------
+
+test('categoryToSeries: MIN returns MIN', () => {
+  assert.equal(categoryToSeries('MIN'), 'MIN')
+})
+
+test('categoryToSeries: OTHER returns empty string', () => {
+  assert.equal(categoryToSeries('OTHER'), '')
+})
+
+test('categoryToDefaultVisibility: Individual Access tier returns L1', () => {
+  assert.equal(categoryToDefaultVisibility('MIN', 'Individual Access'), 'L1')
+})
+
+test('categoryToDefaultVisibility: PLM with no tier returns L1', () => {
+  assert.equal(categoryToDefaultVisibility('PLM'), 'L1')
+})
+
+test('categoryToDefaultVisibility: QIB with no tier returns L3', () => {
+  assert.equal(categoryToDefaultVisibility('QIB'), 'L3')
+})
+
+// ---------------------------------------------------------------------------
+// 31. Auto-link result message is clear
+// ---------------------------------------------------------------------------
+
+test('admin: autoLinkByPapermarkId returns detailed counts', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function autoLinkByPapermarkId'))
+  assert.match(fn, /linked/)
+  assert.match(fn, /alreadyLinked/)
+  assert.match(fn, /noMatch/)
+})
+
+test('admin: auto-link action message includes linked, already linked, no match', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  const fn = src.slice(src.indexOf('async function autoLinkPublicationsByPapermarkId'))
+  assert.match(fn, /linked/)
+  assert.match(fn, /already linked/)
+  assert.match(fn, /no matching publication/)
+})
+
+// ---------------------------------------------------------------------------
+// 32. Personal document links remain unchanged
+// ---------------------------------------------------------------------------
+
+test('viewer: personal document links not affected by editorial changes', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /documentLinkUrl/)
+  assert.match(src, /papermarkLinkId/)
+  assert.doesNotMatch(src, /publication_id/)
+})
+
+test('download route: not affected by editorial changes', () => {
+  const src = read('src/app/portal/document/[id]/download/route.ts')
+  assert.match(src, /documentLinkUrl/)
+  assert.doesNotMatch(src, /publication_id/)
 })

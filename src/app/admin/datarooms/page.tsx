@@ -4,7 +4,7 @@ import AdminShell from "@/components/AdminShell"
 import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom } from "@/lib/dataroom-dal"
 import { PUBLIC_TIERS, tierDisplayName } from "@/lib/entitlements"
 import { portalCategoryLabel, type PortalCategoryKey } from "@/lib/papermark-dataroom-contract"
-import DataRoomMappingForm, { MappingActions } from "./dataroom-form"
+import DataRoomMappingForm, { MappingActions, CreatePublicationButton, LinkExistingPublication } from "./dataroom-form"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Data Rooms · APRI" }
@@ -168,11 +168,15 @@ export default async function DataRoomsPage() {
                             href={`/admin/documents/${doc.publicationId}`}
                             className="text-xs text-accent hover:text-accent-hover transition-colors"
                           >
-                            Edit publication
+                            Edit publication details
                           </Link>
                         ) : (
-                          <span className="text-xs text-muted-foreground">
-                            Link via Auto-link or create a publication record
+                          <span className="inline-flex items-center flex-wrap gap-1">
+                            <CreatePublicationButton
+                              documentRowId={doc.id}
+                              publicTier={publicTier}
+                            />
+                            <LinkExistingPublication documentRowId={doc.id} />
                           </span>
                         )}
                       </td>

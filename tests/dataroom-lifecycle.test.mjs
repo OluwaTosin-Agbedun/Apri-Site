@@ -309,7 +309,7 @@ describe('admin Data Rooms page renders Quick Actions independently', () => {
 
   it('MappingActions is exported and separate from DataRoomMappingForm', () => {
     assert.match(formFile, /export function MappingActions/)
-    assert.match(adminPage, /import DataRoomMappingForm, \{ MappingActions \}/)
+    assert.match(adminPage, /import DataRoomMappingForm, \{ MappingActions/)
   })
 
   it('MappingActions takes a mappedTiers prop and uses a dropdown', () => {

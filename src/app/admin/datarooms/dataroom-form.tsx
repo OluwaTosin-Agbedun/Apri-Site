@@ -10,6 +10,8 @@ import {
   fetchAvailableDataRooms,
   prepareDocumentLinksForLevel,
   autoLinkPublicationsByPapermarkId,
+  createPublicationForDocument,
+  linkPublicationToSyncedDocument,
 } from "@/app/actions/datarooms"
 import type { FormState } from "@/lib/definitions"
 import { tierDisplayName } from "@/lib/entitlements"
@@ -237,5 +239,103 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
       {autoLinkMsg && <p className="text-sm text-foreground/70 mt-2">{autoLinkMsg}</p>}
       {deleteMsg && <p className="text-sm text-foreground/70 mt-2">{deleteMsg}</p>}
     </div>
+  )
+}
+
+export function CreatePublicationButton({
+  documentRowId,
+  publicTier,
+}: {
+  documentRowId: string
+  publicTier: string
+}) {
+  const [busy, setBusy] = useState(false)
+  const router = useRouter()
+
+  async function handleCreate() {
+    setBusy(true)
+    const result = await createPublicationForDocument(documentRowId, publicTier)
+    if (result.publicationId) {
+      router.push(`/admin/documents/${result.publicationId}`)
+    } else {
+      setBusy(false)
+      alert(result.message || "Could not create publication.")
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCreate}
+      disabled={busy}
+      className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
+    >
+      {busy ? "Creating..." : "Create publication details"}
+    </button>
+  )
+}
+
+export function LinkExistingPublication({
+  documentRowId,
+}: {
+  documentRowId: string
+}) {
+  const [show, setShow] = useState(false)
+  const [pubId, setPubId] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState("")
+  const router = useRouter()
+
+  async function handleLink() {
+    if (!pubId.trim()) return
+    setBusy(true)
+    setMsg("")
+    const result = await linkPublicationToSyncedDocument(documentRowId, pubId.trim())
+    setMsg(result?.message ?? "")
+    setBusy(false)
+    if (result?.ok) {
+      setShow(false)
+      router.refresh()
+    }
+  }
+
+  if (!show) {
+    return (
+      <button
+        type="button"
+        onClick={() => setShow(true)}
+        className="text-[0.65rem] text-muted-foreground hover:text-foreground transition-colors cursor-pointer ml-2"
+      >
+        Link existing
+      </button>
+    )
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 ml-2">
+      <input
+        type="text"
+        placeholder="Publication ID"
+        value={pubId}
+        onChange={(e) => setPubId(e.target.value)}
+        className="border border-border bg-background px-2 py-1 text-[0.65rem] w-56"
+      />
+      <button
+        type="button"
+        onClick={handleLink}
+        disabled={busy || !pubId.trim()}
+        className="text-[0.65rem] text-accent hover:text-accent-hover disabled:opacity-50 cursor-pointer"
+      >
+        {busy ? "..." : "Link"}
+      </button>
+      <button
+        type="button"
+        onClick={() => { setShow(false); setMsg("") }}
+        className="text-[0.65rem] text-muted-foreground cursor-pointer"
+      >
+        Cancel
+      </button>
+      {msg && <span className="text-[0.65rem] text-red-600">{msg}</span>}
+    </span>
   )
 }

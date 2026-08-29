@@ -343,8 +343,8 @@ export async function syncDataRoomDocuments(
         `
         updated++
       } else {
-        // Version unchanged — still backfill metadata that may have been null
-        // on the original insert (e.g. folder_path added after first sync).
+        // Version unchanged — still update folder_path and recalculate category
+        // so a Sync corrects OTHER → MIN without a version bump.
         await sql`
           update papermark_dataroom_documents set
             last_seen_at = now(),
@@ -881,20 +881,120 @@ export async function unlinkPublicationFromDocument(
 
 export async function autoLinkByPapermarkId(
   dataroomId: string,
-): Promise<number> {
+): Promise<{ linked: number; alreadyLinked: number; noMatch: number }> {
   const sql = getSql()
-  const rows = await sql`
-    update papermark_dataroom_documents dd
-    set publication_id = d.id, updated_at = now()
-    from documents d
+
+  const all = (await sql`
+    select dd.id, dd.publication_id, dd.papermark_document_id,
+           (select d.id from documents d
+            where d.papermark_document_id = dd.papermark_document_id
+              and d.papermark_document_id is not null
+            limit 1) as match_id
+    from papermark_dataroom_documents dd
     where dd.papermark_dataroom_id = ${dataroomId}
       and dd.is_present = true
-      and dd.publication_id is null
-      and d.papermark_document_id is not null
-      and dd.papermark_document_id = d.papermark_document_id
-    returning dd.id
+  `) as { id: string; publication_id: string | null; papermark_document_id: string; match_id: string | null }[]
+
+  let linked = 0
+  let alreadyLinked = 0
+  let noMatch = 0
+
+  for (const row of all) {
+    if (row.publication_id) {
+      alreadyLinked++
+    } else if (row.match_id) {
+      await sql`
+        update papermark_dataroom_documents
+        set publication_id = ${row.match_id}::uuid, updated_at = now()
+        where id = ${row.id}::uuid
+      `
+      linked++
+    } else {
+      noMatch++
+    }
+  }
+
+  return { linked, alreadyLinked, noMatch }
+}
+
+// ---------------------------------------------------------------------------
+// Create or reuse a publication record for a synced DR document
+// ---------------------------------------------------------------------------
+
+export async function createPublicationForSyncedDocument(args: {
+  documentRowId: string
+  publicTier?: string | null
+}): Promise<{ publicationId: string; created: boolean }> {
+  const sql = getSql()
+
+  const rows = (await sql`
+    select dd.id, dd.papermark_document_id, dd.title, dd.num_pages,
+           dd.category, dd.publication_id
+    from papermark_dataroom_documents dd
+    where dd.id = ${args.documentRowId}::uuid
+    limit 1
+  `) as {
+    id: string
+    papermark_document_id: string
+    title: string
+    num_pages: number | null
+    category: string
+    publication_id: string | null
+  }[]
+
+  const doc = rows[0]
+  if (!doc) throw new Error('Synced document not found.')
+
+  if (doc.publication_id) {
+    return { publicationId: doc.publication_id, created: false }
+  }
+
+  // Check for existing documents record with same Papermark document ID
+  const existing = (await sql`
+    select id from documents
+    where papermark_document_id = ${doc.papermark_document_id}
+    limit 1
+  `) as { id: string }[]
+
+  if (existing[0]) {
+    await sql`
+      update papermark_dataroom_documents
+      set publication_id = ${existing[0].id}::uuid, updated_at = now()
+      where id = ${doc.id}::uuid
+    `
+    return { publicationId: existing[0].id, created: false }
+  }
+
+  const { humaniseFilename, categoryToSeries, categoryToDefaultVisibility } = await import('./papermark-dataroom-contract')
+  const displayTitle = humaniseFilename(doc.title)
+  const series = categoryToSeries(doc.category as import('./papermark-dataroom-contract').PortalCategoryKey)
+  const visibility = categoryToDefaultVisibility(
+    doc.category as import('./papermark-dataroom-contract').PortalCategoryKey,
+    args.publicTier,
+  )
+  const slug = displayTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+  const inserted = (await sql`
+    insert into documents (
+      slug, title, kicker, summary, series, visibility, page_count,
+      status, is_published, papermark_document_id
+    ) values (
+      ${slug || 'untitled'}, ${displayTitle}, ${''}, ${''}, ${series},
+      ${visibility}, ${doc.num_pages ?? null},
+      ${'draft'}, ${false}, ${doc.papermark_document_id}
+    )
+    returning id
+  `) as { id: string }[]
+
+  const pubId = inserted[0]!.id
+
+  await sql`
+    update papermark_dataroom_documents
+    set publication_id = ${pubId}::uuid, updated_at = now()
+    where id = ${doc.id}::uuid
   `
-  return rows.length
+
+  return { publicationId: pubId, created: true }
 }
 
 // ---------------------------------------------------------------------------

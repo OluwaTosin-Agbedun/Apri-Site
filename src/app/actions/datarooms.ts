@@ -493,6 +493,33 @@ export async function unlinkPublicationFromSyncedDocument(
     : { message: "Document not found." }
 }
 
+export async function createPublicationForDocument(
+  documentRowId: string,
+  publicTier?: string,
+): Promise<FormState & { publicationId?: string }> {
+  await requireOwner()
+  if (!UUID.test(documentRowId)) return { message: "Unknown document." }
+
+  try {
+    const { createPublicationForSyncedDocument } = await import("@/lib/dataroom-dal")
+    const result = await createPublicationForSyncedDocument({
+      documentRowId,
+      publicTier: publicTier || null,
+    })
+    refresh()
+    return {
+      ok: true,
+      publicationId: result.publicationId,
+      message: result.created
+        ? "Publication record created."
+        : "Linked to existing publication record.",
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Could not create publication."
+    return { message: msg }
+  }
+}
+
 export async function autoLinkPublicationsByPapermarkId(
   publicTier: string,
 ): Promise<FormState> {
@@ -503,13 +530,16 @@ export async function autoLinkPublicationsByPapermarkId(
   if (!room) return { message: `No Data Room mapped for ${publicTier}.` }
 
   const { autoLinkByPapermarkId } = await import("@/lib/dataroom-dal")
-  const linked = await autoLinkByPapermarkId(room.dataroomId)
+  const counts = await autoLinkByPapermarkId(room.dataroomId)
   refresh()
+  const parts = [
+    counts.linked > 0 ? `${counts.linked} linked` : null,
+    counts.alreadyLinked > 0 ? `${counts.alreadyLinked} already linked` : null,
+    counts.noMatch > 0 ? `${counts.noMatch} no matching publication` : null,
+  ].filter(Boolean)
   return {
     ok: true,
-    message: linked > 0
-      ? `${linked} document${linked === 1 ? "" : "s"} auto-linked by Papermark ID.`
-      : "No documents could be auto-linked. Link them manually or set the Papermark document ID on the publication record.",
+    message: parts.length > 0 ? parts.join(', ') + '.' : 'No documents in this room.',
   }
 }
 
