@@ -213,6 +213,18 @@ export function portalTypeLabel(key: PortalCategoryKey): string {
   }
 }
 
+/**
+ * Strip `.pdf` and replace underscores/hyphens with spaces for display.
+ * Used as a fallback when no editorial title exists.
+ */
+export function humaniseFilename(raw: string): string {
+  return raw
+    .replace(/\.pdf$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || raw
+}
+
 /** A series code at the very start of a name, separator required. */
 function leadingCode(value: string): string | null {
   const match = value.trim().toUpperCase().match(/^([A-Z]{3})[-_\s]/)
@@ -228,7 +240,7 @@ export function categoriseDataRoomDocument(args: {
   // file name is only a habit. Check both the stored category (which may be a
   // prior classification result like 'MIN') and the raw folder path from
   // Papermark (which may be a human-readable name like 'Monthly Intelligence
-  // Notes').
+  // Notes' or 'Monthly Intelligence Note').
   for (const source of [args.category, args.folderPath]) {
     const folder = (source ?? '').trim().toUpperCase()
     if (!folder) continue
@@ -236,8 +248,14 @@ export function categoriseDataRoomDocument(args: {
       for (const code of category.codes) {
         if (folder.includes(code)) return category.key
       }
-      if (category.key !== 'OTHER' && folder.includes(category.label.toUpperCase())) {
-        return category.key
+      if (category.key !== 'OTHER') {
+        const upperLabel = category.label.toUpperCase()
+        if (folder.includes(upperLabel)) return category.key
+        // Papermark folders may use singular forms (e.g. "Monthly Intelligence
+        // Note" instead of "Monthly Intelligence Notes"). Match both.
+        if (upperLabel.endsWith('S') && folder.includes(upperLabel.slice(0, -1))) {
+          return category.key
+        }
       }
     }
   }

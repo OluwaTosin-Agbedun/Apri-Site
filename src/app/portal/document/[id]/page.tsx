@@ -38,7 +38,7 @@ export default async function PortalDocumentPage({
       return (
         <DataRoomDocumentView
           principal={principal}
-          title={drResult.document.title}
+          title={drResult.document.displayTitle}
           categoryLabel={drResult.document.categoryLabel}
           numPages={drResult.document.numPages}
           documentLinkUrl={drResult.documentLinkUrl}

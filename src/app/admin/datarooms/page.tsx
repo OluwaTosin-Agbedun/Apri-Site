@@ -1,7 +1,9 @@
+import Link from "next/link"
 import { requireOwner } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
-import { getLevelRoomMappings, getDataRoomStats } from "@/lib/dataroom-dal"
+import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom } from "@/lib/dataroom-dal"
 import { PUBLIC_TIERS, tierDisplayName } from "@/lib/entitlements"
+import { portalCategoryLabel, type PortalCategoryKey } from "@/lib/papermark-dataroom-contract"
 import DataRoomMappingForm, { MappingActions } from "./dataroom-form"
 
 export const dynamic = "force-dynamic"
@@ -16,6 +18,13 @@ export default async function DataRoomsPage() {
 
   const mapped = new Set(mappings.map((m) => m.publicTier))
   const unmappedTiers = PUBLIC_TIERS.filter((t) => !mapped.has(t.name))
+
+  const syncedDocsPerRoom = await Promise.all(
+    mappings.map(async (m) => ({
+      publicTier: m.publicTier,
+      documents: await getSyncedDocumentsForRoom(m.dataroomId),
+    })),
+  )
 
   const metrics = [
     { label: "Configured Levels", value: `${stats.configuredLevels} / ${stats.totalLevels}` },
@@ -104,6 +113,76 @@ export default async function DataRoomsPage() {
         <div className="border border-border bg-card/30 p-6 mt-8">
           <MappingActions mappedTiers={mappings.map((m) => m.publicTier)} />
         </div>
+      )}
+
+      {syncedDocsPerRoom.map(({ publicTier, documents: docs }) =>
+        docs.length > 0 && (
+          <div key={publicTier} className="mt-8 pt-8 border-t border-border">
+            <h3 className="font-serif text-lg text-foreground mb-4">
+              Synced Documents — {tierDisplayName(publicTier)}
+            </h3>
+            <div className="border border-border bg-card/30 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border bg-black/5 text-foreground/70">
+                  <tr>
+                    <th className="font-medium p-3">Papermark Filename</th>
+                    <th className="font-medium p-3">Folder / Category</th>
+                    <th className="font-medium p-3">Pages</th>
+                    <th className="font-medium p-3">Editorial Status</th>
+                    <th className="font-medium p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {docs.map((doc) => (
+                    <tr key={doc.id} className="hover:bg-black/5 transition-colors">
+                      <td className="p-3 text-foreground max-w-xs truncate" title={doc.title}>
+                        {doc.title}
+                      </td>
+                      <td className="p-3 text-foreground/70">
+                        <span className="text-xs">{doc.folderPath || "—"}</span>
+                        <br />
+                        <span className="text-xs text-muted-foreground">
+                          {portalCategoryLabel(doc.category as PortalCategoryKey)}
+                        </span>
+                        {doc.category === "OTHER" && (
+                          <span className="ml-2 text-[0.65rem] text-amber-600">
+                            Category not recognised. Check this document&apos;s Papermark Data Room folder.
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-foreground/70">{doc.numPages ?? "—"}</td>
+                      <td className="p-3">
+                        {doc.editorialStatus === "complete" ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-accent/10 text-accent">
+                            Complete
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                            Needs details
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right">
+                        {doc.publicationId ? (
+                          <Link
+                            href={`/admin/documents/${doc.publicationId}`}
+                            className="text-xs text-accent hover:text-accent-hover transition-colors"
+                          >
+                            Edit publication
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Link via Auto-link or create a publication record
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ),
       )}
 
       <div className="mt-8 pt-8 border-t border-border">

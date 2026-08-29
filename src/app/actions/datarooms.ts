@@ -460,6 +460,60 @@ export async function prepareDocumentLinksForLevel(publicTier: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Link/unlink editorial publication to a synced Data Room document
+// ---------------------------------------------------------------------------
+
+export async function linkPublicationToSyncedDocument(
+  documentRowId: string,
+  publicationId: string,
+): Promise<FormState> {
+  await requireOwner()
+  if (!UUID.test(documentRowId)) return { message: "Unknown document." }
+  if (!UUID.test(publicationId)) return { message: "Unknown publication." }
+
+  const { linkPublicationToDocument } = await import("@/lib/dataroom-dal")
+  const linked = await linkPublicationToDocument(documentRowId, publicationId)
+  refresh()
+  return linked
+    ? { ok: true, message: "Publication linked." }
+    : { message: "Document not found." }
+}
+
+export async function unlinkPublicationFromSyncedDocument(
+  documentRowId: string,
+): Promise<FormState> {
+  await requireOwner()
+  if (!UUID.test(documentRowId)) return { message: "Unknown document." }
+
+  const { unlinkPublicationFromDocument } = await import("@/lib/dataroom-dal")
+  const unlinked = await unlinkPublicationFromDocument(documentRowId)
+  refresh()
+  return unlinked
+    ? { ok: true, message: "Publication unlinked." }
+    : { message: "Document not found." }
+}
+
+export async function autoLinkPublicationsByPapermarkId(
+  publicTier: string,
+): Promise<FormState> {
+  await requireOwner()
+  if (!(PUBLIC_TIER_NAMES as readonly string[]).includes(publicTier)) return { message: "Unknown level." }
+
+  const room = await resolveDataRoom({ publicTier })
+  if (!room) return { message: `No Data Room mapped for ${publicTier}.` }
+
+  const { autoLinkByPapermarkId } = await import("@/lib/dataroom-dal")
+  const linked = await autoLinkByPapermarkId(room.dataroomId)
+  refresh()
+  return {
+    ok: true,
+    message: linked > 0
+      ? `${linked} document${linked === 1 ? "" : "s"} auto-linked by Papermark ID.`
+      : "No documents could be auto-linked. Link them manually or set the Papermark document ID on the publication record.",
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Record a portal download click (no Papermark URL stored)
 // ---------------------------------------------------------------------------
 

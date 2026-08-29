@@ -9,6 +9,7 @@ import {
 import {
   categoriseDataRoomDocument,
   documentBadge,
+  humaniseFilename,
   portalTypeLabel,
   type PortalCategoryKey,
 } from "./papermark-dataroom-contract"
@@ -34,6 +35,7 @@ export type DataRoomDocument = {
   papermarkDocumentId: string
   dataroomDocumentId: string | null
   title: string
+  displayTitle: string
   category: PortalCategoryKey
   categoryLabel: string
   numPages: number | null
@@ -42,6 +44,11 @@ export type DataRoomDocument = {
   papermarkUpdatedAt: string | null
   firstSeenAt: string | null
   badge: "new" | "updated" | null
+  summary: string | null
+  kicker: string | null
+  editionDate: string | null
+  series: string | null
+  editorialPageCount: number | null
 }
 
 export type SubscriberDataRoomContext = {
@@ -84,15 +91,19 @@ export async function getDataRoomDocumentsForSubscriber(
   if (!link) return null
 
   const rows = (await sql`
-    select id, papermark_document_id, dataroom_document_id,
-           title, category, folder_path, num_pages, content_type,
-           papermark_created_at, papermark_updated_at, first_seen_at
-    from papermark_dataroom_documents
-    where papermark_dataroom_id = ${link.papermark_dataroom_id}
-      and is_present = true
-    order by papermark_updated_at desc nulls last,
-             papermark_created_at desc nulls last,
-             title
+    select dd.id, dd.papermark_document_id, dd.dataroom_document_id,
+           dd.title, dd.category, dd.folder_path, dd.num_pages, dd.content_type,
+           dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
+           d.title as ed_title, d.kicker as ed_kicker, d.summary as ed_summary,
+           d.edition_date as ed_edition_date, d.page_count as ed_page_count,
+           d.series as ed_series
+    from papermark_dataroom_documents dd
+    left join documents d on d.id = dd.publication_id
+    where dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
+      and dd.is_present = true
+    order by dd.papermark_updated_at desc nulls last,
+             dd.papermark_created_at desc nulls last,
+             dd.title
   `) as {
     id: string
     papermark_document_id: string
@@ -105,6 +116,12 @@ export async function getDataRoomDocumentsForSubscriber(
     papermark_created_at: string | null
     papermark_updated_at: string | null
     first_seen_at: string | null
+    ed_title: string | null
+    ed_kicker: string | null
+    ed_summary: string | null
+    ed_edition_date: string | null
+    ed_page_count: number | null
+    ed_series: string | null
   }[]
 
   const previousVisit = options.previousVisit ?? null
@@ -120,9 +137,10 @@ export async function getDataRoomDocumentsForSubscriber(
       papermarkDocumentId: row.papermark_document_id,
       dataroomDocumentId: row.dataroom_document_id,
       title: row.title,
+      displayTitle: row.ed_title || humaniseFilename(row.title),
       category: cat,
       categoryLabel: portalTypeLabel(cat),
-      numPages: row.num_pages,
+      numPages: row.ed_page_count ?? row.num_pages,
       contentType: row.content_type,
       papermarkCreatedAt: row.papermark_created_at
         ? new Date(row.papermark_created_at).toISOString() : null,
@@ -135,6 +153,12 @@ export async function getDataRoomDocumentsForSubscriber(
         updatedAt: row.papermark_updated_at,
         previousVisit,
       }),
+      summary: row.ed_summary || null,
+      kicker: row.ed_kicker || null,
+      editionDate: row.ed_edition_date
+        ? new Date(row.ed_edition_date).toISOString().slice(0, 10) : null,
+      series: row.ed_series || null,
+      editorialPageCount: row.ed_page_count,
     }
   })
 
@@ -185,13 +209,17 @@ export async function getDataRoomDocumentForSubscriber(
   if (!link) return null
 
   const rows = (await sql`
-    select id, papermark_document_id, dataroom_document_id,
-           title, category, folder_path, num_pages, content_type,
-           papermark_created_at, papermark_updated_at, first_seen_at
-    from papermark_dataroom_documents
-    where id = ${documentRowId}::uuid
-      and papermark_dataroom_id = ${link.papermark_dataroom_id}
-      and is_present = true
+    select dd.id, dd.papermark_document_id, dd.dataroom_document_id,
+           dd.title, dd.category, dd.folder_path, dd.num_pages, dd.content_type,
+           dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
+           d.title as ed_title, d.kicker as ed_kicker, d.summary as ed_summary,
+           d.edition_date as ed_edition_date, d.page_count as ed_page_count,
+           d.series as ed_series
+    from papermark_dataroom_documents dd
+    left join documents d on d.id = dd.publication_id
+    where dd.id = ${documentRowId}::uuid
+      and dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
+      and dd.is_present = true
     limit 1
   `) as {
     id: string
@@ -205,6 +233,12 @@ export async function getDataRoomDocumentForSubscriber(
     papermark_created_at: string | null
     papermark_updated_at: string | null
     first_seen_at: string | null
+    ed_title: string | null
+    ed_kicker: string | null
+    ed_summary: string | null
+    ed_edition_date: string | null
+    ed_page_count: number | null
+    ed_series: string | null
   }[]
 
   const row = rows[0]
@@ -226,9 +260,10 @@ export async function getDataRoomDocumentForSubscriber(
       papermarkDocumentId: row.papermark_document_id,
       dataroomDocumentId: row.dataroom_document_id,
       title: row.title,
+      displayTitle: row.ed_title || humaniseFilename(row.title),
       category: cat,
       categoryLabel: portalTypeLabel(cat),
-      numPages: row.num_pages,
+      numPages: row.ed_page_count ?? row.num_pages,
       contentType: row.content_type,
       papermarkCreatedAt: row.papermark_created_at
         ? new Date(row.papermark_created_at).toISOString() : null,
@@ -237,6 +272,12 @@ export async function getDataRoomDocumentForSubscriber(
       firstSeenAt: row.first_seen_at
         ? new Date(row.first_seen_at).toISOString() : null,
       badge: null,
+      summary: row.ed_summary || null,
+      kicker: row.ed_kicker || null,
+      editionDate: row.ed_edition_date
+        ? new Date(row.ed_edition_date).toISOString().slice(0, 10) : null,
+      series: row.ed_series || null,
+      editorialPageCount: row.ed_page_count,
     },
     documentLinkUrl: docLink?.linkUrl ?? null,
     papermarkLinkId: docLink?.papermarkLinkId ?? null,

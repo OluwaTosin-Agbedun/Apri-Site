@@ -343,8 +343,15 @@ export async function syncDataRoomDocuments(
         `
         updated++
       } else {
+        // Version unchanged — still backfill metadata that may have been null
+        // on the original insert (e.g. folder_path added after first sync).
         await sql`
-          update papermark_dataroom_documents set last_seen_at = now()
+          update papermark_dataroom_documents set
+            last_seen_at = now(),
+            folder_path = coalesce(${doc.folderPath ?? null}, folder_path),
+            folder_id = coalesce(${doc.folderId ?? null}, folder_id),
+            category = ${doc.category},
+            dataroom_document_id = coalesce(${doc.dataroomDocumentId ?? null}, dataroom_document_id)
           where id = ${existing[0].id}::uuid
         `
       }
@@ -787,6 +794,107 @@ function mapDocLinkRow(r: Record<string, unknown>): DocumentLinkRecord {
     revokeState: String(r.revoke_state ?? 'live'),
     createdAt: String(r.created_at ?? ''),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Synced documents with editorial status (admin)
+// ---------------------------------------------------------------------------
+
+export type SyncedDocumentRow = {
+  id: string
+  papermarkDocumentId: string
+  title: string
+  folderPath: string | null
+  category: string
+  numPages: number | null
+  publicationId: string | null
+  editorialTitle: string | null
+  editorialStatus: 'complete' | 'needs_details'
+}
+
+export async function getSyncedDocumentsForRoom(
+  dataroomId: string,
+): Promise<SyncedDocumentRow[]> {
+  const sql = getSql()
+  const rows = (await sql`
+    select dd.id, dd.papermark_document_id, dd.title, dd.folder_path,
+           dd.category, dd.num_pages, dd.publication_id,
+           d.title as editorial_title, d.summary as editorial_summary
+    from papermark_dataroom_documents dd
+    left join documents d on d.id = dd.publication_id
+    where dd.papermark_dataroom_id = ${dataroomId}
+      and dd.is_present = true
+    order by dd.folder_path nulls last, dd.title
+  `) as {
+    id: string
+    papermark_document_id: string
+    title: string
+    folder_path: string | null
+    category: string
+    num_pages: number | null
+    publication_id: string | null
+    editorial_title: string | null
+    editorial_summary: string | null
+  }[]
+
+  return rows.map((r) => ({
+    id: r.id,
+    papermarkDocumentId: r.papermark_document_id,
+    title: r.title,
+    folderPath: r.folder_path,
+    category: r.category,
+    numPages: r.num_pages,
+    publicationId: r.publication_id,
+    editorialTitle: r.editorial_title,
+    editorialStatus: r.publication_id && r.editorial_title && r.editorial_summary
+      ? 'complete' as const
+      : 'needs_details' as const,
+  }))
+}
+
+export async function linkPublicationToDocument(
+  documentRowId: string,
+  publicationId: string,
+): Promise<boolean> {
+  const sql = getSql()
+  const rows = await sql`
+    update papermark_dataroom_documents
+    set publication_id = ${publicationId}::uuid, updated_at = now()
+    where id = ${documentRowId}::uuid
+    returning 1
+  `
+  return rows.length > 0
+}
+
+export async function unlinkPublicationFromDocument(
+  documentRowId: string,
+): Promise<boolean> {
+  const sql = getSql()
+  const rows = await sql`
+    update papermark_dataroom_documents
+    set publication_id = null, updated_at = now()
+    where id = ${documentRowId}::uuid
+    returning 1
+  `
+  return rows.length > 0
+}
+
+export async function autoLinkByPapermarkId(
+  dataroomId: string,
+): Promise<number> {
+  const sql = getSql()
+  const rows = await sql`
+    update papermark_dataroom_documents dd
+    set publication_id = d.id, updated_at = now()
+    from documents d
+    where dd.papermark_dataroom_id = ${dataroomId}
+      and dd.is_present = true
+      and dd.publication_id is null
+      and d.papermark_document_id is not null
+      and dd.papermark_document_id = d.papermark_document_id
+    returning dd.id
+  `
+  return rows.length
 }
 
 // ---------------------------------------------------------------------------

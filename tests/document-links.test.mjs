@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs'
 import {
   categoriseDataRoomDocument,
   documentLinkSettings,
+  humaniseFilename,
   watermarkText,
   portalTypeLabel,
   portalCategoryLabel,
@@ -556,4 +557,278 @@ test('API: DocumentLinkSettings type has document_id, not dataroom_id', () => {
   const typeDef = src.slice(start, end)
   assert.match(typeDef, /document_id: string/)
   assert.doesNotMatch(typeDef, /dataroom_id/)
+})
+
+// ---------------------------------------------------------------------------
+// 18. humaniseFilename fallback
+// ---------------------------------------------------------------------------
+
+test('humanise: strips .pdf extension', () => {
+  assert.equal(humaniseFilename('APRI_Monthly_Report.pdf'), 'APRI Monthly Report')
+})
+
+test('humanise: strips .PDF (case-insensitive)', () => {
+  assert.equal(humaniseFilename('report.PDF'), 'report')
+})
+
+test('humanise: replaces underscores and hyphens with spaces', () => {
+  assert.equal(humaniseFilename('PLM-2026-08-Report'), 'PLM 2026 08 Report')
+})
+
+test('humanise: collapses multiple separators', () => {
+  assert.equal(humaniseFilename('a__b--c___d.pdf'), 'a b c d')
+})
+
+test('humanise: returns raw input when result would be empty', () => {
+  assert.equal(humaniseFilename(''), '')
+  assert.equal(humaniseFilename('.pdf'), '.pdf')
+})
+
+test('humanise: trims whitespace around the name', () => {
+  assert.equal(humaniseFilename('  spaced_out  '), 'spaced out')
+})
+
+// ---------------------------------------------------------------------------
+// 19. Editorial metadata on portal cards
+// ---------------------------------------------------------------------------
+
+test('portal: DataRoomCard renders displayTitle, not raw title', () => {
+  const src = read('src/app/portal/page.tsx')
+  const drCard = src.slice(
+    src.indexOf('function DataRoomCard('),
+    src.indexOf('\nfunction', src.indexOf('function DataRoomCard(') + 10),
+  )
+  assert.match(drCard, /document\.displayTitle/)
+  assert.doesNotMatch(drCard, /\{document\.title\}/)
+})
+
+test('portal: card renders kicker when present', () => {
+  const src = read('src/app/portal/page.tsx')
+  assert.match(src, /document\.kicker/)
+})
+
+test('portal: card renders summary when present', () => {
+  const src = read('src/app/portal/page.tsx')
+  assert.match(src, /document\.summary/)
+})
+
+test('portal: card prefers editionDate over Papermark dates', () => {
+  const src = read('src/app/portal/page.tsx')
+  assert.match(src, /document\.editionDate \|\| document\.papermarkUpdatedAt/)
+})
+
+test('viewer: uses displayTitle for page title', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /drResult\.document\.displayTitle/)
+})
+
+// ---------------------------------------------------------------------------
+// 20. Client library LEFT JOINs editorial data
+// ---------------------------------------------------------------------------
+
+test('client library: DataRoomDocument type has editorial fields', () => {
+  const src = read('src/lib/papermark-client-library.ts')
+  const start = src.indexOf('export type DataRoomDocument')
+  const end = src.indexOf('}', start) + 1
+  const typeDef = src.slice(start, end)
+  assert.match(typeDef, /displayTitle: string/)
+  assert.match(typeDef, /summary: string \| null/)
+  assert.match(typeDef, /kicker: string \| null/)
+  assert.match(typeDef, /editionDate: string \| null/)
+  assert.match(typeDef, /series: string \| null/)
+  assert.match(typeDef, /editorialPageCount: number \| null/)
+})
+
+test('client library: list query LEFT JOINs documents table', () => {
+  const src = read('src/lib/papermark-client-library.ts')
+  const fn = src.slice(src.indexOf('async function getDataRoomDocumentsForSubscriber'))
+  assert.match(fn, /left join documents d on d\.id = dd\.publication_id/i)
+})
+
+test('client library: single-doc query LEFT JOINs documents table', () => {
+  const src = read('src/lib/papermark-client-library.ts')
+  const fn = src.slice(src.indexOf('async function getDataRoomDocumentForSubscriber'))
+  assert.match(fn, /left join documents d on d\.id = dd\.publication_id/i)
+})
+
+test('client library: displayTitle falls back to humanised filename', () => {
+  const src = read('src/lib/papermark-client-library.ts')
+  assert.match(src, /displayTitle: row\.ed_title \|\| humaniseFilename\(row\.title\)/)
+})
+
+test('client library: imports humaniseFilename from contract module', () => {
+  const src = read('src/lib/papermark-client-library.ts')
+  assert.match(src, /import[\s\S]*humaniseFilename[\s\S]*from ['"]\.\/papermark-dataroom-contract['"]/)
+})
+
+// ---------------------------------------------------------------------------
+// 21. Category classifier: singular folder name fix
+// ---------------------------------------------------------------------------
+
+test('category: singular "Monthly Intelligence Note" classifies as MIN', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/Monthly Intelligence Note',
+    }),
+    'MIN',
+  )
+})
+
+test('category: singular "Quarterly Intelligence Brief" classifies as QIB', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: 'Quarterly Intelligence Brief',
+    }),
+    'QIB',
+  )
+})
+
+test('category: nested path "/Publications/Monthly Intelligence Note" classifies as MIN', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: '/Publications/Monthly Intelligence Note',
+    }),
+    'MIN',
+  )
+})
+
+test('category: case-insensitive folder match still works', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: 'monthly intelligence note',
+    }),
+    'MIN',
+  )
+})
+
+test('category: folder classification takes priority over title code', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'PLM-Report-2026.pdf',
+      folderPath: 'Monthly Intelligence Notes',
+    }),
+    'MIN',
+  )
+})
+
+test('category: OTHER used only when no folder or title matches', () => {
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'random_doc.pdf',
+      folderPath: '/Miscellaneous',
+    }),
+    'OTHER',
+  )
+})
+
+// ---------------------------------------------------------------------------
+// 22. DAL upsert backfills folder_path when version_key unchanged
+// ---------------------------------------------------------------------------
+
+test('DAL: upsert updates folder_path with COALESCE on unchanged version_key', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function syncDataRoomDocuments'))
+  const elseBranch = fn.slice(fn.indexOf('} else {'))
+  assert.match(elseBranch, /folder_path = coalesce\(/)
+  assert.match(elseBranch, /folder_id = coalesce\(/)
+  assert.match(elseBranch, /category =/)
+})
+
+test('DAL: upsert unchanged branch updates last_seen_at', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function syncDataRoomDocuments'))
+  const elseBranch = fn.slice(fn.indexOf('} else {'))
+  assert.match(elseBranch, /last_seen_at = now\(\)/)
+})
+
+// ---------------------------------------------------------------------------
+// 23. Migration: publication_id column
+// ---------------------------------------------------------------------------
+
+test('migration: editorial link adds publication_id column', () => {
+  const src = read('db/migrations/20260829_editorial_link.sql')
+  assert.match(src, /publication_id uuid/)
+  assert.match(src, /REFERENCES documents\(id\)/)
+  assert.match(src, /ON DELETE SET NULL/)
+})
+
+test('migration: editorial link has partial index on publication_id', () => {
+  const src = read('db/migrations/20260829_editorial_link.sql')
+  assert.match(src, /idx_pdd_publication_id/)
+  assert.match(src, /WHERE publication_id IS NOT NULL/)
+})
+
+test('migration: editorial link is idempotent', () => {
+  const src = read('db/migrations/20260829_editorial_link.sql')
+  assert.match(src, /IF NOT EXISTS/)
+  assert.match(src, /CREATE INDEX IF NOT EXISTS/)
+})
+
+// ---------------------------------------------------------------------------
+// 24. Admin: editorial status and auto-link
+// ---------------------------------------------------------------------------
+
+test('admin: synced documents table shows editorial status', () => {
+  const src = read('src/app/admin/datarooms/page.tsx')
+  assert.match(src, /editorialStatus/)
+  assert.match(src, /Complete/)
+  assert.match(src, /Needs details/)
+})
+
+test('admin: synced documents table shows folder path and category', () => {
+  const src = read('src/app/admin/datarooms/page.tsx')
+  assert.match(src, /doc\.folderPath/)
+  assert.match(src, /portalCategoryLabel/)
+})
+
+test('admin: auto-link publications button exists', () => {
+  const src = read('src/app/admin/datarooms/dataroom-form.tsx')
+  assert.match(src, /Auto-link publications/)
+  assert.match(src, /autoLinkPublicationsByPapermarkId/)
+  assert.match(src, /handleAutoLink/)
+})
+
+test('admin: auto-link action requires owner', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  const fn = src.slice(src.indexOf('async function autoLinkPublicationsByPapermarkId'))
+  assert.match(fn, /requireOwner/)
+})
+
+test('admin: link and unlink publication actions exist', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  assert.match(src, /async function linkPublicationToSyncedDocument/)
+  assert.match(src, /async function unlinkPublicationFromSyncedDocument/)
+})
+
+test('admin: getSyncedDocumentsForRoom exists in DAL', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  assert.match(src, /async function getSyncedDocumentsForRoom/)
+})
+
+test('admin: autoLinkByPapermarkId matches on papermark_document_id', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function autoLinkByPapermarkId'))
+  assert.match(fn, /papermark_document_id/)
+})
+
+// ---------------------------------------------------------------------------
+// 25. Sync safety: no notifications, no duplicate links
+// ---------------------------------------------------------------------------
+
+test('sync: syncDataRoomDocuments does not send notifications', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function syncDataRoomDocuments'))
+  const end = src.indexOf('\nexport', src.indexOf('async function syncDataRoomDocuments') + 10)
+  const body = src.slice(src.indexOf('async function syncDataRoomDocuments'), end > 0 ? end : undefined)
+  assert.doesNotMatch(body, /sendNotification|notifySubscribers|sendEmail/)
+})
+
+test('cross-subscriber isolation: viewer requires principal match', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /principal\.id/)
+  assert.doesNotMatch(src, /searchParams.*get\(['"]subscriberId/)
 })

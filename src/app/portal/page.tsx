@@ -310,10 +310,10 @@ function DataRoomGrid({ documents }: { documents: DataRoomDocument[] }) {
 }
 
 function DataRoomCard({ document }: { document: DataRoomDocument }) {
-  const date = document.papermarkUpdatedAt || document.papermarkCreatedAt
+  const date = document.editionDate || document.papermarkUpdatedAt || document.papermarkCreatedAt
   return (
     <div className="w-full max-w-none border border-border bg-card/30 p-5 sm:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:gap-6">
+      <div className="flex flex-col sm:flex-row sm:gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3 mb-2">
             <span className="text-xs uppercase tracking-wider text-muted-foreground truncate">
@@ -330,22 +330,33 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
             )}
           </div>
           <h3 className="font-serif text-lg text-foreground leading-snug break-words">
-            {document.title}
+            {document.displayTitle}
           </h3>
-          <div className="flex items-center gap-3 mt-2">
-            {document.numPages && (
-              <span className="text-xs text-muted-foreground">
-                {document.numPages} {document.numPages === 1 ? "page" : "pages"}
-              </span>
-            )}
+          {document.kicker && (
+            <p className="text-sm text-foreground/70 mt-1">{document.kicker}</p>
+          )}
+          {document.summary && (
+            <p className="text-sm text-foreground/60 leading-relaxed mt-2 line-clamp-3">
+              {document.summary}
+            </p>
+          )}
+          <div className="flex items-center gap-3 mt-3">
             {date && (
               <span className="text-xs text-muted-foreground">
                 {formatDate(date)}
               </span>
             )}
+            {document.numPages && (
+              <>
+                {date && <span className="text-xs text-border">&middot;</span>}
+                <span className="text-xs text-muted-foreground">
+                  {document.numPages} {document.numPages === 1 ? "page" : "pages"}
+                </span>
+              </>
+            )}
           </div>
         </div>
-        <div className="flex gap-3 shrink-0 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border">
+        <div className="flex gap-3 shrink-0 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border sm:items-start sm:pt-1">
           <Link
             href={`/portal/document/${encodeURIComponent(document.id)}/download`}
             className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors py-2 sm:py-1"
