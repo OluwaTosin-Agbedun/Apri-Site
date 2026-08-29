@@ -161,6 +161,7 @@ export async function getDataRoomDocumentForSubscriber(
 ): Promise<{
   document: DataRoomDocument
   documentLinkUrl: string | null
+  papermarkLinkId: string | null
   allowDownload: boolean
 } | null> {
   if (!documentRowId || documentRowId.length > 200) return null
@@ -238,6 +239,7 @@ export async function getDataRoomDocumentForSubscriber(
       badge: null,
     },
     documentLinkUrl: docLink?.linkUrl ?? null,
+    papermarkLinkId: docLink?.papermarkLinkId ?? null,
     allowDownload: docLink?.allowDownload ?? link.allow_download,
   }
 }

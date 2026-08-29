@@ -68,21 +68,24 @@ test('a card shows the title, the type, a date and a badge only when earned', ()
 // Layout
 // ---------------------------------------------------------------------------
 
-test('the portal uses the desktop width, with safe gutters and a column grid', () => {
-  // Up to 1600px, gutters of 16px rising to 32px then 48px -- not a reading measure.
-  assert.match(portal, /max-w-\[1600px\]/)
-  assert.match(portal, /px-4 sm:px-8/)
+test('the portal uses full width with safe gutters and single-column grid', () => {
+  // Up to 1800px, gutters of 16px rising to 24px, 32px then 48px.
+  assert.match(portal, /max-w-\[1800px\]/)
+  assert.match(portal, /px-4 sm:px-6/)
   assert.doesNotMatch(portal.slice(0, portal.indexOf('function LockedLibrary')), /max-w-3xl/)
 
-  // Multiple columns on a desktop, one on a phone.
-  assert.match(portal, /grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4/)
+  // One card per row at every breakpoint — no multi-column grids.
+  assert.doesNotMatch(portal, /sm:grid-cols-2/)
+  assert.doesNotMatch(portal, /xl:grid-cols-3/)
+  assert.doesNotMatch(portal, /2xl:grid-cols-4/)
 })
 
-test('the viewer fills the content width and has a practical desktop height', () => {
+test('the viewer fills the content width and has a viewport-height embed', () => {
   const embed = read('src/components/PapermarkEmbed.tsx')
   assert.match(embed, /min-h-\[70vh\] lg:min-h-\[78vh\]/)
   assert.match(embed, /w-full/)
-  assert.match(viewer, /max-w-\[1600px\]/)
+  assert.match(viewer, /max-w-\[1800px\]/)
+  assert.match(viewer, /100dvh/)
 })
 
 test('nothing forces the page to scroll sideways on a phone', () => {
@@ -98,7 +101,7 @@ test('nothing forces the page to scroll sideways on a phone', () => {
   assert.doesNotMatch(portal, /(?<!max-)(?<!min-)\bw-\[\d+px\]/)
   assert.doesNotMatch(portal, /\bmin-w-\[\d{3,}px\]/)
   assert.doesNotMatch(portal, /overflow-x-(?:scroll|auto)/)
-  assert.match(portal, /w-full max-w-\[1600px\]/)
+  assert.match(portal, /w-full max-w-\[1800px\]/)
 })
 
 // ---------------------------------------------------------------------------

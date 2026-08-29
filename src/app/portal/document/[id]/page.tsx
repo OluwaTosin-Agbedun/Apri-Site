@@ -6,7 +6,7 @@ import {
   getSyncedClientDocument,
   getDataRoomDocumentForSubscriber,
 } from "@/lib/papermark-client-library"
-import { papermarkEmbedUrl } from "@/lib/papermark-embed"
+import { papermarkEmbedUrl, papermarkDocumentEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import SiteFooter from "@/components/SiteFooter"
@@ -19,7 +19,7 @@ export const metadata = {
   robots: { index: false, follow: false },
 }
 
-const SHELL = "w-full max-w-[1600px] mx-auto px-4 sm:px-8 lg:px-12"
+const SHELL = "w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12"
 
 export default async function PortalDocumentPage({
   params,
@@ -42,6 +42,7 @@ export default async function PortalDocumentPage({
           categoryLabel={drResult.document.categoryLabel}
           numPages={drResult.document.numPages}
           documentLinkUrl={drResult.documentLinkUrl}
+          papermarkLinkId={drResult.papermarkLinkId}
           allowDownload={drResult.allowDownload}
           documentRowId={decodedId}
         />
@@ -139,6 +140,7 @@ async function DataRoomDocumentView({
   categoryLabel,
   numPages,
   documentLinkUrl,
+  papermarkLinkId,
   allowDownload,
   documentRowId,
 }: {
@@ -147,6 +149,7 @@ async function DataRoomDocumentView({
   categoryLabel: string
   numPages: number | null
   documentLinkUrl: string | null
+  papermarkLinkId: string | null
   allowDownload: boolean
   documentRowId: string
 }) {
@@ -157,9 +160,7 @@ async function DataRoomDocumentView({
     )
   } catch {}
 
-  const embedUrl = documentLinkUrl
-    ? papermarkEmbedUrl(documentLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)
-    : null
+  const embedUrl = papermarkDocumentEmbedUrl(papermarkLinkId)
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -230,9 +231,18 @@ async function DataRoomDocumentView({
         ) : (
           <div className="border border-border bg-card/30 p-8" role="alert">
             <p className="text-sm text-foreground/70 leading-relaxed">
-              This document&rsquo;s personal link is being prepared. Please check back shortly, or
-              contact APRI if it remains unavailable.
+              Document viewer unavailable. Your personal link is being prepared.
             </p>
+            {documentLinkUrl && (
+              <a
+                href={documentLinkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-block text-sm text-accent hover:text-accent-hover transition-colors"
+              >
+                Open in a new tab instead
+              </a>
+            )}
           </div>
         )}
       </main>

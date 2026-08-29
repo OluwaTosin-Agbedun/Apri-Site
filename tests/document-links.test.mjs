@@ -17,6 +17,9 @@ import {
   portalTypeLabel,
   portalCategoryLabel,
 } from '../src/lib/papermark-dataroom-contract.ts'
+import {
+  papermarkDocumentEmbedUrl,
+} from '../src/lib/papermark-embed.ts'
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
@@ -376,17 +379,25 @@ test('portal type label: MIN returns "Monthly Intelligence Note"', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 11. Portal layout uses wide grid
+// 11. Portal layout: one full-width card per row
 // ---------------------------------------------------------------------------
 
-test('portal: grid uses 4-column breakpoint', () => {
+test('portal: document grid uses single column only', () => {
   const src = read('src/app/portal/page.tsx')
-  assert.match(src, /2xl:grid-cols-4/)
+  assert.match(src, /grid grid-cols-1 gap/)
+  assert.doesNotMatch(src, /sm:grid-cols-2/)
+  assert.doesNotMatch(src, /xl:grid-cols-3/)
+  assert.doesNotMatch(src, /2xl:grid-cols-4/)
 })
 
-test('portal: shell uses max-w-[1600px]', () => {
+test('portal: cards are full width', () => {
   const src = read('src/app/portal/page.tsx')
-  assert.match(src, /max-w-\[1600px\]/)
+  assert.match(src, /w-full max-w-none/)
+})
+
+test('portal: shell uses max-w-[1800px]', () => {
+  const src = read('src/app/portal/page.tsx')
+  assert.match(src, /max-w-\[1800px\]/)
 })
 
 test('portal: mobile padding starts at px-4', () => {
@@ -394,14 +405,94 @@ test('portal: mobile padding starts at px-4', () => {
   assert.match(src, /px-4/)
 })
 
-test('viewer: shell uses max-w-[1600px]', () => {
+test('viewer: shell uses max-w-[1800px]', () => {
   const src = read('src/app/portal/document/[id]/page.tsx')
-  assert.match(src, /max-w-\[1600px\]/)
+  assert.match(src, /max-w-\[1800px\]/)
 })
 
 test('viewer: uses viewport-relative height for embed', () => {
   const src = read('src/app/portal/document/[id]/page.tsx')
   assert.match(src, /100dvh/)
+})
+
+test('viewer: is full width with responsive padding', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /w-full/)
+  assert.match(src, /px-4/)
+})
+
+// ---------------------------------------------------------------------------
+// 15. Embed URL uses app.papermark.com/view/{linkId}/embed
+// ---------------------------------------------------------------------------
+
+test('embed helper: valid link ID produces app.papermark.com URL', () => {
+  const url = papermarkDocumentEmbedUrl('clxyz123abc')
+  assert.equal(url, 'https://app.papermark.com/view/clxyz123abc/embed')
+})
+
+test('embed helper: null link ID returns null', () => {
+  assert.equal(papermarkDocumentEmbedUrl(null), null)
+  assert.equal(papermarkDocumentEmbedUrl(undefined), null)
+  assert.equal(papermarkDocumentEmbedUrl(''), null)
+})
+
+test('embed helper: link ID with special chars returns null', () => {
+  assert.equal(papermarkDocumentEmbedUrl('abc<script>'), null)
+  assert.equal(papermarkDocumentEmbedUrl('abc def'), null)
+  assert.equal(papermarkDocumentEmbedUrl('abc/def'), null)
+})
+
+test('viewer: iframe uses papermarkDocumentEmbedUrl, not papermarkEmbedUrl for DR docs', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /papermarkDocumentEmbedUrl\(papermarkLinkId\)/)
+})
+
+test('viewer: no www.papermark.com iframe construction', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.doesNotMatch(src, /www\.papermark\.com/)
+})
+
+test('viewer: passes papermarkLinkId from drResult', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /papermarkLinkId={drResult\.papermarkLinkId}/)
+})
+
+test('viewer: shows fallback when embed URL is unavailable', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /Document viewer unavailable/)
+  assert.match(src, /Open in a new tab instead/)
+})
+
+test('client library: returns papermarkLinkId', () => {
+  const src = read('src/lib/papermark-client-library.ts')
+  const fn = src.slice(src.indexOf('async function getDataRoomDocumentForSubscriber'))
+  assert.match(fn, /papermarkLinkId/)
+})
+
+// ---------------------------------------------------------------------------
+// 16. CSP permits app.papermark.com frames
+// ---------------------------------------------------------------------------
+
+test('CSP: frame-src includes *.papermark.com wildcard', () => {
+  const src = read('next.config.ts')
+  assert.match(src, /\*\.papermark\.com/)
+})
+
+// ---------------------------------------------------------------------------
+// 17. Cross-subscriber isolation intact
+// ---------------------------------------------------------------------------
+
+test('viewer: subscriber-document ownership verified server-side', () => {
+  const src = read('src/app/portal/document/[id]/page.tsx')
+  assert.match(src, /requirePortalPrincipal\(\)/)
+  assert.match(src, /getDataRoomDocumentForSubscriber\(principal\.id, decodedId\)/)
+  assert.doesNotMatch(src, /await searchParams|\.searchParams\)\.get/)
+})
+
+test('download: subscriber-document ownership verified server-side', () => {
+  const src = read('src/app/portal/document/[id]/download/route.ts')
+  assert.match(src, /requirePortalPrincipal\(\)/)
+  assert.match(src, /getDataRoomDocumentForSubscriber\(principal\.id/)
 })
 
 // ---------------------------------------------------------------------------

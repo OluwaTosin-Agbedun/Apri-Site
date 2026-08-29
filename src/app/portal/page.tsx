@@ -36,7 +36,7 @@ export const metadata = {
 
 const CONTACT = "intelligence@athenacentre.org"
 
-const SHELL = "w-full max-w-[1600px] mx-auto px-4 sm:px-8 lg:px-12"
+const SHELL = "w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12"
 
 export default async function PortalPage() {
   const principal = await requirePortalPrincipal()
@@ -299,7 +299,7 @@ function PortalFooter() {
 
 function DataRoomGrid({ documents }: { documents: DataRoomDocument[] }) {
   return (
-    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+    <ul className="grid grid-cols-1 gap-4">
       {documents.map((doc) => (
         <li key={doc.id}>
           <DataRoomCard document={doc} />
@@ -312,45 +312,49 @@ function DataRoomGrid({ documents }: { documents: DataRoomDocument[] }) {
 function DataRoomCard({ document }: { document: DataRoomDocument }) {
   const date = document.papermarkUpdatedAt || document.papermarkCreatedAt
   return (
-    <div className="flex h-full flex-col justify-between border border-border bg-card/30 p-5 sm:p-6 min-h-[11rem]">
-      <div className="min-w-0">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground truncate">
-            {document.categoryLabel}
-          </span>
-          {document.badge && (
-            <span className={`shrink-0 border text-[0.65rem] uppercase tracking-wider px-2 py-0.5 ${
-              document.badge === "new"
-                ? "border-accent/50 text-accent"
-                : "border-foreground/30 text-foreground/60"
-            }`}>
-              {document.badge === "new" ? "New" : "Updated"}
+    <div className="w-full max-w-none border border-border bg-card/30 p-5 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:gap-6">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-3 mb-2">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground truncate">
+              {document.categoryLabel}
             </span>
-          )}
+            {document.badge && (
+              <span className={`shrink-0 border text-[0.65rem] uppercase tracking-wider px-2 py-0.5 ${
+                document.badge === "new"
+                  ? "border-accent/50 text-accent"
+                  : "border-foreground/30 text-foreground/60"
+              }`}>
+                {document.badge === "new" ? "New" : "Updated"}
+              </span>
+            )}
+          </div>
+          <h3 className="font-serif text-lg text-foreground leading-snug break-words">
+            {document.title}
+          </h3>
+          <div className="flex items-center gap-3 mt-2">
+            {document.numPages && (
+              <span className="text-xs text-muted-foreground">
+                {document.numPages} {document.numPages === 1 ? "page" : "pages"}
+              </span>
+            )}
+            {date && (
+              <span className="text-xs text-muted-foreground">
+                {formatDate(date)}
+              </span>
+            )}
+          </div>
         </div>
-        <h3 className="font-serif text-lg text-foreground leading-snug break-words">
-          {document.title}
-        </h3>
-        {document.numPages && (
-          <p className="text-xs text-muted-foreground mt-2">
-            {document.numPages} {document.numPages === 1 ? "page" : "pages"}
-          </p>
-        )}
-      </div>
-      <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-border">
-        <span className="text-xs text-muted-foreground truncate">
-          {date ? formatDate(date) : ""}
-        </span>
-        <div className="flex gap-3 shrink-0">
+        <div className="flex gap-3 shrink-0 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border">
           <Link
             href={`/portal/document/${encodeURIComponent(document.id)}/download`}
-            className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors py-1"
+            className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors py-2 sm:py-1"
           >
             Download
           </Link>
           <Link
             href={`/portal/document/${encodeURIComponent(document.id)}`}
-            className="text-sm font-medium text-accent hover:text-accent-hover transition-colors py-1"
+            className="text-sm font-medium text-accent hover:text-accent-hover transition-colors py-2 sm:py-1"
           >
             View <span aria-hidden>&rarr;</span>
           </Link>
@@ -366,7 +370,7 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
 
 function LegacyDocumentGrid({ documents }: { documents: SyncedClientDocument[] }) {
   return (
-    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+    <ul className="grid grid-cols-1 gap-4">
       {documents.map((document) => (
         <li key={document.id}>
           <LegacyDocumentCard document={document} />

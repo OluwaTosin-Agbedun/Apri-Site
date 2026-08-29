@@ -47,6 +47,25 @@ export function papermarkEmbedUrl(
   }
 }
 
+const PAPERMARK_LINK_ID_RE = /^[a-zA-Z0-9_-]+$/
+
+/**
+ * Build the Papermark document embed URL from a stored link ID.
+ *
+ * Papermark's documented iframe format for a per-document personal link is:
+ *   https://app.papermark.com/view/{linkId}/embed
+ *
+ * Returns null when the link ID is missing or has unexpected characters.
+ */
+export function papermarkDocumentEmbedUrl(
+  papermarkLinkId: string | null | undefined,
+): string | null {
+  if (!papermarkLinkId) return null
+  const id = papermarkLinkId.trim()
+  if (!id || !PAPERMARK_LINK_ID_RE.test(id)) return null
+  return `https://app.papermark.com/view/${encodeURIComponent(id)}/embed`
+}
+
 export function subscriberLibraryEmbedUrl(args: {
   authenticatedSubscriberId: string | null
   subscriberId: string
