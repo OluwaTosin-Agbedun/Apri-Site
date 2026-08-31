@@ -107,7 +107,6 @@ test("activation persists Active before issuing and emailing a one-time token", 
   assert.ok(emailed > issued)
   assert.match(source, /public_tier/)
   assert.match(source, /term_end/)
-  assert.match(source, /library_link_url/)
 })
 
 test("verification redirects successful sessions to the portal and exposes clear failure states", () => {
@@ -179,9 +178,66 @@ test("portal access is bound to the authenticated active subscriber and never fa
   }
 
   const portal = read("src/app/portal/page.tsx")
-  // The library is the page now. The button that used to send a subscriber off
-  // to find it has gone, and nothing falls back to a shared Masters link.
   assert.doesNotMatch(portal, /Open Private Library/)
   assert.match(portal, /getSyncedClientDocuments/)
   assert.doesNotMatch(portal, /00 Masters/i)
+})
+
+// ---------------------------------------------------------------------------
+// Activation no longer requires a manually entered Papermark library link
+// ---------------------------------------------------------------------------
+
+test("activation server action does not gate on library_link_url presence", () => {
+  const source = read("src/app/actions/subscribers.ts")
+  assert.doesNotMatch(
+    source,
+    /!row\.library_link_url && !row\.papermark_folder_id/,
+    "The combined library-link-or-folder gate should be removed",
+  )
+  assert.doesNotMatch(
+    source,
+    /unique private Papermark library link before activating/,
+    "The legacy error message should be removed",
+  )
+  assert.match(source, /isLevel\(row\.level\)/, "Level check must remain")
+  assert.match(source, /!row\.term_end/, "Term-end check must remain")
+})
+
+test("activation UI does not require hasLibraryLink prop", () => {
+  const controls = read("src/app/admin/subscribers/seat-actions.tsx")
+  assert.doesNotMatch(
+    controls,
+    /hasLibraryLink/,
+    "hasLibraryLink prop should be removed from SeatActions",
+  )
+  assert.doesNotMatch(
+    controls,
+    /Set the unique private Papermark library link first/,
+    "Legacy blocked message should be removed",
+  )
+  assert.match(controls, /hasLevel && hasTermEnd/, "Ready condition is level + term only")
+})
+
+test("detail page does not pass hasLibraryLink to SeatActions", () => {
+  const detail = read("src/app/admin/subscribers/[id]/page.tsx")
+  assert.doesNotMatch(detail, /hasLibraryLink/)
+})
+
+test("list page does not pass hasLibraryLink to SeatActions", () => {
+  const list = read("src/app/admin/subscribers/page.tsx")
+  assert.doesNotMatch(list, /hasLibraryLink/)
+})
+
+test("existing library links are still validated if present", () => {
+  const source = read("src/app/actions/subscribers.ts")
+  assert.match(
+    source,
+    /row\.library_link_url && !papermarkEmbedUrl/,
+    "Invalid-link check should remain for existing links",
+  )
+  assert.match(
+    source,
+    /already assigned to another client/,
+    "Uniqueness check should remain for existing links",
+  )
 })

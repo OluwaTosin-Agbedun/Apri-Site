@@ -392,16 +392,9 @@ export async function activateSubscriber(id: string): Promise<FormState> {
   if (!row.term_end) {
     return { message: "Set a term end date before activating this seat." }
   }
-  if (!row.library_link_url && !row.papermark_folder_id) {
-    return {
-      message:
-        "Set the subscriber's unique private Papermark library link before activating.",
-    }
-  }
   if (row.library_link_url && !papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return { message: "Replace the private library link with a valid Papermark share link before activating." }
   }
-  let duplicates: unknown[]
   try {
     if (row.papermark_folder_id) {
       const folderDuplicates = await sql`
@@ -409,21 +402,23 @@ export async function activateSubscriber(id: string): Promise<FormState> {
         union all select 1 from briefing_requests where papermark_folder_id=${row.papermark_folder_id} and lower(status)='active' limit 1`
       if (folderDuplicates.length) return { message:"That private folder is assigned to another active client." }
     }
-    duplicates = await sql`
-      select 1 from subscribers
-      where library_link_url = ${row.library_link_url} and id <> ${id}
-      union all
-      select 1 from briefing_requests where private_link_url = ${row.library_link_url}
-      limit 1
-    `
+    if (row.library_link_url) {
+      const duplicates = await sql`
+        select 1 from subscribers
+        where library_link_url = ${row.library_link_url} and id <> ${id}
+        union all
+        select 1 from briefing_requests where private_link_url = ${row.library_link_url}
+        limit 1
+      `
+      if (duplicates.length > 0) {
+        return {
+          message:
+            "That private Papermark link is assigned to another client. Give this subscriber a unique link before activating.",
+        }
+      }
+    }
   } catch {
     return { message: "Activation checks could not be completed. Please try again." }
-  }
-  if (duplicates.length > 0) {
-    return {
-      message:
-        "That private Papermark link is assigned to another client. Give this subscriber a unique link before activating.",
-    }
   }
   if (new Date(row.term_end) < startOfToday()) {
     return {

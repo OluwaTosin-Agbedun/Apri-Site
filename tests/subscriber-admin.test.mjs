@@ -48,10 +48,10 @@ test('activation reports each exact missing requirement', () => {
   const controls = read('src/app/admin/subscribers/seat-actions.tsx')
   assert.match(action, /Set Subscription access level before activating/)
   assert.match(action, /Set a term end date before activating/)
-  assert.match(action, /unique private Papermark library link before activating/)
+  assert.doesNotMatch(action, /unique private Papermark library link before activating/)
   assert.match(controls, /Set Subscription access level first/)
   assert.match(controls, /Set a term end date first/)
-  assert.match(controls, /Set the unique private Papermark library link first/)
+  assert.doesNotMatch(controls, /Set the unique private Papermark library link first/)
 })
 
 test('deletion is owner-authorized, exact-email confirmed and subscriber-scoped', () => {

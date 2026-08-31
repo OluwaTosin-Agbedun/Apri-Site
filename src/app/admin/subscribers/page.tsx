@@ -173,7 +173,6 @@ export default async function AdminSubscribersPage({ searchParams }: {
                         status={status}
                         hasLevel={Boolean(sub.public_tier && sub.level)}
                         hasTermEnd={Boolean(sub.term_end)}
-                        hasLibraryLink={Boolean(sub.library_link_url)}
                         liveLinks={Number(sub.live_links ?? 0)}
                         compact
                       />

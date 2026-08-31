@@ -11,11 +11,11 @@ import { portalVerificationUrl } from "../src/lib/app-url.ts"
 const read = (path) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8")
 
-test("subscriber activation requires level, term and a unique library link", () => {
+test("subscriber activation requires level and term but not a library link", () => {
   const source = read("src/app/actions/subscribers.ts")
   assert.match(source, /isLevel\(row\.level\)/)
   assert.match(source, /!row\.term_end/)
-  assert.match(source, /!row\.library_link_url/)
+  assert.doesNotMatch(source, /!row\.library_link_url && !row\.papermark_folder_id/)
   assert.match(source, /issueToken\(id\)/)
   assert.match(source, /already assigned to another client/)
 })

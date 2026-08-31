@@ -42,7 +42,6 @@ export default function SeatActions({
   status,
   hasLevel,
   hasTermEnd,
-  hasLibraryLink,
   liveLinks = 0,
   compact = false,
 }: {
@@ -51,7 +50,6 @@ export default function SeatActions({
   status: string
   hasLevel: boolean
   hasTermEnd: boolean
-  hasLibraryLink: boolean
   liveLinks?: number
   compact?: boolean
 }) {
@@ -71,14 +69,12 @@ export default function SeatActions({
   }
 
   const isActive = status === "active"
-  const ready = hasLevel && hasTermEnd && hasLibraryLink
+  const ready = hasLevel && hasTermEnd
   const blocked = !hasLevel
     ? "Set Subscription access level first."
     : !hasTermEnd
       ? "Set a term end date first."
-      : !hasLibraryLink
-        ? "Set the unique private Papermark library link first."
-        : null
+      : null
 
   const button =
     "text-xs font-medium text-accent hover:text-accent-hover cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"

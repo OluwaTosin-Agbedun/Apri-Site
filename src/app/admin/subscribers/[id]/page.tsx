@@ -163,7 +163,6 @@ export default async function EditSubscriberPage({
           status={status}
           hasLevel={Boolean(row.public_tier && row.level)}
           hasTermEnd={Boolean(row.term_end)}
-          hasLibraryLink={Boolean(row.library_link_url || row.papermark_folder_id)}
           liveLinks={Number(row.live_links ?? 0)}
         />
         <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground leading-relaxed max-w-xl">
