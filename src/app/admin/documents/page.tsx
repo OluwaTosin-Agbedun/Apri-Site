@@ -53,7 +53,7 @@ export default async function AdminDocumentsPage() {
       admin={admin}
       current="/admin/documents"
       title="Publications"
-      description="Manage publications. Published items appear on the public Publications page — Open editions with a read link, subscriber-only items as metadata teasers."
+      description="Manage publications. Published items appear on the public Publications page. Complimentary review documents are managed through the Review Library."
       actions={
         <Link
           href="/admin/documents/new"
@@ -68,8 +68,7 @@ export default async function AdminDocumentsPage() {
       <div className="border border-border bg-card/30">
         {documents.length === 0 ? (
           <div className="p-12 text-center text-sm text-muted-foreground">
-            No publications yet. Use &ldquo;Fetch from Papermark&rdquo; above, or add one
-            manually.
+            No publications yet. Add one manually or sync from the Review Library.
           </div>
         ) : (
           <table className="w-full text-left text-sm">

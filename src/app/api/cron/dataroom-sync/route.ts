@@ -14,12 +14,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 })
   }
 
+  let paidResult: Record<string, unknown> = {}
+  let paidOk = true
   try {
-    const result = await reconcileAllDataRooms()
-    return NextResponse.json({ ok: true, ...result })
+    paidResult = await reconcileAllDataRooms()
   } catch {
-    return NextResponse.json({ ok: false, error: "Reconciliation failed." }, { status: 502 })
+    paidOk = false
+    paidResult = { error: "Paid reconciliation failed." }
   }
+
+  let reviewResult: Record<string, unknown> = {}
+  let reviewOk = true
+  try {
+    const { backgroundReviewSync } = await import("@/app/actions/review-library")
+    const r = await backgroundReviewSync()
+    reviewOk = r.ok
+    reviewResult = { message: r.message, added: r.added, updated: r.updated }
+  } catch {
+    reviewOk = false
+    reviewResult = { error: "Review sync failed." }
+  }
+
+  const ok = paidOk && reviewOk
+  return NextResponse.json(
+    { ok, paid: { ok: paidOk, ...paidResult }, review: { ok: reviewOk, ...reviewResult } },
+    { status: ok ? 200 : 502 },
+  )
 }
 
 function isAuthorised(request: Request, expected: string): boolean {

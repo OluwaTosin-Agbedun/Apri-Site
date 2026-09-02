@@ -248,11 +248,10 @@ test('admin: saveDocument clears openLinkUrl for non-OPEN visibility', () => {
 // 9. Admin page description updated for mixed types
 // ---------------------------------------------------------------------------
 
-test('admin documents page describes both OPEN and subscriber-only', () => {
+test('admin documents page describes publications and review library', () => {
   const src = read('src/app/admin/documents/page.tsx')
-  assert.match(src, /Open editions/)
-  assert.match(src, /subscriber-only/)
-  assert.doesNotMatch(src, /Only Open items/)
+  assert.match(src, /Manage publications/)
+  assert.match(src, /Review Library/)
 })
 
 // ---------------------------------------------------------------------------
@@ -314,9 +313,10 @@ test('PUBLIC_TIERS: L2 is Political Monitor only', () => {
 // 14. Papermark sync source constraint
 // ---------------------------------------------------------------------------
 
-test('Papermark sync uses "07 Open Editions" folder only', () => {
+test('Papermark sync route is retired (Phase 3)', () => {
   const src = read('src/app/api/admin/papermark/sync/route.ts')
-  assert.match(src, /07 Open Editions/)
+  assert.match(src, /retired/)
+  assert.match(src, /410/)
 })
 
 // ---------------------------------------------------------------------------
