@@ -745,3 +745,33 @@ create index if not exists papermark_client_documents_subscriber_idx on papermar
 create index if not exists papermark_client_documents_briefing_idx on papermark_client_documents(briefing_request_id,synced_at desc);
 create unique index if not exists subscribers_active_papermark_folder_key on subscribers(papermark_folder_id) where papermark_folder_id is not null and lower(status)='active';
 create unique index if not exists briefing_active_papermark_folder_key on briefing_requests(papermark_folder_id) where papermark_folder_id is not null and lower(status)='active';
+
+-- ---------------------------------------------------------------------------
+-- Complimentary Review Library
+-- ---------------------------------------------------------------------------
+insert into app_settings (key, value)
+values ('review_library_enabled', 'false')
+on conflict (key) do nothing;
+
+insert into app_settings (key, value)
+values ('review_library_papermark_url', '')
+on conflict (key) do nothing;
+
+create table if not exists complimentary_review_items (
+  id               uuid        primary key default gen_random_uuid(),
+  publication_id   uuid        not null references documents (id) on delete cascade,
+  display_order    integer     not null default 0,
+  is_active        boolean     not null default true,
+  publication_type text        not null default '',
+  description      text        not null default '',
+  frequency        text        not null default '',
+  audience         text        not null default '',
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create unique index if not exists complimentary_review_items_publication_key
+  on complimentary_review_items (publication_id);
+
+create index if not exists complimentary_review_items_order_idx
+  on complimentary_review_items (display_order, created_at);
