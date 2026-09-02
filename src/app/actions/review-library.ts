@@ -10,7 +10,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function refresh() {
   revalidatePath("/admin/review-library")
-  revalidatePath("/complimentary-review")
+  revalidatePath("/")
+  revalidatePath("/publications")
 }
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,18 @@ export async function saveReviewLibrarySettings(
 
   if (url && !url.startsWith("https://")) {
     return { errors: { papermarkUrl: ["Must be an https:// URL."] } }
+  }
+
+  if (enabled) {
+    if (!url || !url.startsWith("https://")) {
+      return { message: "Cannot enable: a valid HTTPS Papermark URL is required." }
+    }
+    const activeCount = (await sql`
+      select count(*)::int as n from complimentary_review_items where is_active = true
+    `) as { n: number }[]
+    if ((activeCount[0]?.n ?? 0) !== 3) {
+      return { message: "Cannot enable: exactly three active review items are required." }
+    }
   }
 
   await sql`

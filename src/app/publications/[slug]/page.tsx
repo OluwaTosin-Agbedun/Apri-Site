@@ -1,18 +1,9 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { getPublicationBySlug } from '@/lib/publications'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge, AccessAction } from '@/components/PublicationAccess'
 
-/**
- * Cached, then revalidated -- not rendered for every visitor.
- *
- * force-dynamic meant one function invocation and a database round trip per
- * page view, which is the wrong cost for a public page whose content changes a
- * few times a month. Publishing calls revalidatePath, so an edit still appears
- * at once; the five-minute window is only a backstop for anything that changes
- * outside the CMS.
- */
 export const revalidate = 300
 
 export default async function PublicationDetailPage({
@@ -24,6 +15,10 @@ export default async function PublicationDetailPage({
   const doc = await getPublicationBySlug(slug)
 
   if (!doc) return notFound()
+
+  if (doc.visibility === 'OPEN') {
+    redirect('/publications#complimentary-review')
+  }
 
   const coverageAreas = doc.coverageAreas
     ? doc.coverageAreas.split('\n').map((s) => s.trim()).filter(Boolean)
@@ -82,11 +77,6 @@ export default async function PublicationDetailPage({
           </dl>
         </section>
 
-        {/*
-          The action comes from the shared gate, which never emits
-          papermark_link. That column is the subscriber-library address; a paid
-          edition is reachable only after signing in.
-        */}
         <div className="mb-16">
           <AccessAction visibility={doc.visibility} openLinkUrl={doc.openLinkUrl} />
         </div>

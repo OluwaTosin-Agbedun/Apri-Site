@@ -117,8 +117,8 @@ test('levelName: L2 is always Political Monitor regardless of seats', () => {
 // 4. Open Edition badge and CTA
 // ---------------------------------------------------------------------------
 
-test('accessBadge: OPEN shows "Open Edition — verified email required"', () => {
-  assert.equal(accessBadge('OPEN'), 'Open Edition — verified email required')
+test('accessBadge: OPEN shows "Complimentary Review Copy — verified email required"', () => {
+  assert.equal(accessBadge('OPEN'), 'Complimentary Review Copy — verified email required')
 })
 
 test('accessBadge: paid levels say "Subscriber Access"', () => {
@@ -164,9 +164,9 @@ test('tierNameForVisibility: L4 returns Board Briefing', () => {
 // 6. PublicationAccess component — CTA text and link targets
 // ---------------------------------------------------------------------------
 
-test('AccessAction: OPEN CTA says "Access Open Edition"', () => {
+test('AccessAction: OPEN CTA says "Access Review Copy"', () => {
   const src = read('src/components/PublicationAccess.tsx')
-  assert.match(src, /Access Open Edition/)
+  assert.match(src, /Access Review Copy/)
   assert.doesNotMatch(src, /Read now/)
 })
 
@@ -196,15 +196,15 @@ test('PublicationAccess imports tierNameForVisibility', () => {
 // 7. publications.ts — public queries return both types, strip private data
 // ---------------------------------------------------------------------------
 
-test('getPublishedPublications: does not filter by OPEN only', () => {
+test('getPublishedPublications: excludes OPEN visibility', () => {
   const src = read('src/lib/publications.ts')
   const fn = src.slice(
     src.indexOf('async function getPublishedPublications'),
     src.indexOf('async function getOpenPublications') !== -1
       ? src.indexOf('async function getOpenPublications')
-      : src.indexOf('async function getPublicationBySlug')
+      : src.indexOf('async function getPublicationBySlug'),
   )
-  assert.doesNotMatch(fn, /visibility = 'OPEN'/)
+  assert.match(fn, /visibility <> 'OPEN'/)
 })
 
 test('getPublicationBySlug: does not filter by OPEN only', () => {
@@ -259,10 +259,10 @@ test('admin documents page describes both OPEN and subscriber-only', () => {
 // 10. Public page copy updated for mixed types
 // ---------------------------------------------------------------------------
 
-test('publications page describes both open and subscriber content', () => {
+test('publications page describes subscriber content and review section', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /Open editions/)
-  assert.match(src, /subscriber/)
+  assert.match(src, /subscriber/i)
+  assert.match(src, /Complimentary Review/)
 })
 
 // ---------------------------------------------------------------------------

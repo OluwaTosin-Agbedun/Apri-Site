@@ -43,7 +43,7 @@ export function AccessAction({
   if (visibility === 'OPEN' && openLinkUrl?.startsWith('https://')) {
     return (
       <a href={openLinkUrl} target="_blank" rel="noreferrer" className={base}>
-        Access Open Edition
+        Access Review Copy
       </a>
     )
   }
@@ -51,7 +51,7 @@ export function AccessAction({
   if (visibility === 'OPEN') {
     return (
       <Link href="/access" className={base}>
-        Access Open Edition
+        Access Review Copy
       </Link>
     )
   }

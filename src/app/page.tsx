@@ -8,6 +8,7 @@ import AccessForm from './access-form'
 import {
   PUBLICATION_SECTIONS,
   getPublishedPublications,
+  getReviewLibrary,
   type Publication,
 } from '@/lib/publications'
 
@@ -75,7 +76,10 @@ function PublicationCard({ doc }: { doc: Publication }) {
 }
 
 export default async function HomePage() {
-  const documents = await getPublishedPublications()
+  const [documents, reviewLibrary] = await Promise.all([
+    getPublishedPublications(),
+    getReviewLibrary(),
+  ])
 
   return (
     <div className="min-h-screen bg-background">
@@ -124,6 +128,43 @@ export default async function HomePage() {
             </Link>
           </div>
         </header>
+
+        {/* Complimentary Review preview */}
+        {reviewLibrary && (
+          <section className="mb-24 scroll-mt-28">
+            <div className="mb-10">
+              <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-6 tracking-tight">
+                Complimentary Review
+              </h2>
+              <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-4">
+                Selected sample publications for prospective subscribers.
+                Verified email access is required.
+              </p>
+            </div>
+            <div className="space-y-4">
+              {reviewLibrary.items.map((card, i) => (
+                <Link
+                  key={i}
+                  href="/publications#complimentary-review"
+                  className="group panel-interactive block p-6 sm:p-8"
+                >
+                  <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-2">
+                    {card.publicationType}
+                  </span>
+                  <h3 className="font-serif text-lg text-foreground group-hover:text-accent transition-colors">
+                    {card.pubTitle}
+                  </h3>
+                  <p className="text-sm text-foreground/70 leading-relaxed mt-3 max-w-4xl line-clamp-2">
+                    {card.description}
+                  </p>
+                  <span className="inline-flex items-center text-sm font-medium text-accent mt-4 group-hover:translate-x-1 transition-transform">
+                    View review library &rarr;
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Publications */}
         <section id="publications" className="mb-24 scroll-mt-28">

@@ -137,13 +137,14 @@ async function publicRead(
   }
 }
 
-/** Published publications, for the public site. Both OPEN and subscriber-only. */
+/** Published subscriber-only publications, for the public site. OPEN excluded. */
 export async function getPublishedPublications(): Promise<Publication[]> {
   const rows = await publicRead(async () => {
     const sql = getSql()
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
        where is_published = true and status = 'published'
+         and visibility <> 'OPEN'
        order by sort_order asc, created_at desc`
     )) as Row[]
   }, 'published list')
@@ -178,6 +179,72 @@ export async function getPublicationBySlug(slug: string): Promise<Publication | 
   }, 'lookup by slug')
 
   return rows[0] ? toPublicPublication(toPublication(rows[0])) : null
+}
+
+// ---------------------------------------------------------------------------
+// Complimentary Review Library (public read)
+// ---------------------------------------------------------------------------
+
+export type ReviewCard = {
+  pubTitle: string
+  publicationType: string
+  description: string
+  frequency: string
+  audience: string
+}
+
+export type ReviewLibrary = {
+  papermarkUrl: string
+  items: ReviewCard[]
+}
+
+export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
+  try {
+    const sql = getSql()
+
+    const enabledRow = (await sql`
+      select value from app_settings where key = 'review_library_enabled' limit 1
+    `) as { value: string }[]
+
+    if (enabledRow[0]?.value !== 'true') return null
+
+    const urlRow = (await sql`
+      select value from app_settings where key = 'review_library_papermark_url' limit 1
+    `) as { value: string }[]
+
+    const papermarkUrl = urlRow[0]?.value ?? ''
+    if (!papermarkUrl) return null
+
+    const items = (await sql`
+      select d.title as pub_title,
+             ri.publication_type, ri.description, ri.frequency, ri.audience
+      from complimentary_review_items ri
+      join documents d on d.id = ri.publication_id
+      where ri.is_active = true
+      order by ri.display_order, ri.created_at
+    `) as {
+      pub_title: string
+      publication_type: string
+      description: string
+      frequency: string
+      audience: string
+    }[]
+
+    if (items.length === 0) return null
+
+    return {
+      papermarkUrl,
+      items: items.map((r) => ({
+        pubTitle: r.pub_title,
+        publicationType: r.publication_type,
+        description: r.description,
+        frequency: r.frequency,
+        audience: r.audience,
+      })),
+    }
+  } catch {
+    return null
+  }
 }
 
 /**

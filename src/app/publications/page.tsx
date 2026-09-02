@@ -2,17 +2,8 @@ import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge } from '@/components/PublicationAccess'
-import { getPublishedPublications } from '@/lib/publications'
+import { getPublishedPublications, getReviewLibrary } from '@/lib/publications'
 
-/**
- * Cached, then revalidated -- not rendered for every visitor.
- *
- * force-dynamic meant one function invocation and a database round trip per
- * page view, which is the wrong cost for a public page whose content changes a
- * few times a month. Publishing calls revalidatePath, so an edit still appears
- * at once; the five-minute window is only a backstop for anything that changes
- * outside the CMS.
- */
 export const revalidate = 300
 
 export const metadata = {
@@ -20,7 +11,10 @@ export const metadata = {
 }
 
 export default async function PublicationsPage() {
-  const publications = await getPublishedPublications()
+  const [publications, library] = await Promise.all([
+    getPublishedPublications(),
+    getReviewLibrary(),
+  ])
 
   return (
     <div className="min-h-screen bg-background">
@@ -32,14 +26,100 @@ export default async function PublicationsPage() {
             Publications
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            APRI intelligence products. Open editions are available to verified
-            readers; subscriber-only publications are accessible through your
-            subscription.
+            APRI intelligence products for subscribers and authorised readers.
+            Subscriber-only publications are accessible through your subscription.
           </p>
         </header>
 
+        {/* Complimentary Review section */}
+        {library && (
+          <section
+            id="complimentary-review"
+            className="mb-20 scroll-mt-28"
+          >
+            <div className="mb-10">
+              <h2 className="font-serif text-2xl sm:text-3xl text-foreground mb-6 tracking-tight">
+                APRI Complimentary Review Copy
+              </h2>
+              <p className="text-sm sm:text-base text-foreground/70 leading-relaxed max-w-4xl">
+                This complimentary review page provides selected sample publications
+                from Athena Political &amp; Regulatory Intelligence. It is intended
+                to help prospective subscribers understand the structure, quality and
+                range of APRI outputs. Access is restricted to authorised recipients
+                and requires verified email access.
+              </p>
+              <div className="mt-4">
+                <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium tracking-wide bg-accent/10 text-accent">
+                  Complimentary Review Copy — verified email required
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {library.items.map((card, i) => (
+                <article
+                  key={i}
+                  className="border border-border bg-card/30 p-8 sm:p-10 lg:p-12"
+                >
+                  <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-3">
+                    {card.publicationType}
+                  </span>
+
+                  <h3 className="font-serif text-xl text-foreground">
+                    {card.pubTitle}
+                  </h3>
+
+                  <p className="text-sm text-foreground/70 leading-relaxed mt-4 max-w-4xl">
+                    {card.description}
+                  </p>
+
+                  <div className="mt-6 flex items-center gap-6 text-xs text-muted-foreground">
+                    <span>{card.frequency}</span>
+                    {card.audience && (
+                      <>
+                        <span className="text-border">|</span>
+                        <span>{card.audience}</span>
+                      </>
+                    )}
+                  </div>
+
+                  <a
+                    href="#secure-review-access"
+                    className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mt-6"
+                  >
+                    Access review copy <span className="ml-2 opacity-70">&darr;</span>
+                  </a>
+                </article>
+              ))}
+            </div>
+
+            {/* Secure access area */}
+            <div
+              id="secure-review-access"
+              className="mt-10 border border-accent/20 bg-accent/5 p-8 sm:p-10 scroll-mt-28"
+            >
+              <h3 className="font-serif text-lg text-foreground mb-3">
+                Secure Review Library
+              </h3>
+              <p className="text-sm text-foreground/70 leading-relaxed mb-6 max-w-3xl">
+                Verified email access is required. Documents are confidential
+                and not for redistribution.
+              </p>
+              <a
+                href={library.papermarkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
+              >
+                Enter Secure Review Library
+              </a>
+            </div>
+          </section>
+        )}
+
+        {/* Subscriber publications */}
         <div className="space-y-8">
-          {publications.length === 0 ? (
+          {publications.length === 0 && !library ? (
             <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl">
               Publications will be listed here once available. For enquiries, contact us
               or use <a href="/access" className="text-accent hover:text-accent-hover transition-colors">Request Access</a>.

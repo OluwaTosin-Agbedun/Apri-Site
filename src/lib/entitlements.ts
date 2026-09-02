@@ -226,7 +226,7 @@ export function minimumLevelLabel(visibility: Visibility): string {
  * public tier a reader would recognise, never the internal level code.
  */
 export function accessBadge(visibility: Visibility): string {
-  if (visibility === 'OPEN') return 'Open Edition — verified email required'
+  if (visibility === 'OPEN') return 'Complimentary Review Copy — verified email required'
   return `Subscriber Access — ${minimumLevelLabel(visibility)}`
 }
 

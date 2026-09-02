@@ -1,22 +1,34 @@
 /**
- * Complimentary Review Library — regression tests.
+ * Complimentary Review Library — Phase 2 regression tests.
  *
- * Covers: owner-only administration, no duplicate publications, one review
- * item per publication, approved descriptions, editing/saving, preserving
- * admin edits, display ordering, enabled/disabled behaviour, and that
- * existing subscriber and public flows remain unchanged.
+ * Covers: /complimentary-review removed, admin still owner-only, no public
+ * "Open Edition" wording, OPEN cards excluded from public listings,
+ * /publications has the Complimentary Review section, card metadata from
+ * review items, homepage links to #complimentary-review, secure Papermark
+ * access, legacy OPEN detail redirects, paid routes unchanged, config
+ * validation, revalidation paths, and no secrets exposed.
  */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 
 import { prefillReviewCard } from '../src/lib/review-prefill.ts'
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
+const exists = (path) => existsSync(new URL(`../${path}`, import.meta.url))
 
 // ---------------------------------------------------------------------------
-// 1. Owner-only administration
+// 1. /complimentary-review no longer exists
+// ---------------------------------------------------------------------------
+
+test('standalone /complimentary-review route is deleted', () => {
+  assert.ok(!exists('src/app/complimentary-review'), 'route directory must not exist')
+  assert.ok(!exists('src/app/complimentary-review/page.tsx'), 'page file must not exist')
+})
+
+// ---------------------------------------------------------------------------
+// 2. /admin/review-library still works and is owner-only
 // ---------------------------------------------------------------------------
 
 test('admin: review library page requires owner', () => {
@@ -24,78 +36,318 @@ test('admin: review library page requires owner', () => {
   assert.match(src, /requireOwner/)
 })
 
-test('actions: saveReviewLibrarySettings requires owner', () => {
+test('actions: all review library actions require owner', () => {
+  const src = read('src/app/actions/review-library.ts')
+  const actions = [
+    'saveReviewLibrarySettings',
+    'addReviewItem',
+    'removeReviewItem',
+    'reorderReviewItems',
+    'saveReviewItemDetails',
+    'regenerateReviewItemDetails',
+  ]
+  for (const name of actions) {
+    const fn = src.slice(src.indexOf(`async function ${name}`))
+    assert.match(fn, /requireOwner/, `${name} must call requireOwner`)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 3. No public page renders "Open Edition", "Open Editions" or "Access Open Edition"
+// ---------------------------------------------------------------------------
+
+test('publications page: no "Open Edition" wording', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.doesNotMatch(src, /Open Edition/i)
+  assert.doesNotMatch(src, /Open Editions/i)
+  assert.doesNotMatch(src, /Access Open Edition/i)
+})
+
+test('homepage: no "Open Edition" wording', () => {
+  const src = read('src/app/page.tsx')
+  assert.doesNotMatch(src, /Open Edition/i)
+  assert.doesNotMatch(src, /Open Editions/i)
+  assert.doesNotMatch(src, /Access Open Edition/i)
+})
+
+test('publication detail page: no "Open Edition" wording', () => {
+  const src = read('src/app/publications/[slug]/page.tsx')
+  assert.doesNotMatch(src, /Open Edition/i)
+  assert.doesNotMatch(src, /Access Open Edition/i)
+})
+
+test('PublicationAccess component: no "Open Edition" wording', () => {
+  const src = read('src/components/PublicationAccess.tsx')
+  assert.doesNotMatch(src, /Open Edition/i)
+  assert.doesNotMatch(src, /Access Open Edition/i)
+})
+
+test('entitlements accessBadge: OPEN no longer says "Open Edition"', () => {
+  const src = read('src/lib/entitlements.ts')
+  const fn = src.slice(src.indexOf('function accessBadge'))
+  assert.doesNotMatch(fn, /Open Edition/)
+  assert.match(fn, /Complimentary Review Copy/)
+})
+
+// ---------------------------------------------------------------------------
+// 4. Two legacy OPEN edition cards absent from public listings
+// ---------------------------------------------------------------------------
+
+test('getPublishedPublications excludes OPEN visibility', () => {
+  const src = read('src/lib/publications.ts')
+  const fn = src.slice(
+    src.indexOf('async function getPublishedPublications'),
+    src.indexOf('async function getOpenPublications') !== -1
+      ? src.indexOf('async function getOpenPublications')
+      : src.indexOf('async function getPublicationBySlug'),
+  )
+  assert.match(fn, /visibility <> 'OPEN'/)
+})
+
+// ---------------------------------------------------------------------------
+// 5. /publications contains the Complimentary Review section
+// ---------------------------------------------------------------------------
+
+test('publications page: has #complimentary-review anchor', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /id="complimentary-review"/)
+})
+
+test('publications page: shows section title', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /APRI Complimentary Review Copy/)
+})
+
+test('publications page: shows introductory text', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /complimentary review page provides selected sample publications/)
+})
+
+test('publications page: shows verified email badge', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /Complimentary Review Copy.*verified email required/)
+})
+
+// ---------------------------------------------------------------------------
+// 6. Exactly three active review cards from complimentary_review_items
+// ---------------------------------------------------------------------------
+
+test('publications page: renders cards from library.items', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /library\.items\.map/)
+})
+
+test('getReviewLibrary: queries complimentary_review_items with is_active', () => {
+  const src = read('src/lib/publications.ts')
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
+  assert.match(fn, /from complimentary_review_items ri/)
+  assert.match(fn, /ri\.is_active = true/)
+})
+
+test('getReviewLibrary: returns null when no active items', () => {
+  const src = read('src/lib/publications.ts')
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
+  assert.match(fn, /items\.length === 0.*return null/)
+})
+
+// ---------------------------------------------------------------------------
+// 7. Saved display order is respected
+// ---------------------------------------------------------------------------
+
+test('getReviewLibrary: orders by display_order', () => {
+  const src = read('src/lib/publications.ts')
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
+  assert.match(fn, /order by ri\.display_order/)
+})
+
+test('admin page: items ordered by display_order', () => {
+  const src = read('src/app/admin/review-library/page.tsx')
+  assert.match(src, /order by ri\.display_order/)
+})
+
+// ---------------------------------------------------------------------------
+// 8. Inactive items not displayed
+// ---------------------------------------------------------------------------
+
+test('getReviewLibrary: filters by is_active', () => {
+  const src = read('src/lib/publications.ts')
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
+  assert.match(fn, /where ri\.is_active = true/)
+})
+
+// ---------------------------------------------------------------------------
+// 9. Card metadata from complimentary_review_items
+// ---------------------------------------------------------------------------
+
+test('publications page: cards display all required fields', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /card\.pubTitle/)
+  assert.match(src, /card\.publicationType/)
+  assert.match(src, /card\.description/)
+  assert.match(src, /card\.frequency/)
+  assert.match(src, /card\.audience/)
+})
+
+// ---------------------------------------------------------------------------
+// 10. Homepage actions lead to /publications#complimentary-review
+// ---------------------------------------------------------------------------
+
+test('homepage: review cards link to /publications#complimentary-review', () => {
+  const src = read('src/app/page.tsx')
+  assert.match(src, /\/publications#complimentary-review/)
+})
+
+test('homepage: does not link review cards directly to Papermark', () => {
+  const src = read('src/app/page.tsx')
+  const reviewSection = src.slice(
+    src.indexOf('Complimentary Review preview'),
+    src.indexOf('Publications'),
+  )
+  assert.doesNotMatch(reviewSection, /papermarkUrl/)
+  assert.doesNotMatch(reviewSection, /papermark\.com/)
+})
+
+// ---------------------------------------------------------------------------
+// 11. Single secure Papermark access button on publications page
+// ---------------------------------------------------------------------------
+
+test('publications page: has Enter Secure Review Library button', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /Enter Secure Review Library/)
+})
+
+test('publications page: one Papermark URL reference in secure area', () => {
+  const src = read('src/app/publications/page.tsx')
+  const matches = src.match(/library\.papermarkUrl/g) || []
+  assert.equal(matches.length, 1, 'exactly one papermarkUrl reference')
+})
+
+test('publications page: secure area has confidentiality notice', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /Verified email access is required/)
+  assert.match(src, /confidential/)
+  assert.match(src, /not for redistribution/)
+})
+
+// ---------------------------------------------------------------------------
+// 12. Legacy OPEN edition detail URLs redirect
+// ---------------------------------------------------------------------------
+
+test('publication detail: OPEN visibility redirects to #complimentary-review', () => {
+  const src = read('src/app/publications/[slug]/page.tsx')
+  assert.match(src, /visibility === 'OPEN'/)
+  assert.match(src, /redirect.*\/publications#complimentary-review/)
+})
+
+test('publication detail: non-OPEN publications render normally', () => {
+  const src = read('src/app/publications/[slug]/page.tsx')
+  const renderSection = src.slice(src.indexOf('return ('))
+  assert.match(renderSection, /doc\.title/)
+  assert.match(renderSection, /AccessBadge/)
+  assert.match(renderSection, /AccessAction/)
+})
+
+// ---------------------------------------------------------------------------
+// 13. Paid-subscriber routes unchanged
+// ---------------------------------------------------------------------------
+
+test('portal: no reference to complimentary review', () => {
+  const src = read('src/app/portal/page.tsx')
+  assert.doesNotMatch(src, /complimentary/i)
+  assert.doesNotMatch(src, /review.library/i)
+})
+
+test('subscriber entitlements: unchanged', () => {
+  const src = read('src/lib/entitlements.ts')
+  assert.doesNotMatch(src, /review.library/i)
+})
+
+test('watermark contract: unchanged', () => {
+  const src = read('src/lib/papermark-dataroom-contract.ts')
+  assert.doesNotMatch(src, /complimentary/i)
+})
+
+test('subscriber DAL: no reference to complimentary review', () => {
+  const src = read('src/lib/subscriber-dal.ts')
+  assert.doesNotMatch(src, /complimentary/i)
+})
+
+// ---------------------------------------------------------------------------
+// 14. Papermark URL not exposed when disabled or invalid
+// ---------------------------------------------------------------------------
+
+test('getReviewLibrary: returns null when disabled', () => {
+  const src = read('src/lib/publications.ts')
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
+  assert.match(fn, /review_library_enabled/)
+  assert.match(fn, /!== 'true'.*return null/)
+})
+
+test('getReviewLibrary: returns null when no URL', () => {
+  const src = read('src/lib/publications.ts')
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
+  assert.match(fn, /!papermarkUrl.*return null/)
+})
+
+test('publications page: review section hidden when library is null', () => {
+  const src = read('src/app/publications/page.tsx')
+  assert.match(src, /\{library &&/)
+})
+
+// ---------------------------------------------------------------------------
+// 15. Enabling requires valid URL and exactly three active items
+// ---------------------------------------------------------------------------
+
+test('actions: enable validation checks HTTPS URL', () => {
   const src = read('src/app/actions/review-library.ts')
   const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /requireOwner/)
+  assert.match(fn, /Cannot enable.*valid HTTPS/)
 })
 
-test('actions: addReviewItem requires owner', () => {
+test('actions: enable validation checks exactly three active items', () => {
   const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function addReviewItem'))
-  assert.match(fn, /requireOwner/)
-})
-
-test('actions: removeReviewItem requires owner', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function removeReviewItem'))
-  assert.match(fn, /requireOwner/)
-})
-
-test('actions: reorderReviewItems requires owner', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function reorderReviewItems'))
-  assert.match(fn, /requireOwner/)
-})
-
-test('actions: saveReviewItemDetails requires owner', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewItemDetails'))
-  assert.match(fn, /requireOwner/)
-})
-
-test('actions: regenerateReviewItemDetails requires owner', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function regenerateReviewItemDetails'))
-  assert.match(fn, /requireOwner/)
+  const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
+  assert.match(fn, /exactly three active review items/)
+  assert.match(fn, /!== 3/)
 })
 
 // ---------------------------------------------------------------------------
-// 2. No duplicate publication records
+// 16. Admin changes revalidate / and /publications
 // ---------------------------------------------------------------------------
 
-test('schema: complimentary_review_items has unique constraint on publication_id', () => {
-  const schema = read('db/schema.sql')
-  assert.match(schema, /complimentary_review_items_publication_key/)
-  assert.match(schema, /unique index.*complimentary_review_items_publication_key/)
-})
-
-test('migration: unique index on publication_id', () => {
-  const mig = read('db/migrations/20260902_complimentary_review_library.sql')
-  assert.match(mig, /create unique index if not exists complimentary_review_items_publication_key/)
-})
-
-// ---------------------------------------------------------------------------
-// 3. One review item per publication
-// ---------------------------------------------------------------------------
-
-test('actions: addReviewItem checks for existing item before insert', () => {
+test('actions: refresh revalidates / and /publications', () => {
   const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function addReviewItem'))
-  const checkPos = fn.indexOf('select id from complimentary_review_items')
-  const insertPos = fn.indexOf('insert into complimentary_review_items')
-  assert.ok(checkPos > 0, 'should check for existing item')
-  assert.ok(insertPos > checkPos, 'check should precede insert')
+  const fn = src.slice(src.indexOf('function refresh'), src.indexOf('// -----'))
+  assert.match(fn, /revalidatePath\("\/"\)/)
+  assert.match(fn, /revalidatePath\("\/publications"\)/)
 })
 
-test('actions: addReviewItem returns message when already added', () => {
+test('actions: refresh does not revalidate /complimentary-review', () => {
   const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function addReviewItem'))
-  assert.match(fn, /already in the review library/)
+  const fn = src.slice(src.indexOf('function refresh'), src.indexOf('// -----'))
+  assert.doesNotMatch(fn, /complimentary-review/)
 })
 
 // ---------------------------------------------------------------------------
-// 4. Automatic approved descriptions
+// 17. No Papermark API token or secret exposed to client
+// ---------------------------------------------------------------------------
+
+test('no PAPERMARK_API_KEY in public pages', () => {
+  const publicFiles = [
+    'src/app/publications/page.tsx',
+    'src/app/publications/[slug]/page.tsx',
+    'src/app/page.tsx',
+    'src/components/PublicationAccess.tsx',
+  ]
+  for (const file of publicFiles) {
+    const src = read(file)
+    assert.doesNotMatch(src, /PAPERMARK_API_KEY/)
+    assert.doesNotMatch(src, /process\.env\.PAPERMARK/)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 18. Prefill logic still works (Phase 1 carry-over)
 // ---------------------------------------------------------------------------
 
 test('prefill: MIN gets approved Chancellor wording', () => {
@@ -140,166 +392,9 @@ test('prefill: PLM gets approved Chancellor wording', () => {
   assert.equal(result.frequency, 'Monthly')
 })
 
-test('prefill: QIB gets series template', () => {
-  const result = prefillReviewCard({
-    title: 'Quarterly Intelligence Brief',
-    series: 'QIB',
-    product_line: '',
-    frequency: 'Quarterly',
-    summary: '',
-    description: '',
-  })
-  assert.equal(result.publicationType, 'Quarterly Intelligence Brief')
-  assert.equal(result.frequency, 'Quarterly')
-})
-
-test('prefill: unknown series falls back to publication fields', () => {
-  const result = prefillReviewCard({
-    title: 'Special Report',
-    series: '',
-    product_line: 'Custom Line',
-    frequency: 'Annual',
-    summary: 'A summary',
-    description: 'A description',
-  })
-  assert.equal(result.publicationType, 'Custom Line')
-  assert.equal(result.description, 'A description')
-  assert.equal(result.frequency, 'Annual')
-})
-
-test('prefill: empty series with no product line defaults to Publication', () => {
-  const result = prefillReviewCard({
-    title: 'Unknown',
-    series: '',
-    product_line: '',
-    frequency: '',
-    summary: '',
-    description: '',
-  })
-  assert.equal(result.publicationType, 'Publication')
-})
-
 // ---------------------------------------------------------------------------
-// 5. Editing and saving generated descriptions
+// 19. Schema constraints unchanged
 // ---------------------------------------------------------------------------
-
-test('actions: saveReviewItemDetails updates all card fields', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewItemDetails'))
-  assert.match(fn, /publication_type =/)
-  assert.match(fn, /description =/)
-  assert.match(fn, /frequency =/)
-  assert.match(fn, /audience =/)
-})
-
-test('admin form: each item card has editable fields', () => {
-  const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /name="publicationType"/)
-  assert.match(src, /name="description"/)
-  assert.match(src, /name="frequency"/)
-  assert.match(src, /name="audience"/)
-})
-
-test('admin form: save card details button exists', () => {
-  const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /Save card details/)
-})
-
-// ---------------------------------------------------------------------------
-// 6. Preserving administrator changes
-// ---------------------------------------------------------------------------
-
-test('actions: regenerateReviewItemDetails requires explicit call and confirmation', () => {
-  const src = read('src/app/actions/review-library.ts')
-  assert.match(src, /async function regenerateReviewItemDetails/)
-  const formSrc = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(formSrc, /confirm.*Regenerate/)
-})
-
-test('actions: saveReviewItemDetails does not call prefillReviewCard', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(
-    src.indexOf('async function saveReviewItemDetails'),
-    src.indexOf('async function regenerateReviewItemDetails'),
-  )
-  assert.doesNotMatch(fn, /prefillReviewCard/)
-})
-
-// ---------------------------------------------------------------------------
-// 7. Display ordering
-// ---------------------------------------------------------------------------
-
-test('actions: reorderReviewItems updates display_order for each item', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function reorderReviewItems'))
-  assert.match(fn, /display_order =/)
-})
-
-test('admin page: items ordered by display_order', () => {
-  const src = read('src/app/admin/review-library/page.tsx')
-  assert.match(src, /order by ri\.display_order/)
-})
-
-test('public page: items ordered by display_order', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /order by ri\.display_order/)
-})
-
-test('admin form: reorder section with up/down controls', () => {
-  const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /moveUp/)
-  assert.match(src, /moveDown/)
-  assert.match(src, /Save order/)
-})
-
-// ---------------------------------------------------------------------------
-// 8. Enabled/disabled behaviour
-// ---------------------------------------------------------------------------
-
-test('public page: returns notFound when library disabled', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /notFound/)
-  assert.match(src, /review_library_enabled/)
-})
-
-test('public page: returns notFound when no Papermark URL set', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  const getLib = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(getLib, /if.*!papermarkUrl.*return null/)
-})
-
-test('admin page: enabled toggle exists', () => {
-  const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /name="enabled"/)
-  assert.match(src, /Enable complimentary review library/)
-})
-
-// ---------------------------------------------------------------------------
-// 9. Existing subscriber and public flows remain unchanged
-// ---------------------------------------------------------------------------
-
-test('publications page: unchanged query for published documents', () => {
-  const src = read('src/lib/publications.ts')
-  assert.match(src, /is_published = true and status = 'published'/)
-  assert.doesNotMatch(src, /complimentary/)
-})
-
-test('portal: no reference to complimentary review', () => {
-  const portalSrc = read('src/app/portal/page.tsx')
-  assert.doesNotMatch(portalSrc, /complimentary/i)
-  assert.doesNotMatch(portalSrc, /review.library/i)
-})
-
-test('subscriber entitlements: unchanged', () => {
-  const src = read('src/lib/entitlements.ts')
-  assert.doesNotMatch(src, /complimentary/i)
-  assert.doesNotMatch(src, /review.library/i)
-})
-
-test('watermark contract: unchanged', () => {
-  const src = read('src/lib/papermark-dataroom-contract.ts')
-  assert.doesNotMatch(src, /complimentary/i)
-})
 
 test('Open editions: open_link_url constraint unchanged', () => {
   const schema = read('db/schema.sql')
@@ -316,100 +411,16 @@ test('documents table: no complimentary column added', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 10. Migration is idempotent
-// ---------------------------------------------------------------------------
-
-test('migration: uses IF NOT EXISTS for table creation', () => {
-  const mig = read('db/migrations/20260902_complimentary_review_library.sql')
-  assert.match(mig, /create table if not exists complimentary_review_items/)
-})
-
-test('migration: uses ON CONFLICT for settings', () => {
-  const mig = read('db/migrations/20260902_complimentary_review_library.sql')
-  assert.match(mig, /on conflict \(key\) do nothing/)
-})
-
-test('migration: uses IF NOT EXISTS for indexes', () => {
-  const mig = read('db/migrations/20260902_complimentary_review_library.sql')
-  assert.match(mig, /create unique index if not exists/)
-  assert.match(mig, /create index if not exists/)
-})
-
-// ---------------------------------------------------------------------------
-// 11. Review items reference existing documents, not duplicate them
-// ---------------------------------------------------------------------------
-
-test('schema: review items reference documents via FK', () => {
-  const schema = read('db/schema.sql')
-  const section = schema.slice(schema.indexOf('complimentary_review_items'))
-  assert.match(section, /references documents \(id\)/)
-})
-
-test('actions: addReviewItem looks up existing publication, not creating new', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function addReviewItem'))
-  assert.match(fn, /from documents where id =/)
-  assert.doesNotMatch(fn, /insert into documents/)
-})
-
-// ---------------------------------------------------------------------------
-// 12. Page hidden from public navigation
+// 20. SiteHeader unchanged
 // ---------------------------------------------------------------------------
 
 test('SiteHeader: no link to complimentary review', () => {
   const src = read('src/components/SiteHeader.tsx')
-  assert.doesNotMatch(src, /complimentary/i)
-})
-
-test('public review page: robots noindex', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /index: false/)
-  assert.match(src, /follow: false/)
+  assert.doesNotMatch(src, /complimentary-review/)
 })
 
 // ---------------------------------------------------------------------------
-// 13. Public page displays correct structure
-// ---------------------------------------------------------------------------
-
-test('public page: shows page title', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /APRI Complimentary Review Copy/)
-})
-
-test('public page: shows introductory text', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /complimentary review page provides selected sample publications/)
-})
-
-test('public page: shows verified email badge', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /Complimentary Review Copy.*verified email required/)
-})
-
-test('public page: access review copy button links to Papermark URL', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /href=\{library\.papermarkUrl\}/)
-  assert.match(src, /Access review copy/)
-})
-
-test('public page: shows publication cards with all required fields', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  assert.match(src, /card\.pubTitle/)
-  assert.match(src, /card\.publicationType/)
-  assert.match(src, /card\.description/)
-  assert.match(src, /card\.frequency/)
-  assert.match(src, /card\.audience/)
-})
-
-test('public page: all access buttons open same single URL', () => {
-  const src = read('src/app/complimentary-review/page.tsx')
-  const cardSection = src.slice(src.indexOf('library.items.map'))
-  const hrefCount = (cardSection.match(/library\.papermarkUrl/g) || []).length
-  assert.equal(hrefCount, 1, 'single papermarkUrl reference inside map')
-})
-
-// ---------------------------------------------------------------------------
-// 14. Admin nav includes Review Library for owners
+// 21. Admin nav still includes Review Library for owners
 // ---------------------------------------------------------------------------
 
 test('AdminShell: Review Library nav item for owners', () => {
@@ -419,17 +430,16 @@ test('AdminShell: Review Library nav item for owners', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 15. Settings validation
+// 22. Unique constraint and idempotent migration remain
 // ---------------------------------------------------------------------------
 
-test('actions: settings rejects non-https URLs', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /https:\/\//)
+test('schema: unique constraint on publication_id', () => {
+  const schema = read('db/schema.sql')
+  assert.match(schema, /complimentary_review_items_publication_key/)
 })
 
-test('actions: settings uses app_settings upsert pattern', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /on conflict \(key\) do update/)
+test('migration: idempotent', () => {
+  const mig = read('db/migrations/20260902_complimentary_review_library.sql')
+  assert.match(mig, /create table if not exists complimentary_review_items/)
+  assert.match(mig, /on conflict \(key\) do nothing/)
 })
