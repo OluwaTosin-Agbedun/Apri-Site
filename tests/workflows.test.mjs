@@ -71,11 +71,10 @@ test("briefing actions do not issue tokens or create sessions", () => {
   assert.match(magic, /consumed_at is null and expires_at>now\(\)/)
 })
 
-test("Papermark sync is pinned to 07 Open Editions and creates private-safe OPEN drafts", () => {
+test("Papermark sync route is retired and returns 410", () => {
   const source = read("src/app/api/admin/papermark/sync/route.ts")
-  assert.match(source, /PAPERMARK_OPEN_EDITIONS_FOLDER_ID/)
-  assert.match(source, /listDocumentsInFolder\(folderId\)/)
-  assert.match(source, /'draft', false, 'OPEN'/)
+  assert.match(source, /retired/)
+  assert.match(source, /410/)
 })
 
 test("briefing actions are service-request management without portal activation", () => {

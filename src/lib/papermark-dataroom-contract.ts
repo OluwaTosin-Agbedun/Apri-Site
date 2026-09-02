@@ -7,24 +7,31 @@
  */
 
 // ---------------------------------------------------------------------------
-// Watermark
+// Watermark — Subscriber Edition
 // ---------------------------------------------------------------------------
 
 /**
- * The watermark that says who a copy was issued to.
+ * The Chancellor-approved Subscriber Edition watermark.
  *
- * Papermark's email verification is switched off on these links, so the viewer
- * never states who they are and the `{{email}}` token would interpolate to
- * nothing. The identity is therefore written into the text at the moment the
- * link is created, and that link is only ever given to that one person — which
- * is precisely why a link is never reused between people.
+ * The subscriber's normalised email is baked in at link-creation time because
+ * Papermark email verification is off for paid links (APRI portal auth is the
+ * gate). `{{date}}` and `{{time}}` are Papermark dynamic tokens filled at view
+ * time.
  *
- * `{{date}}` is a Papermark dynamic token filled at view time.
+ * This must never include: subscriber name, IP address, access level,
+ * "Assigned to", "APRI CONFIDENTIAL", or prospect review wording.
+ */
+export function subscriberWatermarkText(email: string): string {
+  const e = email.trim().toLowerCase()
+  return `APRI Subscriber Edition · ${e} · {{date}} {{time}} · Confidential · Not for redistribution`
+}
+
+/**
+ * @deprecated Use `subscriberWatermarkText` — kept only so callers that have
+ * not been migrated yet still compile. Will be removed after Phase 4.
  */
 export function watermarkText(assignedName: string, assignedEmail: string): string {
-  const name = assignedName.trim() || 'Unnamed recipient'
-  const email = assignedEmail.trim()
-  return `${name} | ${email} | {{date}}`
+  return subscriberWatermarkText(assignedEmail)
 }
 
 export type WatermarkConfig = {
@@ -38,23 +45,29 @@ export type WatermarkConfig = {
 }
 
 /**
- * Tiled, centred, at 45 degrees, in a grey that reads without hiding the words
- * underneath. All seven fields are sent: the schema requires every one of them,
- * so an omission is a 422 rather than a default.
+ * Subscriber Edition watermark config. Slightly reduced opacity and font size
+ * compared to the former intrusive setting — visible but restrained.
+ */
+export function subscriberWatermarkConfig(email: string): WatermarkConfig {
+  return {
+    text: subscriberWatermarkText(email),
+    is_tiled: true,
+    position: 'middle-center',
+    rotation: 45,
+    color: '#6B7280',
+    font_size: 18,
+    opacity: 0.15,
+  }
+}
+
+/**
+ * @deprecated Use `subscriberWatermarkConfig`.
  */
 export function watermarkConfig(
   assignedName: string,
   assignedEmail: string
 ): WatermarkConfig {
-  return {
-    text: watermarkText(assignedName, assignedEmail),
-    is_tiled: true,
-    position: 'middle-center',
-    rotation: 45,
-    color: '#6B7280',
-    font_size: 20,
-    opacity: 0.18,
-  }
+  return subscriberWatermarkConfig(assignedEmail)
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +134,7 @@ export function dataRoomLinkSettings(args: {
     allow_list: [],
     deny_list: [],
     enable_watermark: true,
-    watermark_config: watermarkConfig(args.assignedName, args.assignedEmail),
+    watermark_config: subscriberWatermarkConfig(args.assignedEmail),
     enable_screenshot_protection: true,
     allow_download: args.allowDownload !== false,
     enable_agreement: false,
@@ -156,7 +169,7 @@ export function documentLinkSettings(args: {
     allow_list: [],
     deny_list: [],
     enable_watermark: true,
-    watermark_config: watermarkConfig(args.assignedName, args.assignedEmail),
+    watermark_config: subscriberWatermarkConfig(args.assignedEmail),
     enable_screenshot_protection: true,
     allow_download: true,
     enable_agreement: false,

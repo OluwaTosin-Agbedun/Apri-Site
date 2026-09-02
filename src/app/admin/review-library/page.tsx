@@ -14,10 +14,6 @@ export default async function ReviewLibraryPage() {
     select value from app_settings where key = 'review_library_enabled' limit 1
   `) as { value: string }[]
 
-  const urlRow = (await sql`
-    select value from app_settings where key = 'review_library_papermark_url' limit 1
-  `) as { value: string }[]
-
   const drIdRow = (await sql`
     select value from app_settings where key = 'review_library_papermark_dataroom_id' limit 1
   `) as { value: string }[]
@@ -31,44 +27,46 @@ export default async function ReviewLibraryPage() {
   `) as { value: string }[]
 
   const enabled = enabledRow[0]?.value === "true"
-  const papermarkUrl = urlRow[0]?.value ?? ""
   const dataroomId = drIdRow[0]?.value ?? ""
   const lastSyncAt = lastSyncRow[0]?.value ?? ""
   const lastSyncResult = lastSyncResultRow[0]?.value ?? ""
 
-  const items = (await sql`
-    select ri.id, ri.publication_id, ri.display_order, ri.is_active,
+  const slots = (await sql`
+    select ri.id, ri.publication_id, ri.slot_key, ri.display_order, ri.is_active,
            ri.publication_type, ri.description, ri.frequency, ri.audience,
+           ri.secure_link_url,
            ri.papermark_document_id, ri.papermark_dataroom_id,
            ri.last_synced_at, ri.owner_edited_fields,
+           ri.pending_papermark_document_id, ri.pending_clean_title,
+           ri.pending_version_key, ri.pending_detected_at,
            d.title as pub_title, d.series, d.slug
     from complimentary_review_items ri
     join documents d on d.id = ri.publication_id
+    where ri.slot_key in ('MIN', 'AIU', 'PLM')
     order by ri.display_order, ri.created_at
   `) as {
     id: string
     publication_id: string
+    slot_key: string
     display_order: number
     is_active: boolean
     publication_type: string
     description: string
     frequency: string
     audience: string
+    secure_link_url: string
     papermark_document_id: string | null
     papermark_dataroom_id: string | null
     last_synced_at: string | null
     owner_edited_fields: string[]
+    pending_papermark_document_id: string | null
+    pending_clean_title: string | null
+    pending_version_key: string | null
+    pending_detected_at: string | null
     pub_title: string
     series: string
     slug: string
   }[]
-
-  const publications = (await sql`
-    select id, title, series, slug
-    from documents
-    where id not in (select publication_id from complimentary_review_items)
-    order by title
-  `) as { id: string; title: string; series: string; slug: string }[]
 
   const candidates = (await sql`
     select id, papermark_document_id, raw_filename, clean_title,
@@ -91,46 +89,40 @@ export default async function ReviewLibraryPage() {
     is_present: boolean
   }[]
 
-  const totalRoomDocs = (await sql`
-    select count(*)::int as n from review_sync_candidates
-    where is_present = true
-      and papermark_dataroom_id = ${dataroomId || '___none___'}
-  `) as { n: number }[]
-
   return (
     <AdminShell
       admin={admin}
       current="/admin/review-library"
       title="Complimentary Review Library"
-      description="Select publications to include in the complimentary review page for prospective subscribers."
+      description="Manage the three fixed review publications shown to prospective subscribers."
     >
       <ReviewLibraryForm
         enabled={enabled}
-        papermarkUrl={papermarkUrl}
         dataroomId={dataroomId}
         lastSyncAt={lastSyncAt}
         lastSyncResult={lastSyncResult}
-        items={items.map((r) => ({
+        slots={slots.map((r) => ({
           id: r.id,
           publicationId: r.publication_id,
+          slotKey: r.slot_key,
           displayOrder: r.display_order,
           isActive: r.is_active,
           publicationType: r.publication_type,
           description: r.description,
           frequency: r.frequency,
           audience: r.audience,
+          secureLinkUrl: r.secure_link_url,
           papermarkDocumentId: r.papermark_document_id,
           papermarkDataroomId: r.papermark_dataroom_id,
           lastSyncedAt: r.last_synced_at,
           ownerEditedFields: r.owner_edited_fields ?? [],
+          pendingDocumentId: r.pending_papermark_document_id,
+          pendingCleanTitle: r.pending_clean_title,
+          pendingVersionKey: r.pending_version_key,
+          pendingDetectedAt: r.pending_detected_at,
           pubTitle: r.pub_title,
           series: r.series,
           slug: r.slug,
-        }))}
-        availablePublications={publications.map((p) => ({
-          id: p.id,
-          title: p.title,
-          series: p.series,
         }))}
         candidates={candidates.map((c) => ({
           id: c.id,
@@ -145,7 +137,6 @@ export default async function ReviewLibraryPage() {
           lastSeenAt: c.last_seen_at,
           isPresent: c.is_present,
         }))}
-        roomDocCount={totalRoomDocs[0]?.n ?? 0}
       />
     </AdminShell>
   )

@@ -90,7 +90,7 @@ import {
   assignDataRoomToSubscriber,
 } from "@/lib/dataroom-dal"
 import { createDataRoomLink } from "@/lib/papermark-datarooms"
-import { watermarkText } from "@/lib/papermark-dataroom-contract"
+import { subscriberWatermarkText } from "@/lib/papermark-dataroom-contract"
 import {
   reassignDataRoomOnLevelChange,
   updateDataRoomLinkExpiry,
@@ -466,7 +466,7 @@ export async function activateSubscriber(id: string): Promise<FormState> {
             assignedName: row.full_name || row.name,
             assignedEmail: row.email,
             watermarkEnabled: true,
-            watermarkText: watermarkText(row.full_name || row.name, row.email),
+            watermarkText: subscriberWatermarkText(row.email),
             allowDownload: drResult.value.settings.allow_download,
             screenshotProtection: drResult.value.settings.enable_screenshot_protection,
             expiresAt: drResult.value.settings.expires_at,

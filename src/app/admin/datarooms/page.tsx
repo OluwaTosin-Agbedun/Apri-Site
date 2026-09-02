@@ -4,7 +4,7 @@ import AdminShell from "@/components/AdminShell"
 import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom } from "@/lib/dataroom-dal"
 import { PUBLIC_TIERS, tierDisplayName } from "@/lib/entitlements"
 import { portalCategoryLabel, type PortalCategoryKey } from "@/lib/papermark-dataroom-contract"
-import DataRoomMappingForm, { MappingActions, CreatePublicationButton, LinkExistingPublication } from "./dataroom-form"
+import DataRoomMappingForm, { MappingActions, CreatePublicationButton, LinkExistingPublication, GenerateDocumentDetailsButton } from "./dataroom-form"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Data Rooms · APRI" }
@@ -158,18 +158,23 @@ export default async function DataRoomsPage() {
                           </span>
                         ) : (
                           <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                            Needs details
+                            Missing: {doc.missingFields.join(', ')}
                           </span>
                         )}
                       </td>
                       <td className="p-3 text-right">
                         {doc.publicationId ? (
-                          <Link
-                            href={`/admin/documents/${doc.publicationId}`}
-                            className="text-xs text-accent hover:text-accent-hover transition-colors"
-                          >
-                            Edit publication details
-                          </Link>
+                          <span className="inline-flex items-center flex-wrap gap-1">
+                            <Link
+                              href={`/admin/documents/${doc.publicationId}`}
+                              className="text-xs text-accent hover:text-accent-hover transition-colors"
+                            >
+                              Edit publication details
+                            </Link>
+                            {doc.editorialStatus === "needs_details" && (
+                              <GenerateDocumentDetailsButton documentRowId={doc.id} />
+                            )}
+                          </span>
                         ) : (
                           <span className="inline-flex items-center flex-wrap gap-1">
                             <CreatePublicationButton

@@ -2,6 +2,8 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  subscriberWatermarkText,
+  subscriberWatermarkConfig,
   watermarkText,
   watermarkConfig,
   dataRoomLinkSettings,
@@ -18,30 +20,39 @@ import {
 // Watermark
 // ---------------------------------------------------------------------------
 
-describe('watermarkText', () => {
-  it('contains exactly name, email and dynamic date', () => {
-    const text = watermarkText('Nwaokike Desmond', 'nwaokike32@gmail.com')
-    assert.equal(text, 'Nwaokike Desmond | nwaokike32@gmail.com | {{date}}')
+describe('subscriberWatermarkText (Phase 4 Subscriber Edition)', () => {
+  it('uses the Chancellor-approved Subscriber Edition format', () => {
+    const text = subscriberWatermarkText('nwaokike32@gmail.com')
+    assert.equal(
+      text,
+      'APRI Subscriber Edition · nwaokike32@gmail.com · {{date}} {{time}} · Confidential · Not for redistribution'
+    )
   })
 
-  it('does not contain time, IP, access level or confidential wording', () => {
-    const text = watermarkText('Test User', 'test@example.com')
-    assert.doesNotMatch(text, /\{\{time\}\}/)
+  it('does not contain subscriber name, IP, access level or Complimentary Review wording', () => {
+    const text = subscriberWatermarkText('test@example.com')
     assert.doesNotMatch(text, /\{\{ipAddress\}\}/)
-    assert.doesNotMatch(text, /CONFIDENTIAL/i)
     assert.doesNotMatch(text, /Assigned to/)
     assert.doesNotMatch(text, /L[1-4]/)
+    assert.doesNotMatch(text, /Complimentary/)
   })
 
-  it('falls back to "Unnamed recipient" when name is blank', () => {
-    const text = watermarkText('', 'test@example.com')
-    assert.equal(text, 'Unnamed recipient | test@example.com | {{date}}')
+  it('normalises email to lowercase', () => {
+    const text = subscriberWatermarkText('Test@Example.COM')
+    assert.match(text, /test@example\.com/)
   })
 })
 
-describe('watermarkConfig', () => {
+describe('deprecated watermarkText shim', () => {
+  it('delegates to subscriberWatermarkText', () => {
+    const text = watermarkText('Any Name', 'test@example.com')
+    assert.equal(text, subscriberWatermarkText('test@example.com'))
+  })
+})
+
+describe('subscriberWatermarkConfig', () => {
   it('returns all seven required fields', () => {
-    const config = watermarkConfig('Name', 'email@test.com')
+    const config = subscriberWatermarkConfig('email@test.com')
     assert.equal(typeof config.text, 'string')
     assert.equal(config.is_tiled, true)
     assert.equal(config.position, 'middle-center')

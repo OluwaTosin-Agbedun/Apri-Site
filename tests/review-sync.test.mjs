@@ -44,10 +44,9 @@ test('sync action: requires Data Room to be configured', () => {
 // 2. The public share URL is not treated as the Data Room ID
 // ---------------------------------------------------------------------------
 
-test('admin page: stores Data Room ID separately from public URL', () => {
+test('admin page: stores Data Room ID in app_settings', () => {
   const src = read('src/app/admin/review-library/page.tsx')
   assert.match(src, /review_library_papermark_dataroom_id/)
-  assert.match(src, /review_library_papermark_url/)
 })
 
 test('actions: saveReviewDataRoom is separate from saveReviewLibrarySettings', () => {
@@ -214,9 +213,9 @@ test('actions: saveReviewItemDetails records owner_edited_fields', () => {
   assert.match(fn, /editedFields/)
 })
 
-test('actions: approveCandidateReplacement preserves owner-edited fields', () => {
+test('actions: makeVersionCurrent preserves owner-edited fields', () => {
   const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function approveCandidateReplacement'))
+  const fn = src.slice(src.indexOf('async function makeVersionCurrent'))
   assert.match(fn, /owner_edited_fields/)
   assert.match(fn, /edited\.has/)
 })
@@ -225,15 +224,16 @@ test('actions: approveCandidateReplacement preserves owner-edited fields', () =>
 // 11. Regeneration requires confirmation
 // ---------------------------------------------------------------------------
 
-test('admin form: regenerate shows confirmation dialog', () => {
+test('admin form: generate details fills blanks only', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /window\.confirm.*Regenerate/)
+  assert.match(src, /generateSlotDetails/)
 })
 
-test('actions: regenerate clears owner_edited_fields', () => {
+test('actions: generateSlotDetails checks owner_edited_fields', () => {
   const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function regenerateReviewItemDetails'))
-  assert.match(fn, /owner_edited_fields = '\{}'/)
+  const fn = src.slice(src.indexOf('async function generateSlotDetails'))
+  assert.match(fn, /owner_edited_fields/)
+  assert.match(fn, /edited\.has/)
 })
 
 // ---------------------------------------------------------------------------
@@ -267,57 +267,54 @@ test('background sync: never calls approveCandidateReplacement', () => {
 // 14. Approval replaces only the matching series
 // ---------------------------------------------------------------------------
 
-test('actions: approval targets specific series', () => {
+test('actions: makeVersionCurrent targets specific slot', () => {
   const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function approveCandidateReplacement'))
-  assert.match(fn, /d\.series = \$\{series\}/)
-  assert.match(fn, /ri\.is_active = true/)
+  const fn = src.slice(src.indexOf('async function makeVersionCurrent'))
+  assert.match(fn, /slot_key = \$\{slotKey\}/)
 })
 
 // ---------------------------------------------------------------------------
 // 15. Exactly three active cards remain (validation)
 // ---------------------------------------------------------------------------
 
-test('enable validation: requires exactly three active items', () => {
+test('enable validation: requires all three fixed slots', () => {
   const src = read('src/app/actions/review-library.ts')
   const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /exactly three active review items/)
-  assert.match(fn, /!== 3/)
+  assert.match(fn, /three fixed slots/)
+  assert.match(fn, /slots\.length !== 3/)
 })
 
 // ---------------------------------------------------------------------------
 // 16. Room-count warnings appear
 // ---------------------------------------------------------------------------
 
-test('admin form: room warnings component exists', () => {
+test('admin form: has SlotCard component for fixed slots', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /function RoomWarnings/)
-  assert.match(src, /roomDocCount/)
+  assert.match(src, /function SlotCard/)
+  assert.match(src, /SLOT_LABELS/)
 })
 
-test('admin form: warns when fewer than 3 documents', () => {
+test('admin form: enable section shows diagnostics for missing slots', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /roomDocCount < 3/)
+  assert.match(src, /function EnableSection/)
 })
 
-test('admin form: warns when more than 3 documents', () => {
+test('admin form: secure link field per slot', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /roomDocCount > 3/)
+  assert.match(src, /secureLinkUrl/)
+  assert.match(src, /updateSlotSecureLink/)
 })
 
-test('admin form: warns about unrecognised documents', () => {
+test('admin form: pending version display', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /unrecognised/)
+  assert.match(src, /pendingCleanTitle/)
+  assert.match(src, /Pending edition/)
 })
 
-test('admin form: warns about duplicate series', () => {
+test('admin form: make current button with confirmation', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /duplicateSeries/)
-})
-
-test('admin form: shows room safety message', () => {
-  const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /This Papermark link shares the entire Data Room/)
+  assert.match(src, /Make current/)
+  assert.match(src, /window\.confirm/)
 })
 
 // ---------------------------------------------------------------------------
@@ -558,10 +555,10 @@ test('publications page: still has #complimentary-review anchor', () => {
   assert.match(src, /id="complimentary-review"/)
 })
 
-test('publications page: single papermarkUrl reference', () => {
+test('publications page: per-card secure URL (no global papermarkUrl)', () => {
   const src = read('src/app/publications/page.tsx')
-  const matches = src.match(/library\.papermarkUrl/g) || []
-  assert.equal(matches.length, 1, 'exactly one papermarkUrl reference')
+  assert.match(src, /card\.secureUrl/)
+  assert.doesNotMatch(src, /library\.papermarkUrl/)
 })
 
 // ---------------------------------------------------------------------------
@@ -600,10 +597,11 @@ test('phase 2: admin still requires owner', () => {
   assert.match(src, /requireOwner/)
 })
 
-test('phase 2: enable validation still checks HTTPS URL', () => {
+test('phase 2: enable validation still checks slots and secure links', () => {
   const src = read('src/app/actions/review-library.ts')
   const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /Cannot enable.*valid HTTPS/)
+  assert.match(fn, /Cannot enable/)
+  assert.match(fn, /no secure link URL/)
 })
 
 test('phase 2: getPublishedPublications still excludes OPEN', () => {

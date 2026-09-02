@@ -4,6 +4,8 @@ import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 import {
+  subscriberWatermarkText,
+  subscriberWatermarkConfig,
   watermarkText,
   watermarkConfig,
   dataRoomLinkSettings,
@@ -351,24 +353,26 @@ describe('subscriber/briefing isolation', () => {
   })
 
   it('watermark texts differ per person', () => {
-    const a = watermarkText('Alice', 'alice@example.com')
-    const b = watermarkText('Bob', 'bob@example.com')
+    const a = subscriberWatermarkText('alice@example.com')
+    const b = subscriberWatermarkText('bob@example.com')
     assert.notEqual(a, b)
-    assert.ok(a.includes('Alice'))
-    assert.ok(b.includes('Bob'))
+    assert.ok(a.includes('alice@example.com'))
+    assert.ok(b.includes('bob@example.com'))
   })
 
   it('watermark configs differ per person', () => {
-    const a = watermarkConfig('Alice', 'alice@example.com')
-    const b = watermarkConfig('Bob', 'bob@example.com')
+    const a = subscriberWatermarkConfig('alice@example.com')
+    const b = subscriberWatermarkConfig('bob@example.com')
     assert.notEqual(a.text, b.text)
   })
 
-  it('watermark text is name | email | date only', () => {
-    const text = watermarkText('Alice', 'alice@example.com')
-    assert.equal(text, 'Alice | alice@example.com | {{date}}')
-    assert.doesNotMatch(text, /CONFIDENTIAL/i)
-    assert.doesNotMatch(text, /\{\{time\}\}/)
+  it('watermark text uses Subscriber Edition format', () => {
+    const text = subscriberWatermarkText('alice@example.com')
+    assert.match(text, /APRI Subscriber Edition/)
+    assert.match(text, /alice@example\.com/)
+    assert.match(text, /\{\{date\}\}/)
+    assert.match(text, /\{\{time\}\}/)
+    assert.match(text, /Confidential/)
     assert.doesNotMatch(text, /\{\{ipAddress\}\}/)
   })
 })
@@ -377,7 +381,7 @@ describe('subscriber/briefing isolation', () => {
 // Watermark update action
 // ---------------------------------------------------------------------------
 
-describe('owner-only watermark update action', () => {
+describe('owner-only subscriber watermark update (Preview + Apply)', () => {
   const actionSrc = readFileSync(
     new URL('../src/app/actions/datarooms.ts', import.meta.url), 'utf8')
   const dalSrc = readFileSync(
@@ -385,14 +389,19 @@ describe('owner-only watermark update action', () => {
   const apiSrc = readFileSync(
     new URL('../src/lib/papermark-datarooms.ts', import.meta.url), 'utf8')
 
-  it('action is owner-gated', () => {
-    const fn = actionSrc.slice(actionSrc.indexOf('export async function updateAllWatermarks'))
+  it('preview action is owner-gated', () => {
+    const fn = actionSrc.slice(actionSrc.indexOf('export async function previewSubscriberWatermarkUpdate'))
     assert.match(fn, /requireOwner\(\)/)
   })
 
-  it('action does not create new links or send emails', () => {
-    const start = actionSrc.indexOf('export async function updateAllWatermarks')
-    const end = actionSrc.indexOf('export async function', start + 1)
+  it('apply action is owner-gated', () => {
+    const fn = actionSrc.slice(actionSrc.indexOf('export async function applySubscriberWatermarkUpdate'))
+    assert.match(fn, /requireOwner\(\)/)
+  })
+
+  it('apply action does not create new links or send emails', () => {
+    const start = actionSrc.indexOf('export async function applySubscriberWatermarkUpdate')
+    const end = actionSrc.indexOf('// ----', start + 1)
     const fn = actionSrc.slice(start, end > start ? end : undefined)
     assert.doesNotMatch(fn, /createDataRoomLink|createDocumentLink/)
     assert.doesNotMatch(fn, /sendEmail|sendAccessRequest|sendEditionAlert/)
@@ -414,6 +423,10 @@ describe('owner-only watermark update action', () => {
     assert.match(fn, /papermark_dataroom_links/)
     assert.match(fn, /papermark_subscriber_document_links/)
     assert.match(fn, /revoke_state = 'live'/)
+  })
+
+  it('updateAllWatermarks has been removed', () => {
+    assert.doesNotMatch(actionSrc, /export async function updateAllWatermarks/)
   })
 })
 

@@ -12,7 +12,7 @@ import {
   revokeDataRoomLink,
   updateDataRoomLink,
 } from './papermark-datarooms'
-import { watermarkText } from './papermark-dataroom-contract'
+import { subscriberWatermarkText } from './papermark-dataroom-contract'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -83,7 +83,7 @@ export async function ensureDocumentLink(args: {
     linkUrl: result.value.url,
     assignedName: sub.fullName,
     assignedEmail: sub.email,
-    watermarkText: watermarkText(sub.fullName, sub.email),
+    watermarkText: subscriberWatermarkText(sub.email),
     allowDownload: result.value.settings.allow_download,
     screenshotProtection: result.value.settings.enable_screenshot_protection,
     expiresAt: result.value.settings.expires_at,
@@ -137,7 +137,7 @@ export async function ensureAllDocumentLinks(
       linkUrl: result.value.url,
       assignedName: sub.fullName,
       assignedEmail: sub.email,
-      watermarkText: watermarkText(sub.fullName, sub.email),
+      watermarkText: subscriberWatermarkText(sub.email),
       allowDownload: result.value.settings.allow_download,
       screenshotProtection: result.value.settings.enable_screenshot_protection,
       expiresAt: result.value.settings.expires_at,

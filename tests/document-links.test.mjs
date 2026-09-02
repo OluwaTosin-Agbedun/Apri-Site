@@ -17,6 +17,7 @@ import {
   categoryToDefaultVisibility,
   documentLinkSettings,
   humaniseFilename,
+  subscriberWatermarkText,
   watermarkText,
   portalTypeLabel,
   portalCategoryLabel,
@@ -92,15 +93,16 @@ test('documentLinkSettings has correct security settings', () => {
   assert.equal(settings.enable_agreement, false)
 })
 
-test('documentLinkSettings watermark contains name and email literally', () => {
+test('documentLinkSettings watermark uses Subscriber Edition format with email only', () => {
   const settings = documentLinkSettings({
     documentId: 'doc-123',
     assignedName: 'Nwaokike Desmond',
     assignedEmail: 'desmond@example.com',
     expiresAt: null,
   })
-  assert.match(settings.watermark_config.text, /Nwaokike Desmond/)
+  assert.match(settings.watermark_config.text, /APRI Subscriber Edition/)
   assert.match(settings.watermark_config.text, /desmond@example\.com/)
+  assert.doesNotMatch(settings.watermark_config.text, /Nwaokike Desmond/)
   assert.match(settings.watermark_config.text, /\{\{date\}\}/)
 })
 
@@ -506,17 +508,21 @@ test('download: subscriber-document ownership verified server-side', () => {
 // 12. Watermark text format
 // ---------------------------------------------------------------------------
 
-test('watermark: contains exactly name, email and date', () => {
-  const text = watermarkText('Nwaokike Desmond', 'desmond@example.com')
-  assert.equal(text, 'Nwaokike Desmond | desmond@example.com | {{date}}')
+test('watermark: uses Subscriber Edition format with email, date, time and confidential', () => {
+  const text = subscriberWatermarkText('desmond@example.com')
+  assert.match(text, /APRI Subscriber Edition/)
+  assert.match(text, /desmond@example\.com/)
+  assert.match(text, /\{\{date\}\}/)
+  assert.match(text, /\{\{time\}\}/)
+  assert.match(text, /Confidential/)
+  assert.match(text, /Not for redistribution/)
 })
 
-test('watermark: no time, IP, confidential wording or access level', () => {
-  const text = watermarkText('Test', 'test@x.com')
-  assert.match(text, /\{\{date\}\}/)
-  assert.doesNotMatch(text, /\{\{time\}\}/)
+test('watermark: no IP address, no name, no access level', () => {
+  const text = subscriberWatermarkText('test@x.com')
   assert.doesNotMatch(text, /\{\{ipAddress\}\}/)
-  assert.doesNotMatch(text, /CONFIDENTIAL/i)
+  assert.doesNotMatch(text, /Assigned to/)
+  assert.doesNotMatch(text, /L[1-4]/)
 })
 
 // ---------------------------------------------------------------------------
@@ -777,7 +783,7 @@ test('admin: synced documents table shows editorial status', () => {
   const src = read('src/app/admin/datarooms/page.tsx')
   assert.match(src, /editorialStatus/)
   assert.match(src, /Complete/)
-  assert.match(src, /Needs details/)
+  assert.match(src, /Missing:/)
 })
 
 test('admin: synced documents table shows folder path and category', () => {

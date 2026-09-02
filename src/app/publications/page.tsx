@@ -55,25 +55,25 @@ export default async function PublicationsPage() {
               </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {library.items.map((card, i) => (
                 <article
                   key={i}
-                  className="border border-border bg-card/30 p-8 sm:p-10 lg:p-12"
+                  className="border border-border bg-card/30 p-6 sm:p-8 flex flex-col"
                 >
                   <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-3">
                     {card.publicationType}
                   </span>
 
-                  <h3 className="font-serif text-xl text-foreground">
+                  <h3 className="font-serif text-lg text-foreground">
                     {card.pubTitle}
                   </h3>
 
-                  <p className="text-sm text-foreground/70 leading-relaxed mt-4 max-w-4xl">
+                  <p className="text-sm text-foreground/70 leading-relaxed mt-4 flex-1">
                     {card.description}
                   </p>
 
-                  <div className="mt-6 flex items-center gap-6 text-xs text-muted-foreground">
+                  <div className="mt-5 flex items-center gap-4 text-xs text-muted-foreground">
                     <span>{card.frequency}</span>
                     {card.audience && (
                       <>
@@ -83,36 +83,22 @@ export default async function PublicationsPage() {
                     )}
                   </div>
 
-                  <a
-                    href="#secure-review-access"
-                    className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mt-6"
-                  >
-                    Access review copy <span className="ml-2 opacity-70">&darr;</span>
-                  </a>
+                  <div className="mt-6 pt-5 border-t border-border/50">
+                    <p className="text-[0.7rem] text-muted-foreground leading-relaxed mb-4">
+                      Verified email access is required. Documents are confidential
+                      and not for redistribution.
+                    </p>
+                    <a
+                      href={card.secureUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center bg-foreground text-background px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
+                    >
+                      Access review copy
+                    </a>
+                  </div>
                 </article>
               ))}
-            </div>
-
-            {/* Secure access area */}
-            <div
-              id="secure-review-access"
-              className="mt-10 border border-accent/20 bg-accent/5 p-8 sm:p-10 scroll-mt-28"
-            >
-              <h3 className="font-serif text-lg text-foreground mb-3">
-                Secure Review Library
-              </h3>
-              <p className="text-sm text-foreground/70 leading-relaxed mb-6 max-w-3xl">
-                Verified email access is required. Documents are confidential
-                and not for redistribution.
-              </p>
-              <a
-                href={library.papermarkUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
-              >
-                Enter Secure Review Library
-              </a>
             </div>
           </section>
         )}

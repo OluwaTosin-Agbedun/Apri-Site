@@ -13,7 +13,7 @@ import {
   revokeDataRoomLink,
   updateDataRoomLink,
 } from './papermark-datarooms'
-import { watermarkText } from './papermark-dataroom-contract'
+import { subscriberWatermarkText } from './papermark-dataroom-contract'
 import {
   revokeAllDocumentLinks,
   ensureAllDocumentLinks,
@@ -111,7 +111,7 @@ export async function reassignDataRoomOnLevelChange(args: {
     assignedName: sub.full_name,
     assignedEmail: sub.email,
     watermarkEnabled: true,
-    watermarkText: watermarkText(sub.full_name, sub.email),
+    watermarkText: subscriberWatermarkText(sub.email),
     allowDownload: result.value.settings.allow_download,
     screenshotProtection: result.value.settings.enable_screenshot_protection,
     expiresAt: result.value.settings.expires_at,

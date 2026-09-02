@@ -12,8 +12,11 @@ import {
   autoLinkPublicationsByPapermarkId,
   createPublicationForDocument,
   linkPublicationToSyncedDocument,
-  updateAllWatermarks,
+  previewSubscriberWatermarkUpdate,
+  applySubscriberWatermarkUpdate,
+  auditLegacyOpenEditions,
   generateMissingDetails,
+  generateMissingDetailsForDocument,
 } from "@/app/actions/datarooms"
 import type { FormState } from "@/lib/definitions"
 import { tierDisplayName } from "@/lib/entitlements"
@@ -267,36 +270,134 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
 }
 
 function WatermarkUpdateAction() {
-  const [busy, setBusy] = useState(false)
+  const [step, setStep] = useState<"idle" | "previewing" | "previewed" | "applying">("idle")
   const [msg, setMsg] = useState("")
+  const [previewDetail, setPreviewDetail] = useState("")
   const router = useRouter()
 
-  async function handle() {
-    if (!window.confirm("Update watermarks on all live links? This does not change URLs, expiry or downloads.")) return
-    setBusy(true)
+  async function handlePreview() {
+    setStep("previewing")
     setMsg("")
-    const result = await updateAllWatermarks()
+    setPreviewDetail("")
+    const result = await previewSubscriberWatermarkUpdate()
     setMsg(result?.message ?? "")
-    setBusy(false)
+    if (result?.preview) {
+      const lines: string[] = []
+      if (result.preview.eligible.length > 0)
+        lines.push(`${result.preview.eligible.length} link${result.preview.eligible.length === 1 ? "" : "s"} will be updated to Subscriber Edition watermark.`)
+      if (result.preview.alreadyCorrect > 0)
+        lines.push(`${result.preview.alreadyCorrect} already correct — will be skipped.`)
+      for (const ex of result.preview.excluded)
+        lines.push(`${ex.count} excluded: ${ex.reason}.`)
+      setPreviewDetail(lines.join("\n"))
+      setStep("previewed")
+    } else {
+      setStep("idle")
+    }
+  }
+
+  async function handleApply() {
+    if (!window.confirm(
+      "Apply Subscriber Edition watermark to all eligible paid-subscriber links?\n\n" +
+      "This updates only the watermark text and appearance. URLs, expiry, downloads, " +
+      "permissions and verification settings are preserved. No emails are sent.\n\n" +
+      "The Complimentary Review Data Room link is excluded."
+    )) return
+    setStep("applying")
+    setMsg("")
+    const result = await applySubscriberWatermarkUpdate()
+    setMsg(result?.message ?? "")
+    setStep("idle")
+    setPreviewDetail("")
     if (result?.ok) router.refresh()
   }
 
   return (
     <div className="mt-4 pt-4 border-t border-border/50">
-      <div className="flex items-center gap-3">
+      <h4 className="text-sm font-medium text-foreground mb-2">Subscriber watermark update</h4>
+      <div className="flex items-center gap-3 flex-wrap">
         <button
           type="button"
-          onClick={handle}
-          disabled={busy}
+          onClick={handlePreview}
+          disabled={step === "previewing" || step === "applying"}
           className={btnSecondary}
         >
-          {busy ? "Updating watermarks..." : "Update all watermarks"}
+          {step === "previewing" ? "Checking links..." : "Preview subscriber watermark update"}
+        </button>
+        {(step === "previewed" || step === "applying") && (
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={step === "applying"}
+            className={btnSecondary}
+          >
+            {step === "applying" ? "Applying..." : "Apply subscriber watermark update"}
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mt-1">
+        Updates only paid-subscriber link watermarks to the Subscriber Edition format. Does not change URLs, expiry, downloads or send emails. Excludes prospect/review links.
+      </p>
+      {msg && <p className="text-sm text-foreground/70 mt-2">{msg}</p>}
+      {previewDetail && (
+        <pre className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap font-mono bg-black/5 p-3 rounded">
+          {previewDetail}
+        </pre>
+      )}
+
+      <div className="mt-4 pt-4 border-t border-border/30">
+        <h4 className="text-sm font-medium text-foreground mb-2">Cover and version label checklist</h4>
+        <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+          <li>Prospect PDFs use <code className="font-mono">Version: Complimentary Review Copy</code></li>
+          <li>Paid-subscriber PDFs use <code className="font-mono">Version: Subscriber Edition</code></li>
+          <li>Internal masters remain private and are never shared</li>
+        </ul>
+      </div>
+
+      <LegacyAuditSection />
+    </div>
+  )
+}
+
+function LegacyAuditSection() {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState("")
+  const [detail, setDetail] = useState("")
+  const router = useRouter()
+
+  async function handle() {
+    setBusy(true)
+    setMsg("")
+    setDetail("")
+    const result = await auditLegacyOpenEditions()
+    setMsg(result?.message ?? "")
+    if (result?.audit) {
+      const lines = result.audit.records.map((r) =>
+        `${r.title} — ${r.safe ? "archived" : `kept (${r.referencedBy.join(", ") || r.status})`}`
+      )
+      if (lines.length > 0) setDetail(lines.join("\n"))
+    }
+    setBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/30">
+      <h4 className="text-sm font-medium text-foreground mb-2">Legacy Open Edition audit</h4>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={handle} disabled={busy} className={btnSecondary}>
+          {busy ? "Auditing..." : "Audit legacy OPEN records"}
         </button>
         <span className="text-xs text-muted-foreground">
-          Rewrites the watermark text on every live link without changing URLs or sending emails.
+          Archives unreferenced OPEN documents. Referenced records are left unchanged.
         </span>
       </div>
       {msg && <p className="text-sm text-foreground/70 mt-2">{msg}</p>}
+      {detail && (
+        <pre className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap font-mono bg-black/5 p-3 rounded">
+          {detail}
+        </pre>
+      )}
     </div>
   )
 }
@@ -395,6 +496,39 @@ export function LinkExistingPublication({
         Cancel
       </button>
       {msg && <span className="text-[0.65rem] text-red-600">{msg}</span>}
+    </span>
+  )
+}
+
+export function GenerateDocumentDetailsButton({
+  documentRowId,
+}: {
+  documentRowId: string
+}) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState("")
+  const router = useRouter()
+
+  async function handleGenerate() {
+    setBusy(true)
+    setMsg("")
+    const result = await generateMissingDetailsForDocument(documentRowId)
+    setMsg(result?.message ?? "")
+    setBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        onClick={handleGenerate}
+        disabled={busy}
+        className="text-[0.65rem] text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer ml-2"
+      >
+        {busy ? "..." : "Generate missing details"}
+      </button>
+      {msg && <span className="text-[0.65rem] text-foreground/70">{msg}</span>}
     </span>
   )
 }

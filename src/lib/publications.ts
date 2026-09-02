@@ -191,10 +191,10 @@ export type ReviewCard = {
   description: string
   frequency: string
   audience: string
+  secureUrl: string
 }
 
 export type ReviewLibrary = {
-  papermarkUrl: string
   items: ReviewCard[]
 }
 
@@ -208,19 +208,15 @@ export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
 
     if (enabledRow[0]?.value !== 'true') return null
 
-    const urlRow = (await sql`
-      select value from app_settings where key = 'review_library_papermark_url' limit 1
-    `) as { value: string }[]
-
-    const papermarkUrl = urlRow[0]?.value ?? ''
-    if (!papermarkUrl) return null
-
     const items = (await sql`
       select d.title as pub_title,
-             ri.publication_type, ri.description, ri.frequency, ri.audience
+             ri.publication_type, ri.description, ri.frequency, ri.audience,
+             ri.secure_link_url, ri.slot_key
       from complimentary_review_items ri
       join documents d on d.id = ri.publication_id
       where ri.is_active = true
+        and ri.slot_key in ('MIN', 'AIU', 'PLM')
+        and ri.secure_link_url <> ''
       order by ri.display_order, ri.created_at
     `) as {
       pub_title: string
@@ -228,18 +224,20 @@ export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
       description: string
       frequency: string
       audience: string
+      secure_link_url: string
+      slot_key: string
     }[]
 
-    if (items.length === 0) return null
+    if (items.length !== 3) return null
 
     return {
-      papermarkUrl,
       items: items.map((r) => ({
         pubTitle: r.pub_title,
         publicationType: r.publication_type,
         description: r.description,
         frequency: r.frequency,
         audience: r.audience,
+        secureUrl: r.secure_link_url,
       })),
     }
   } catch {

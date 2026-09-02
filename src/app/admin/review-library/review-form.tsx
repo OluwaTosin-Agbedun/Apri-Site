@@ -7,14 +7,13 @@ import {
   saveReviewDataRoom,
   fetchAvailableReviewDataRooms,
   syncReviewLibrary,
+  ensureFixedSlots,
+  updateSlotSecureLink,
+  makeVersionCurrent,
+  generateSlotDetails,
   mapCandidateToCard,
-  approveCandidateReplacement,
   ignoreCandidate,
-  addReviewItem,
-  removeReviewItem,
-  reorderReviewItems,
   saveReviewItemDetails,
-  regenerateReviewItemDetails,
 } from "@/app/actions/review-library"
 import type { FormState } from "@/lib/definitions"
 
@@ -27,28 +26,34 @@ const btnPrimary =
 const btnSecondary =
   "border border-border px-4 py-2 text-sm hover:bg-black/5 transition-colors disabled:opacity-50 cursor-pointer"
 
-type ReviewItem = {
+const SLOT_LABELS: Record<string, string> = {
+  MIN: "Monthly Intelligence Note",
+  AIU: "Athena Intelligence Update",
+  PLM: "Political Landscape Monitor",
+}
+
+type ReviewSlot = {
   id: string
   publicationId: string
+  slotKey: string
   displayOrder: number
   isActive: boolean
   publicationType: string
   description: string
   frequency: string
   audience: string
+  secureLinkUrl: string
   papermarkDocumentId: string | null
   papermarkDataroomId: string | null
   lastSyncedAt: string | null
   ownerEditedFields: string[]
+  pendingDocumentId: string | null
+  pendingCleanTitle: string | null
+  pendingVersionKey: string | null
+  pendingDetectedAt: string | null
   pubTitle: string
   series: string
   slug: string
-}
-
-type AvailablePublication = {
-  id: string
-  title: string
-  series: string
 }
 
 type Candidate = {
@@ -67,60 +72,58 @@ type Candidate = {
 
 export default function ReviewLibraryForm({
   enabled,
-  papermarkUrl,
   dataroomId,
   lastSyncAt,
   lastSyncResult,
-  items,
-  availablePublications,
+  slots,
   candidates,
-  roomDocCount,
 }: {
   enabled: boolean
-  papermarkUrl: string
   dataroomId: string
   lastSyncAt: string
   lastSyncResult: string
-  items: ReviewItem[]
-  availablePublications: AvailablePublication[]
+  slots: ReviewSlot[]
   candidates: Candidate[]
-  roomDocCount: number
 }) {
   return (
     <div className="space-y-8">
-      <SettingsSection enabled={enabled} papermarkUrl={papermarkUrl} />
+      <EnableSection enabled={enabled} slots={slots} />
+      {slots.length === 0 && <SetupSection />}
       <DataRoomSection dataroomId={dataroomId} />
       <SyncSection
         dataroomId={dataroomId}
         lastSyncAt={lastSyncAt}
         lastSyncResult={lastSyncResult}
       />
-      {dataroomId && <RoomWarnings roomDocCount={roomDocCount} candidates={candidates} />}
       {candidates.length > 0 && (
-        <CandidatesSection candidates={candidates} items={items} />
+        <CandidatesSection candidates={candidates} slots={slots} />
       )}
-      <AddItemSection publications={availablePublications} />
-      {items.length > 0 && <ReorderSection items={items} />}
-      {items.map((item) => (
-        <ItemCard key={item.id} item={item} />
+      {slots.map((slot) => (
+        <SlotCard key={slot.slotKey} slot={slot} />
       ))}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Settings
+// Enable / Disable
 // ---------------------------------------------------------------------------
 
-function SettingsSection({ enabled, papermarkUrl }: { enabled: boolean; papermarkUrl: string }) {
+function EnableSection({ enabled, slots }: { enabled: boolean; slots: ReviewSlot[] }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(
     saveReviewLibrarySettings,
     {},
   )
 
+  const missingSlots = ['MIN', 'AIU', 'PLM'].filter(
+    (k) => !slots.find((s) => s.slotKey === k),
+  )
+  const missingLinks = slots.filter((s) => !s.secureLinkUrl)
+  const missingDocs = slots.filter((s) => !s.publicationId)
+
   return (
     <div className="border border-border bg-card/30 p-6">
-      <h3 className="font-serif text-lg text-foreground mb-4">Library Settings</h3>
+      <h3 className="font-serif text-lg text-foreground mb-4">Library Status</h3>
       <form action={formAction} className="space-y-4">
         <div className="flex items-center gap-3">
           <input
@@ -134,22 +137,24 @@ function SettingsSection({ enabled, papermarkUrl }: { enabled: boolean; papermar
             Enable complimentary review library
           </label>
         </div>
-        <div>
-          <label className={label}>Papermark Data Room URL</label>
-          <input
-            name="papermarkUrl"
-            type="url"
-            defaultValue={papermarkUrl}
-            placeholder="https://..."
-            className={field}
-          />
-          {state?.errors?.papermarkUrl && (
-            <p className="text-xs text-red-600 mt-1">{state.errors.papermarkUrl[0]}</p>
-          )}
-        </div>
+
+        {(missingSlots.length > 0 || missingLinks.length > 0 || missingDocs.length > 0) && (
+          <div className="text-xs text-amber-600 space-y-1">
+            {missingSlots.length > 0 && (
+              <p>Missing slots: {missingSlots.join(', ')}. Use "Initialise fixed slots" below.</p>
+            )}
+            {missingDocs.length > 0 && (
+              <p>Missing mapped document: {missingDocs.map((s) => s.slotKey).join(', ')}.</p>
+            )}
+            {missingLinks.length > 0 && (
+              <p>Missing secure link: {missingLinks.map((s) => s.slotKey).join(', ')}.</p>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-4">
           <button type="submit" disabled={pending} className={btnPrimary}>
-            {pending ? "Saving..." : "Save settings"}
+            {pending ? "Saving..." : "Save"}
           </button>
           {state?.message && (
             <p className={`text-sm ${state.ok ? "text-accent" : "text-red-600"}`}>
@@ -158,6 +163,40 @@ function SettingsSection({ enabled, papermarkUrl }: { enabled: boolean; papermar
           )}
         </div>
       </form>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// One-time setup: ensure fixed slots
+// ---------------------------------------------------------------------------
+
+function SetupSection() {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState("")
+  const router = useRouter()
+
+  async function handleInit() {
+    setBusy(true)
+    setMsg("")
+    const result = await ensureFixedSlots()
+    setMsg(result?.message ?? "")
+    setBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  return (
+    <div className="border border-amber-300 bg-amber-50 p-6">
+      <h3 className="font-serif text-lg text-amber-900 mb-3">Fixed Slots Not Found</h3>
+      <p className="text-sm text-amber-800 mb-4">
+        The review library uses three fixed slots: Monthly Intelligence Note (MIN),
+        Athena Intelligence Update (AIU) and Political Landscape Monitor (PLM).
+        Click below to create them from existing publications.
+      </p>
+      <button type="button" onClick={handleInit} disabled={busy} className={btnPrimary}>
+        {busy ? "Initialising..." : "Initialise fixed slots"}
+      </button>
+      {msg && <p className="text-sm mt-2 text-amber-800">{msg}</p>}
     </div>
   )
 }
@@ -203,7 +242,7 @@ function DataRoomSection({ dataroomId }: { dataroomId: string }) {
       </h3>
       <p className="text-sm text-foreground/70 mb-4">
         Select the Complimentary Review Data Room for document synchronisation.
-        This is the Data Room ID used for API calls, separate from the public access URL above.
+        This Data Room is used only for backend sync — it is not shown to visitors.
       </p>
       {dataroomId && (
         <p className="text-xs text-muted-foreground mb-3">
@@ -267,11 +306,11 @@ function SyncSection({
   return (
     <div className="border border-border bg-card/30 p-6">
       <h3 className="font-serif text-lg text-foreground mb-2">
-        Sync Complimentary Review Library
+        Sync Documents
       </h3>
       <p className="text-sm text-foreground/70 mb-4">
-        Fetch documents from the selected Data Room and classify them.
-        This does not change the public website — discovered documents are held for your review.
+        Fetch documents from the selected Data Room and detect new editions.
+        This does not change the public website — new versions are held for your review.
       </p>
       {lastSyncAt && (
         <p className="text-xs text-muted-foreground mb-2">
@@ -286,7 +325,7 @@ function SyncSection({
           disabled={busy || !dataroomId}
           className={btnPrimary}
         >
-          {busy ? "Syncing..." : "Sync Complimentary Review Library"}
+          {busy ? "Syncing..." : "Sync"}
         </button>
         {!dataroomId && (
           <span className="text-xs text-amber-600">Select a Data Room first.</span>
@@ -302,102 +341,26 @@ function SyncSection({
 }
 
 // ---------------------------------------------------------------------------
-// Room warnings
-// ---------------------------------------------------------------------------
-
-function RoomWarnings({
-  roomDocCount,
-  candidates,
-}: {
-  roomDocCount: number
-  candidates: Candidate[]
-}) {
-  const supported = candidates.filter((c) => c.detectedSeries && c.isPresent)
-  const unrecognised = candidates.filter((c) => !c.detectedSeries && c.isPresent)
-  const seriesCounts = new Map<string, number>()
-  for (const c of supported) {
-    seriesCounts.set(c.detectedSeries, (seriesCounts.get(c.detectedSeries) ?? 0) + 1)
-  }
-  const duplicateSeries = [...seriesCounts.entries()].filter(([, n]) => n > 1)
-
-  const warnings: string[] = []
-
-  if (roomDocCount < 3) {
-    warnings.push(`Only ${roomDocCount} document${roomDocCount === 1 ? '' : 's'} found. Expected at least 3 supported documents (MIN, AIU, PLM).`)
-  }
-  if (roomDocCount > 3) {
-    warnings.push(`${roomDocCount} documents found in the Data Room. Only 3 are expected. Extra documents may be visible to verified recipients.`)
-  }
-  if (unrecognised.length > 0) {
-    warnings.push(`${unrecognised.length} unrecognised document${unrecognised.length === 1 ? '' : 's'}. These could not be classified as MIN, AIU or PLM.`)
-  }
-  if (duplicateSeries.length > 0) {
-    for (const [s, n] of duplicateSeries) {
-      warnings.push(`${n} documents classified as ${s}. Only one per series is expected.`)
-    }
-  }
-
-  if (warnings.length === 0) return null
-
-  return (
-    <div className="border border-amber-300 bg-amber-50 p-6">
-      <h3 className="font-serif text-lg text-amber-900 mb-3">Data Room Warnings</h3>
-      <p className="text-sm text-amber-800 mb-3">
-        This Papermark link shares the entire Data Room. All documents in this room
-        may be visible to verified recipients. Keep only the three approved review
-        documents in the room.
-      </p>
-      <ul className="space-y-2">
-        {warnings.map((w, i) => (
-          <li key={i} className="flex gap-2 text-sm text-amber-800">
-            <span className="shrink-0">&#9888;</span>
-            <span>{w}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Candidates
 // ---------------------------------------------------------------------------
 
-const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  pending: { label: "Pending review", className: "bg-amber-100 text-amber-800" },
-  approved: { label: "Current", className: "bg-accent/10 text-accent" },
-  ignored: { label: "Ignored", className: "bg-muted text-muted-foreground" },
-  archived: { label: "Archived", className: "bg-muted text-muted-foreground" },
-}
-
 function CandidatesSection({
   candidates,
-  items,
+  slots,
 }: {
   candidates: Candidate[]
-  items: ReviewItem[]
+  slots: ReviewSlot[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState("")
 
-  const pendingCandidates = candidates.filter((c) => c.syncStatus === 'pending')
-  const approvedCandidates = candidates.filter((c) => c.syncStatus === 'approved')
+  const pendingCandidates = candidates.filter((c) => c.syncStatus === 'pending' && c.isPresent)
 
-  async function handleMap(candidateId: string, itemId: string) {
+  async function handleMap(candidateId: string, slotKey: string) {
     setBusy(candidateId)
     setMsg("")
-    const result = await mapCandidateToCard(candidateId, itemId)
-    setMsg(result?.message ?? "")
-    setBusy(null)
-    if (result?.ok) router.refresh()
-  }
-
-  async function handleApprove(candidateId: string) {
-    if (!window.confirm("Approve this candidate? It will replace the current edition for its series.")) return
-    setBusy(candidateId)
-    setMsg("")
-    const result = await approveCandidateReplacement(candidateId)
+    const result = await mapCandidateToCard(candidateId, slotKey)
     setMsg(result?.message ?? "")
     setBusy(null)
     if (result?.ok) router.refresh()
@@ -412,334 +375,269 @@ function CandidatesSection({
     if (result?.ok) router.refresh()
   }
 
-  const unmappedItems = items.filter((i) => !i.papermarkDocumentId)
+  if (pendingCandidates.length === 0) return null
+
+  const unmappedSlots = slots.filter((s) => !s.papermarkDocumentId)
 
   return (
     <div className="border border-border bg-card/30 p-6">
       <h3 className="font-serif text-lg text-foreground mb-4">
-        Synced Documents
+        Pending Candidates
       </h3>
-
       {msg && <p className="text-sm mb-4 text-foreground/70">{msg}</p>}
-
-      <div className="space-y-4">
-        {candidates.map((c) => {
-          const badge = STATUS_BADGE[c.syncStatus] ?? STATUS_BADGE.pending!
-          const matchingItem = items.find((i) => i.series === c.detectedSeries)
-          const alreadyMapped = matchingItem?.papermarkDocumentId === c.papermarkDocumentId
-          const hasUpdate = c.syncStatus === 'pending' && c.detectedSeries && matchingItem?.papermarkDocumentId && matchingItem.papermarkDocumentId !== c.papermarkDocumentId
-
-          return (
-            <div key={c.id} className="border border-border/50 bg-background p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {c.rawFilename}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {c.detectedSeries ? (
-                      <span className="font-medium text-accent">{c.detectedSeries}</span>
-                    ) : (
-                      <span className="text-amber-600">Unrecognised</span>
-                    )}
-                    {c.detectedEditionDate && <> &middot; {c.detectedEditionDate}</>}
-                    {c.numPages != null && <> &middot; {c.numPages} pages</>}
-                    {!c.isPresent && <> &middot; <span className="text-red-600">Removed from room</span></>}
-                  </p>
-                </div>
-                <span className={`shrink-0 inline-flex items-center px-2 py-1 text-xs font-medium ${badge.className}`}>
-                  {alreadyMapped ? "Current" : hasUpdate ? "Update available" : badge.label}
-                </span>
+      <div className="space-y-3">
+        {pendingCandidates.map((c) => (
+          <div key={c.id} className="border border-border/50 bg-background p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{c.rawFilename}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {c.detectedSeries ? (
+                    <span className="font-medium text-accent">{c.detectedSeries}</span>
+                  ) : (
+                    <span className="text-amber-600">Unrecognised</span>
+                  )}
+                  {c.detectedEditionDate && <> &middot; {c.detectedEditionDate}</>}
+                  {c.numPages != null && <> &middot; {c.numPages} pages</>}
+                </p>
               </div>
-
-              {/* Initial mapping: unmapped items can be linked */}
-              {c.syncStatus === 'pending' && c.detectedSeries && unmappedItems.length > 0 && !hasUpdate && (
-                <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-muted-foreground">Map to:</span>
-                  {unmappedItems
-                    .filter((i) => i.series === c.detectedSeries || !c.detectedSeries)
-                    .map((i) => (
-                      <button
-                        key={i.id}
-                        type="button"
-                        onClick={() => handleMap(c.id, i.id)}
-                        disabled={busy === c.id}
-                        className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        {i.pubTitle} ({i.series})
-                      </button>
-                    ))}
-                </div>
-              )}
-
-              {/* Update available: approve or ignore */}
-              {hasUpdate && (
-                <div className="mt-3 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleApprove(c.id)}
-                    disabled={busy === c.id}
-                    className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    {busy === c.id ? "..." : "Approve and replace current"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleIgnore(c.id)}
-                    disabled={busy === c.id}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    Ignore
-                  </button>
-                </div>
-              )}
-
-              {/* Pending unrecognised: only ignore */}
-              {c.syncStatus === 'pending' && !c.detectedSeries && (
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => handleIgnore(c.id)}
-                    disabled={busy === c.id}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    Ignore candidate
-                  </button>
-                </div>
-              )}
+              <span className="shrink-0 inline-flex items-center px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800">
+                Pending
+              </span>
             </div>
-          )
-        })}
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
+              {c.detectedSeries && unmappedSlots.find((s) => s.slotKey === c.detectedSeries) && (
+                <button
+                  type="button"
+                  onClick={() => handleMap(c.id, c.detectedSeries)}
+                  disabled={busy === c.id}
+                  className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  Map to {SLOT_LABELS[c.detectedSeries] ?? c.detectedSeries}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleIgnore(c.id)}
+                disabled={busy === c.id}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Ignore
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Add item
+// Slot Card
 // ---------------------------------------------------------------------------
 
-function AddItemSection({ publications }: { publications: AvailablePublication[] }) {
-  const [selected, setSelected] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState("")
+function SlotCard({ slot }: { slot: ReviewSlot }) {
+  const action = saveReviewItemDetails.bind(null, slot.id)
+  const [state, formAction, pending] = useActionState<FormState, FormData>(action, {})
+  const [editMode, setEditMode] = useState(false)
+  const [linkUrl, setLinkUrl] = useState(slot.secureLinkUrl)
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [linkMsg, setLinkMsg] = useState("")
+  const [genBusy, setGenBusy] = useState(false)
+  const [makeBusy, setMakeBusy] = useState(false)
   const router = useRouter()
 
-  async function handleAdd() {
-    if (!selected) return
-    setBusy(true)
-    setMsg("")
-    const result = await addReviewItem(selected)
-    setMsg(result?.message ?? "")
-    setBusy(false)
-    if (result?.ok) {
-      setSelected("")
-      router.refresh()
-    }
-  }
-
-  return (
-    <div className="border border-border bg-card/30 p-6">
-      <h3 className="font-serif text-lg text-foreground mb-4">Add Publication</h3>
-      <div className="flex items-end gap-3 flex-wrap">
-        <div className="flex-1 min-w-[200px]">
-          <label className={label}>Select a publication</label>
-          <select
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            className={field}
-          >
-            <option value="">Choose...</option>
-            {publications.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.title} {p.series ? `(${p.series})` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={!selected || busy}
-          className={btnPrimary}
-        >
-          {busy ? "Adding..." : "Add to library"}
-        </button>
-      </div>
-      {msg && <p className={`text-sm mt-2 ${msg.includes("already") ? "text-amber-600" : "text-foreground/70"}`}>{msg}</p>}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Reorder
-// ---------------------------------------------------------------------------
-
-function ReorderSection({ items }: { items: ReviewItem[] }) {
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState("")
-  const [order, setOrder] = useState(items.map((i) => i.id))
-  const router = useRouter()
-
-  function moveUp(index: number) {
-    if (index === 0) return
-    const next = [...order]
-    ;[next[index - 1], next[index]] = [next[index]!, next[index - 1]!]
-    setOrder(next)
-  }
-
-  function moveDown(index: number) {
-    if (index >= order.length - 1) return
-    const next = [...order]
-    ;[next[index], next[index + 1]] = [next[index + 1]!, next[index]!]
-    setOrder(next)
-  }
-
-  async function handleSave() {
-    setBusy(true)
-    setMsg("")
-    const result = await reorderReviewItems(order)
-    setMsg(result?.message ?? "")
-    setBusy(false)
+  async function handleSaveLink() {
+    setLinkBusy(true)
+    setLinkMsg("")
+    const result = await updateSlotSecureLink(slot.slotKey, linkUrl)
+    setLinkMsg(result?.message ?? "")
+    setLinkBusy(false)
     if (result?.ok) router.refresh()
   }
 
-  const itemMap = Object.fromEntries(items.map((i) => [i.id, i]))
-
-  return (
-    <div className="border border-border bg-card/30 p-6">
-      <h3 className="font-serif text-lg text-foreground mb-4">Display Order</h3>
-      <div className="space-y-2 mb-4">
-        {order.map((id, i) => {
-          const item = itemMap[id]
-          return (
-            <div key={id} className="flex items-center gap-3 p-2 border border-border/50 bg-background">
-              <span className="text-xs text-muted-foreground w-6 text-center">{i + 1}</span>
-              <span className="flex-1 text-sm text-foreground truncate">{item?.pubTitle ?? id}</span>
-              <button type="button" onClick={() => moveUp(i)} disabled={i === 0} className="text-xs text-accent disabled:opacity-30 cursor-pointer">Up</button>
-              <button type="button" onClick={() => moveDown(i)} disabled={i >= order.length - 1} className="text-xs text-accent disabled:opacity-30 cursor-pointer">Down</button>
-            </div>
-          )
-        })}
-      </div>
-      <div className="flex items-center gap-4">
-        <button type="button" onClick={handleSave} disabled={busy} className={btnSecondary}>
-          {busy ? "Saving..." : "Save order"}
-        </button>
-        {msg && <p className="text-sm text-foreground/70">{msg}</p>}
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Item card
-// ---------------------------------------------------------------------------
-
-function ItemCard({ item }: { item: ReviewItem }) {
-  const action = saveReviewItemDetails.bind(null, item.id)
-  const [state, formAction, pending] = useActionState<FormState, FormData>(action, {})
-  const [removing, setRemoving] = useState(false)
-  const [regenerating, setRegenerating] = useState(false)
-  const router = useRouter()
-
-  async function handleRemove() {
-    if (!window.confirm(`Remove "${item.pubTitle}" from the review library?`)) return
-    setRemoving(true)
-    await removeReviewItem(item.id)
-    setRemoving(false)
-    router.refresh()
+  async function handleGenerate() {
+    setGenBusy(true)
+    const result = await generateSlotDetails(slot.slotKey)
+    setGenBusy(false)
+    if (result?.ok) router.refresh()
   }
 
-  async function handleRegenerate() {
-    if (!window.confirm(`Regenerate card details for "${item.pubTitle}"? This will overwrite the current values and clear owner-edit tracking.`)) return
-    setRegenerating(true)
-    await regenerateReviewItemDetails(item.id)
-    setRegenerating(false)
-    router.refresh()
+  async function handleMakeCurrent() {
+    if (!window.confirm(`Make the pending version current for ${SLOT_LABELS[slot.slotKey]}? This replaces the existing edition.`)) return
+    setMakeBusy(true)
+    const result = await makeVersionCurrent(slot.slotKey)
+    setMakeBusy(false)
+    if (result?.ok) router.refresh()
   }
+
+  const hasSecureLink = !!slot.secureLinkUrl
+  const hasPending = !!slot.pendingDocumentId
 
   return (
     <div className="border border-border bg-card/30 p-6">
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
-          <h3 className="font-serif text-lg text-foreground">{item.pubTitle}</h3>
-          <span className="text-xs text-muted-foreground">
-            {item.series || "No series"} &middot; Order: {item.displayOrder}
-            {!item.isActive && <span className="ml-2 text-amber-600">(Inactive)</span>}
-          </span>
-          {item.papermarkDocumentId && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Mapped to Papermark document
-              {item.lastSyncedAt && <> &middot; Last synced: {new Date(item.lastSyncedAt).toLocaleString()}</>}
-            </p>
-          )}
-          {item.ownerEditedFields.length > 0 && (
+          <h3 className="font-serif text-lg text-foreground">
+            {SLOT_LABELS[slot.slotKey] ?? slot.slotKey}
+          </h3>
+          <p className="text-sm text-foreground/70 mt-1">{slot.pubTitle}</p>
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">
+              Slot: <span className="font-medium">{slot.slotKey}</span>
+            </span>
+            {slot.papermarkDocumentId && (
+              <span className="text-xs text-muted-foreground">
+                Papermark PDF: mapped
+              </span>
+            )}
+            {slot.lastSyncedAt && (
+              <span className="text-xs text-muted-foreground">
+                Last synced: {new Date(slot.lastSyncedAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {slot.ownerEditedFields.length > 0 && (
             <p className="text-xs text-amber-600 mt-1">
-              Owner-edited: {item.ownerEditedFields.join(', ')}
+              Owner-edited: {slot.ownerEditedFields.join(', ')}
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={handleRegenerate}
-            disabled={regenerating}
-            className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {regenerating ? "..." : "Regenerate"}
-          </button>
-          <button
-            type="button"
-            onClick={handleRemove}
-            disabled={removing}
-            className="text-xs text-red-600 hover:text-red-700 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {removing ? "..." : "Remove"}
-          </button>
+        <div className="flex items-center gap-3 shrink-0">
+          {hasSecureLink ? (
+            <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-accent/10 text-accent">
+              Link set
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800">
+              No link
+            </span>
+          )}
+          {hasPending && (
+            <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800">
+              New version
+            </span>
+          )}
         </div>
       </div>
 
-      <form action={formAction} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={label}>Publication Type</label>
-            <input name="publicationType" defaultValue={item.publicationType} className={field} />
-          </div>
-          <div>
-            <label className={label}>Frequency</label>
-            <input name="frequency" defaultValue={item.frequency} className={field} />
-          </div>
-        </div>
-        <div>
-          <label className={label}>Description</label>
-          <textarea name="description" defaultValue={item.description} rows={4} className={field} />
-        </div>
-        <div>
-          <label className={label}>Intended Audience</label>
-          <input name="audience" defaultValue={item.audience} className={field} />
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            name="isActive"
-            id={`active-${item.id}`}
-            defaultChecked={item.isActive}
-            className="accent-accent"
-          />
-          <label htmlFor={`active-${item.id}`} className="text-sm text-foreground">Active</label>
-        </div>
-        <div className="flex items-center gap-4">
-          <button type="submit" disabled={pending} className={btnSecondary}>
-            {pending ? "Saving..." : "Save card details"}
-          </button>
-          {state?.message && (
-            <p className={`text-sm ${state.ok ? "text-accent" : "text-red-600"}`}>
-              {state.message}
+      {/* Pending version */}
+      {hasPending && (
+        <div className="border border-blue-200 bg-blue-50 p-4 mb-4">
+          <p className="text-sm text-blue-900 mb-2">
+            <strong>Pending edition:</strong> {slot.pendingCleanTitle}
+          </p>
+          {slot.pendingDetectedAt && (
+            <p className="text-xs text-blue-700 mb-3">
+              Detected: {new Date(slot.pendingDetectedAt).toLocaleString()}
             </p>
           )}
+          <button
+            type="button"
+            onClick={handleMakeCurrent}
+            disabled={makeBusy}
+            className="text-xs text-blue-700 font-medium hover:text-blue-900 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {makeBusy ? "Updating..." : "Make current"}
+          </button>
         </div>
-      </form>
+      )}
+
+      {/* Secure link */}
+      <div className="border border-border/50 bg-background p-4 mb-4">
+        <label className={label}>Secure Document Link</label>
+        <p className="text-xs text-muted-foreground mb-2">
+          Paste the Papermark document-level link for this PDF. Visitors click &ldquo;Access review copy&rdquo; on the public page to open this link directly.
+        </p>
+        <div className="flex items-end gap-3">
+          <input
+            type="url"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            placeholder="https://..."
+            className={`${field} flex-1`}
+          />
+          <button type="button" onClick={handleSaveLink} disabled={linkBusy} className={btnSecondary}>
+            {linkBusy ? "..." : "Update secure link"}
+          </button>
+        </div>
+        {linkMsg && (
+          <p className={`text-xs mt-1 ${linkMsg === "Secure link saved." ? "text-accent" : "text-red-600"}`}>
+            {linkMsg}
+          </p>
+        )}
+      </div>
+
+      {/* Card details */}
+      {editMode ? (
+        <form action={formAction} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={label}>Publication Type</label>
+              <input name="publicationType" defaultValue={slot.publicationType} className={field} />
+            </div>
+            <div>
+              <label className={label}>Frequency</label>
+              <input name="frequency" defaultValue={slot.frequency} className={field} />
+            </div>
+          </div>
+          <div>
+            <label className={label}>Description</label>
+            <textarea name="description" defaultValue={slot.description} rows={4} className={field} />
+          </div>
+          <div>
+            <label className={label}>Intended Audience</label>
+            <input name="audience" defaultValue={slot.audience} className={field} />
+          </div>
+          <div className="flex items-center gap-4">
+            <button type="submit" disabled={pending} className={btnSecondary}>
+              {pending ? "Saving..." : "Save card details"}
+            </button>
+            <button type="button" onClick={() => setEditMode(false)} className="text-xs text-muted-foreground cursor-pointer">
+              Cancel
+            </button>
+            {state?.message && (
+              <p className={`text-sm ${state.ok ? "text-accent" : "text-red-600"}`}>
+                {state.message}
+              </p>
+            )}
+          </div>
+        </form>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <div>
+              <span className="text-xs text-muted-foreground">Type:</span>{' '}
+              <span className="text-foreground">{slot.publicationType || '—'}</span>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Frequency:</span>{' '}
+              <span className="text-foreground">{slot.frequency || '—'}</span>
+            </div>
+          </div>
+          <div className="text-sm">
+            <span className="text-xs text-muted-foreground">Description:</span>{' '}
+            <span className="text-foreground/80">{slot.description ? slot.description.slice(0, 200) + (slot.description.length > 200 ? '...' : '') : '—'}</span>
+          </div>
+          <div className="text-sm">
+            <span className="text-xs text-muted-foreground">Audience:</span>{' '}
+            <span className="text-foreground/80">{slot.audience || '—'}</span>
+          </div>
+          <div className="flex items-center gap-3 pt-2">
+            <button type="button" onClick={() => setEditMode(true)} className="text-xs text-accent hover:text-accent-hover transition-colors cursor-pointer">
+              Edit details
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={genBusy}
+              className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {genBusy ? "..." : "Generate missing details"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -8,7 +8,7 @@ import {
 import {
   dataRoomLinkSettings,
   documentLinkSettings,
-  watermarkConfig,
+  subscriberWatermarkConfig,
   type DataRoomLinkSettings,
   type DocumentLinkSettings,
 } from './papermark-dataroom-contract'
@@ -316,7 +316,7 @@ export async function updateDataRoomLink(args: {
           allow_list: [],
           deny_list: [],
           enable_watermark: true,
-          watermark_config: watermarkConfig(args.assignedName, args.assignedEmail),
+          watermark_config: subscriberWatermarkConfig(args.assignedEmail),
           enable_screenshot_protection: true,
           allow_download: args.allowDownload !== false,
           enable_agreement: false,
@@ -336,7 +336,6 @@ export async function updateDataRoomLink(args: {
  */
 export async function updateLinkWatermark(args: {
   linkId: string
-  assignedName: string
   assignedEmail: string
 }): Promise<ServiceResult<unknown>> {
   return attempt(
@@ -345,7 +344,7 @@ export async function updateLinkWatermark(args: {
         method: 'PATCH',
         body: {
           enable_watermark: true,
-          watermark_config: watermarkConfig(args.assignedName, args.assignedEmail),
+          watermark_config: subscriberWatermarkConfig(args.assignedEmail),
         },
       }),
     'Updating link watermark',

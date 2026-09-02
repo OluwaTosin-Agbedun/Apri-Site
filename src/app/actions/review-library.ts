@@ -15,10 +15,69 @@ import { documentVersionKey } from "@/lib/papermark-dataroom-contract"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+const FIXED_SLOTS = ['MIN', 'AIU', 'PLM'] as const
+const SLOT_ORDER: Record<string, number> = { MIN: 0, AIU: 1, PLM: 2 }
+
 function refresh() {
   revalidatePath("/admin/review-library")
   revalidatePath("/")
   revalidatePath("/publications")
+}
+
+// ---------------------------------------------------------------------------
+// Ensure the three fixed slots exist (idempotent)
+// ---------------------------------------------------------------------------
+
+export async function ensureFixedSlots(): Promise<FormState> {
+  await requireOwner()
+  const sql = getSql()
+
+  for (const slotKey of FIXED_SLOTS) {
+    const existing = (await sql`
+      select id from complimentary_review_items where slot_key = ${slotKey} limit 1
+    `) as { id: string }[]
+
+    if (existing[0]) continue
+
+    const existingBySeries = (await sql`
+      select ri.id from complimentary_review_items ri
+      join documents d on d.id = ri.publication_id
+      where d.series = ${slotKey} limit 1
+    `) as { id: string }[]
+
+    if (existingBySeries[0]) {
+      await sql`
+        update complimentary_review_items
+        set slot_key = ${slotKey}, display_order = ${SLOT_ORDER[slotKey]!}, updated_at = now()
+        where id = ${existingBySeries[0].id}::uuid
+      `
+      continue
+    }
+
+    const pub = (await sql`
+      select id, title, series, product_line, frequency, summary, description
+      from documents where series = ${slotKey} limit 1
+    `) as {
+      id: string; title: string; series: string; product_line: string
+      frequency: string; summary: string; description: string
+    }[]
+
+    if (!pub[0]) continue
+
+    const card = prefillReviewCard(pub[0])
+    await sql`
+      insert into complimentary_review_items
+        (publication_id, slot_key, display_order, publication_type, description, frequency, audience, is_active)
+      values (
+        ${pub[0].id}::uuid, ${slotKey}, ${SLOT_ORDER[slotKey]!},
+        ${card.publicationType}, ${card.description}, ${card.frequency}, ${card.audience}, true
+      )
+      on conflict (slot_key) where slot_key <> '' do nothing
+    `
+  }
+
+  refresh()
+  return { ok: true, message: "Fixed slots ensured." }
 }
 
 // ---------------------------------------------------------------------------
@@ -33,21 +92,25 @@ export async function saveReviewLibrarySettings(
   const sql = getSql()
 
   const enabled = formData.get("enabled") === "on"
-  const url = String(formData.get("papermarkUrl") ?? "").trim()
-
-  if (url && !url.startsWith("https://")) {
-    return { errors: { papermarkUrl: ["Must be an https:// URL."] } }
-  }
 
   if (enabled) {
-    if (!url || !url.startsWith("https://")) {
-      return { message: "Cannot enable: a valid HTTPS Papermark URL is required." }
+    const slots = (await sql`
+      select slot_key, secure_link_url, publication_id
+      from complimentary_review_items
+      where slot_key in ('MIN', 'AIU', 'PLM') and is_active = true
+    `) as { slot_key: string; secure_link_url: string; publication_id: string }[]
+
+    if (slots.length !== 3) {
+      return { message: "Cannot enable: all three fixed slots (MIN, AIU, PLM) must exist and be active." }
     }
-    const activeCount = (await sql`
-      select count(*)::int as n from complimentary_review_items where is_active = true
-    `) as { n: number }[]
-    if ((activeCount[0]?.n ?? 0) !== 3) {
-      return { message: "Cannot enable: exactly three active review items are required." }
+
+    const missing: string[] = []
+    for (const s of slots) {
+      if (!s.publication_id) missing.push(`${s.slot_key}: no mapped document`)
+      if (!s.secure_link_url) missing.push(`${s.slot_key}: no secure link URL`)
+    }
+    if (missing.length > 0) {
+      return { message: `Cannot enable. ${missing.join('; ')}.` }
     }
   }
 
@@ -56,14 +119,9 @@ export async function saveReviewLibrarySettings(
     values ('review_library_enabled', ${enabled ? 'true' : 'false'})
     on conflict (key) do update set value = excluded.value
   `
-  await sql`
-    insert into app_settings (key, value)
-    values ('review_library_papermark_url', ${url})
-    on conflict (key) do update set value = excluded.value
-  `
 
   refresh()
-  return { ok: true, message: "Settings saved." }
+  return { ok: true, message: enabled ? "Library enabled." : "Library disabled." }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +163,38 @@ export async function saveReviewDataRoom(dataroomId: string): Promise<FormState>
 
   refresh()
   return { ok: true, message: `Data Room "${result.value.name}" selected.` }
+}
+
+// ---------------------------------------------------------------------------
+// Update a slot's secure Papermark document link
+// ---------------------------------------------------------------------------
+
+export async function updateSlotSecureLink(
+  slotKey: string,
+  secureUrl: string,
+): Promise<FormState> {
+  await requireOwner()
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
+  }
+
+  const url = secureUrl.trim()
+  if (url && !url.startsWith("https://")) {
+    return { message: "Must be an https:// URL." }
+  }
+
+  const sql = getSql()
+  const updated = (await sql`
+    update complimentary_review_items
+    set secure_link_url = ${url}, updated_at = now()
+    where slot_key = ${slotKey}
+    returning id
+  `) as { id: string }[]
+
+  if (!updated[0]) return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
+
+  refresh()
+  return { ok: true, message: "Secure link saved." }
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +263,10 @@ export async function syncReviewLibrary(): Promise<FormState> {
         on conflict (papermark_document_id) do nothing
       `
       added++
+
+      if (classification.series && isReviewSeries(classification.series)) {
+        await detectPendingVersion(sql, classification.series, d.document_id, classification.cleanTitle, vKey)
+      }
     } else if (existing[0].version_key !== vKey || !existing[0].is_present) {
       await sql`
         update review_sync_candidates set
@@ -190,6 +284,10 @@ export async function syncReviewLibrary(): Promise<FormState> {
         where papermark_document_id = ${d.document_id}
       `
       updated++
+
+      if (classification.series && isReviewSeries(classification.series)) {
+        await detectPendingVersion(sql, classification.series, d.document_id, classification.cleanTitle, vKey)
+      }
     } else {
       await sql`
         update review_sync_candidates set last_seen_at = now()
@@ -226,120 +324,91 @@ export async function syncReviewLibrary(): Promise<FormState> {
   return { ok: true, message: `Synced: ${summary}.` }
 }
 
-// ---------------------------------------------------------------------------
-// Map a sync candidate to an existing review card
-// ---------------------------------------------------------------------------
+async function detectPendingVersion(
+  sql: ReturnType<typeof getSql>,
+  series: string,
+  papermarkDocId: string,
+  cleanTitle: string,
+  versionKey: string,
+) {
+  const slot = (await sql`
+    select ri.id, ri.papermark_document_id
+    from complimentary_review_items ri
+    where ri.slot_key = ${series}
+    limit 1
+  `) as { id: string; papermark_document_id: string | null }[]
 
-export async function mapCandidateToCard(
-  candidateId: string,
-  itemId: string,
-): Promise<FormState> {
-  await requireOwner()
-  if (!UUID.test(candidateId) && candidateId.length < 1) return { message: "Invalid candidate." }
-  if (!UUID.test(itemId)) return { message: "Invalid review item." }
-
-  const sql = getSql()
-
-  const candidate = (await sql`
-    select id, papermark_document_id, papermark_dataroom_id, detected_series
-    from review_sync_candidates where id = ${candidateId}::uuid limit 1
-  `) as { id: string; papermark_document_id: string; papermark_dataroom_id: string; detected_series: string }[]
-
-  if (!candidate[0]) return { message: "Candidate not found." }
+  if (!slot[0]) return
+  if (slot[0].papermark_document_id === papermarkDocId) return
 
   await sql`
     update complimentary_review_items set
-      papermark_document_id = ${candidate[0].papermark_document_id},
-      papermark_dataroom_id = ${candidate[0].papermark_dataroom_id},
-      last_synced_at = now(),
+      pending_papermark_document_id = ${papermarkDocId},
+      pending_clean_title = ${cleanTitle},
+      pending_version_key = ${versionKey},
+      pending_detected_at = now(),
       updated_at = now()
-    where id = ${itemId}::uuid
+    where id = ${slot[0].id}::uuid
   `
-
-  await sql`
-    update review_sync_candidates set
-      sync_status = 'approved', updated_at = now()
-    where id = ${candidateId}::uuid
-  `
-
-  refresh()
-  return { ok: true, message: "Mapped successfully." }
 }
 
 // ---------------------------------------------------------------------------
-// Approve a candidate as replacement for its series
+// Make a pending version current (owner confirmation required)
 // ---------------------------------------------------------------------------
 
-export async function approveCandidateReplacement(
-  candidateId: string,
-): Promise<FormState> {
+export async function makeVersionCurrent(slotKey: string): Promise<FormState> {
   await requireOwner()
-  if (!UUID.test(candidateId)) return { message: "Invalid candidate." }
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
+  }
 
   const sql = getSql()
 
-  const candidate = (await sql`
-    select id, papermark_document_id, papermark_dataroom_id, detected_series,
-           raw_filename, clean_title
-    from review_sync_candidates where id = ${candidateId}::uuid limit 1
-  `) as {
-    id: string
-    papermark_document_id: string
-    papermark_dataroom_id: string
-    detected_series: string
-    raw_filename: string
-    clean_title: string
-  }[]
-
-  if (!candidate[0]) return { message: "Candidate not found." }
-  if (!isReviewSeries(candidate[0].detected_series)) {
-    return { message: "Only MIN, AIU or PLM candidates can replace a live card." }
-  }
-
-  const series = candidate[0].detected_series as ReviewSeries
-
-  const currentItem = (await sql`
+  const slot = (await sql`
     select ri.id, ri.publication_id, ri.owner_edited_fields,
+           ri.pending_papermark_document_id, ri.pending_clean_title,
            ri.publication_type, ri.description, ri.frequency, ri.audience
     from complimentary_review_items ri
-    join documents d on d.id = ri.publication_id
-    where d.series = ${series} and ri.is_active = true
+    where ri.slot_key = ${slotKey}
     limit 1
   `) as {
     id: string
     publication_id: string
     owner_edited_fields: string[]
+    pending_papermark_document_id: string | null
+    pending_clean_title: string | null
     publication_type: string
     description: string
     frequency: string
     audience: string
   }[]
 
-  if (!currentItem[0]) {
-    return { message: `No active ${series} review card to replace.` }
-  }
+  if (!slot[0]) return { message: `Slot ${slotKey} not found.` }
+  if (!slot[0].pending_papermark_document_id) return { message: "No pending version." }
 
-  const item = currentItem[0]
-  const meta = generateReviewMetadata(series, candidate[0].raw_filename)
-  const edited = new Set(item.owner_edited_fields ?? [])
+  const series = slotKey as ReviewSeries
+  const meta = generateReviewMetadata(series, slot[0].pending_clean_title ?? '')
+  const edited = new Set(slot[0].owner_edited_fields ?? [])
 
   await sql`
     update complimentary_review_items set
-      papermark_document_id = ${candidate[0].papermark_document_id},
-      papermark_dataroom_id = ${candidate[0].papermark_dataroom_id},
-      publication_type = ${edited.has('publication_type') ? item.publication_type : meta.publicationType},
-      description = ${edited.has('description') ? item.description : meta.description},
-      frequency = ${edited.has('frequency') ? item.frequency : meta.frequency},
-      audience = ${edited.has('audience') ? item.audience : meta.audience},
+      papermark_document_id = ${slot[0].pending_papermark_document_id},
+      publication_type = ${edited.has('publication_type') ? slot[0].publication_type : meta.publicationType},
+      description = ${edited.has('description') ? slot[0].description : meta.description},
+      frequency = ${edited.has('frequency') ? slot[0].frequency : meta.frequency},
+      audience = ${edited.has('audience') ? slot[0].audience : meta.audience},
+      pending_papermark_document_id = null,
+      pending_clean_title = null,
+      pending_version_key = null,
+      pending_detected_at = null,
       last_synced_at = now(),
       updated_at = now()
-    where id = ${item.id}::uuid
+    where id = ${slot[0].id}::uuid
   `
 
   const oldApproved = (await sql`
     select id from review_sync_candidates
-    where detected_series = ${series} and sync_status = 'approved'
-      and id != ${candidateId}::uuid
+    where detected_series = ${slotKey} and sync_status = 'approved'
   `) as { id: string }[]
 
   for (const old of oldApproved) {
@@ -351,123 +420,78 @@ export async function approveCandidateReplacement(
 
   await sql`
     update review_sync_candidates set sync_status = 'approved', updated_at = now()
-    where id = ${candidateId}::uuid
+    where papermark_document_id = ${slot[0].pending_papermark_document_id}
   `
 
   refresh()
-  return { ok: true, message: `${series} card updated to new edition.` }
+  return { ok: true, message: `${slotKey} updated to new edition.` }
 }
 
 // ---------------------------------------------------------------------------
-// Ignore a candidate
+// Generate details for a single slot (fills blanks only)
 // ---------------------------------------------------------------------------
 
-export async function ignoreCandidate(candidateId: string): Promise<FormState> {
+export async function generateSlotDetails(slotKey: string): Promise<FormState> {
   await requireOwner()
-  if (!UUID.test(candidateId)) return { message: "Invalid candidate." }
-
-  const sql = getSql()
-  await sql`
-    update review_sync_candidates set sync_status = 'ignored', updated_at = now()
-    where id = ${candidateId}::uuid
-  `
-
-  refresh()
-  return { ok: true, message: "Candidate ignored." }
-}
-
-// ---------------------------------------------------------------------------
-// Add a review item
-// ---------------------------------------------------------------------------
-
-export async function addReviewItem(
-  publicationId: string,
-): Promise<FormState> {
-  await requireOwner()
-  if (!UUID.test(publicationId)) return { message: "Invalid publication." }
-
-  const sql = getSql()
-
-  const pub = (await sql`
-    select id, title, series, product_line, frequency, summary, description
-    from documents where id = ${publicationId}::uuid limit 1
-  `) as {
-    id: string
-    title: string
-    series: string
-    product_line: string
-    frequency: string
-    summary: string
-    description: string
-  }[]
-
-  if (!pub[0]) return { message: "Publication not found." }
-
-  const existing = (await sql`
-    select id from complimentary_review_items
-    where publication_id = ${publicationId}::uuid limit 1
-  `) as { id: string }[]
-
-  if (existing[0]) return { message: "This publication is already in the review library." }
-
-  const { publicationType, description, frequency, audience } =
-    prefillReviewCard(pub[0])
-
-  const maxOrder = (await sql`
-    select coalesce(max(display_order), -1) as m from complimentary_review_items
-  `) as { m: number }[]
-
-  await sql`
-    insert into complimentary_review_items
-      (publication_id, display_order, publication_type, description, frequency, audience)
-    values (
-      ${publicationId}::uuid, ${(maxOrder[0]?.m ?? -1) + 1},
-      ${publicationType}, ${description}, ${frequency}, ${audience}
-    )
-  `
-
-  refresh()
-  return { ok: true, message: "Added to review library." }
-}
-
-// ---------------------------------------------------------------------------
-// Remove a review item
-// ---------------------------------------------------------------------------
-
-export async function removeReviewItem(
-  itemId: string,
-): Promise<FormState> {
-  await requireOwner()
-  if (!UUID.test(itemId)) return { message: "Invalid item." }
-
-  const sql = getSql()
-  await sql`delete from complimentary_review_items where id = ${itemId}::uuid`
-
-  refresh()
-  return { ok: true, message: "Removed from review library." }
-}
-
-// ---------------------------------------------------------------------------
-// Reorder review items
-// ---------------------------------------------------------------------------
-
-export async function reorderReviewItems(
-  orderedIds: string[],
-): Promise<FormState> {
-  await requireOwner()
-  if (!orderedIds.every((id) => UUID.test(id))) return { message: "Invalid item list." }
-
-  const sql = getSql()
-  for (let i = 0; i < orderedIds.length; i++) {
-    await sql`
-      update complimentary_review_items
-      set display_order = ${i}, updated_at = now()
-      where id = ${orderedIds[i]!}::uuid
-    `
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
   }
 
+  const sql = getSql()
+
+  const rows = (await sql`
+    select ri.id, ri.publication_type, ri.description, ri.frequency, ri.audience,
+           ri.owner_edited_fields,
+           d.title, d.series, d.product_line, d.frequency as pub_frequency,
+           d.summary, d.description as pub_description
+    from complimentary_review_items ri
+    join documents d on d.id = ri.publication_id
+    where ri.slot_key = ${slotKey}
+    limit 1
+  `) as {
+    id: string; publication_type: string; description: string
+    frequency: string; audience: string; owner_edited_fields: string[]
+    title: string; series: string; product_line: string
+    pub_frequency: string; summary: string; pub_description: string
+  }[]
+
+  if (!rows[0]) return { message: `Slot ${slotKey} not found or no publication linked.` }
+
+  const item = rows[0]
+  const card = prefillReviewCard(item)
+  const edited = new Set(item.owner_edited_fields ?? [])
+  const filled: string[] = []
+
+  const pubType = (!item.publication_type && !edited.has('publication_type') && card.publicationType)
+    ? card.publicationType : null
+  const desc = (!item.description && !edited.has('description') && card.description)
+    ? card.description : null
+  const freq = (!item.frequency && !edited.has('frequency') && card.frequency)
+    ? card.frequency : null
+  const aud = (!item.audience && !edited.has('audience') && card.audience)
+    ? card.audience : null
+
+  if (pubType) filled.push('publication_type')
+  if (desc) filled.push('description')
+  if (freq) filled.push('frequency')
+  if (aud) filled.push('audience')
+
+  if (filled.length === 0) {
+    return { ok: true, message: "All fields already filled." }
+  }
+
+  await sql`
+    update complimentary_review_items set
+      publication_type = case when publication_type = '' then ${pubType ?? ''} else publication_type end,
+      description = case when description = '' then ${desc ?? ''} else description end,
+      frequency = case when frequency = '' then ${freq ?? ''} else frequency end,
+      audience = case when audience = '' then ${aud ?? ''} else audience end,
+      updated_at = now()
+    where id = ${item.id}::uuid
+  `
+
   refresh()
-  return { ok: true, message: "Order saved." }
+  return { ok: true, message: `Generated: ${filled.join(', ')}.` }
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +512,6 @@ export async function saveReviewItemDetails(
   const description = String(formData.get("description") ?? "").trim().slice(0, 2000)
   const frequency = String(formData.get("frequency") ?? "").trim().slice(0, 120)
   const audience = String(formData.get("audience") ?? "").trim().slice(0, 600)
-  const isActive = formData.get("isActive") === "on"
 
   const editedFields: string[] = []
   if (publicationType) editedFields.push('publication_type')
@@ -502,7 +525,6 @@ export async function saveReviewItemDetails(
       description = ${description},
       frequency = ${frequency},
       audience = ${audience},
-      is_active = ${isActive},
       owner_edited_fields = ${editedFields},
       updated_at = now()
     where id = ${itemId}::uuid
@@ -513,50 +535,63 @@ export async function saveReviewItemDetails(
 }
 
 // ---------------------------------------------------------------------------
-// Regenerate card details (explicit, requires confirmation)
+// Map a sync candidate to a slot
 // ---------------------------------------------------------------------------
 
-export async function regenerateReviewItemDetails(
-  itemId: string,
+export async function mapCandidateToCard(
+  candidateId: string,
+  slotKey: string,
 ): Promise<FormState> {
   await requireOwner()
-  if (!UUID.test(itemId)) return { message: "Invalid item." }
+  if (!UUID.test(candidateId)) return { message: "Invalid candidate." }
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
+  }
 
   const sql = getSql()
 
-  const rows = (await sql`
-    select ri.id, d.title, d.series, d.product_line, d.frequency, d.summary, d.description
-    from complimentary_review_items ri
-    join documents d on d.id = ri.publication_id
-    where ri.id = ${itemId}::uuid
-    limit 1
-  `) as {
-    id: string
-    title: string
-    series: string
-    product_line: string
-    frequency: string
-    summary: string
-    description: string
-  }[]
+  const candidate = (await sql`
+    select id, papermark_document_id, papermark_dataroom_id, detected_series
+    from review_sync_candidates where id = ${candidateId}::uuid limit 1
+  `) as { id: string; papermark_document_id: string; papermark_dataroom_id: string; detected_series: string }[]
 
-  if (!rows[0]) return { message: "Item not found." }
-
-  const prefilled = prefillReviewCard(rows[0])
+  if (!candidate[0]) return { message: "Candidate not found." }
 
   await sql`
     update complimentary_review_items set
-      publication_type = ${prefilled.publicationType},
-      description = ${prefilled.description},
-      frequency = ${prefilled.frequency},
-      audience = ${prefilled.audience},
-      owner_edited_fields = '{}',
+      papermark_document_id = ${candidate[0].papermark_document_id},
+      papermark_dataroom_id = ${candidate[0].papermark_dataroom_id},
+      last_synced_at = now(),
       updated_at = now()
-    where id = ${itemId}::uuid
+    where slot_key = ${slotKey}
+  `
+
+  await sql`
+    update review_sync_candidates set
+      sync_status = 'approved', updated_at = now()
+    where id = ${candidateId}::uuid
   `
 
   refresh()
-  return { ok: true, message: "Card details regenerated." }
+  return { ok: true, message: "Mapped successfully." }
+}
+
+// ---------------------------------------------------------------------------
+// Ignore a candidate
+// ---------------------------------------------------------------------------
+
+export async function ignoreCandidate(candidateId: string): Promise<FormState> {
+  await requireOwner()
+  if (!UUID.test(candidateId)) return { message: "Invalid candidate." }
+
+  const sql = getSql()
+  await sql`
+    update review_sync_candidates set sync_status = 'ignored', updated_at = now()
+    where id = ${candidateId}::uuid
+  `
+
+  refresh()
+  return { ok: true, message: "Candidate ignored." }
 }
 
 // ---------------------------------------------------------------------------

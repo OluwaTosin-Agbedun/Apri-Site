@@ -810,6 +810,7 @@ export type SyncedDocumentRow = {
   publicationId: string | null
   editorialTitle: string | null
   editorialStatus: 'complete' | 'needs_details'
+  missingFields: string[]
 }
 
 export async function getSyncedDocumentsForRoom(
@@ -837,19 +838,26 @@ export async function getSyncedDocumentsForRoom(
     editorial_summary: string | null
   }[]
 
-  return rows.map((r) => ({
-    id: r.id,
-    papermarkDocumentId: r.papermark_document_id,
-    title: r.title,
-    folderPath: r.folder_path,
-    category: r.category,
-    numPages: r.num_pages,
-    publicationId: r.publication_id,
-    editorialTitle: r.editorial_title,
-    editorialStatus: r.publication_id && r.editorial_title && r.editorial_summary
-      ? 'complete' as const
-      : 'needs_details' as const,
-  }))
+  return rows.map((r) => {
+    const missing: string[] = []
+    if (!r.publication_id) missing.push('Linked publication')
+    else {
+      if (!r.editorial_title) missing.push('Editorial title')
+      if (!r.editorial_summary) missing.push('One-line summary')
+    }
+    return {
+      id: r.id,
+      papermarkDocumentId: r.papermark_document_id,
+      title: r.title,
+      folderPath: r.folder_path,
+      category: r.category,
+      numPages: r.num_pages,
+      publicationId: r.publication_id,
+      editorialTitle: r.editorial_title,
+      editorialStatus: missing.length === 0 ? 'complete' as const : 'needs_details' as const,
+      missingFields: missing,
+    }
+  })
 }
 
 export async function linkPublicationToDocument(
@@ -1208,6 +1216,75 @@ export async function generateMissingDetailsForRoom(
   return { updated, skipped }
 }
 
+export async function generateMissingDetailsForSingleDocument(
+  documentRowId: string,
+): Promise<{ ok?: boolean; message: string }> {
+  const sql = getSql()
+
+  const row = (await sql`
+    select dd.id as dd_id, dd.title as filename, dd.category, dd.folder_path,
+           dd.num_pages, dd.publication_id,
+           d.id as pub_id, d.title as pub_title, d.kicker, d.summary,
+           d.description, d.series, d.product_line, d.frequency,
+           d.code, d.edition_date, d.coverage_areas, d.strapline
+    from papermark_dataroom_documents dd
+    join documents d on d.id = dd.publication_id
+    where dd.id = ${documentRowId}::uuid
+      and dd.publication_id is not null
+    limit 1
+  `) as {
+    dd_id: string; filename: string; category: string; folder_path: string | null
+    num_pages: number | null; pub_id: string; pub_title: string; kicker: string
+    summary: string; description: string; series: string; product_line: string
+    frequency: string; code: string | null; edition_date: string | null
+    coverage_areas: string; strapline: string
+  }[]
+
+  if (!row[0]) return { message: 'Document not found or no publication linked.' }
+
+  const r = row[0]
+  const { derivePublicationMetadata } = await import('./papermark-dataroom-contract')
+  const meta = derivePublicationMetadata({
+    filename: r.filename,
+    category: r.category as import('./papermark-dataroom-contract').PortalCategoryKey,
+    folderPath: r.folder_path,
+    numPages: r.num_pages,
+  })
+
+  const filled: string[] = []
+  const fillIfEmpty = (dbVal: string | null, metaVal: string, name: string) => {
+    if ((!dbVal || dbVal === '') && metaVal) filled.push(name)
+  }
+  fillIfEmpty(r.kicker, meta.kicker, 'kicker')
+  fillIfEmpty(r.summary, meta.summary, 'summary')
+  fillIfEmpty(r.description, meta.description, 'description')
+  fillIfEmpty(r.product_line, meta.productLine, 'product_line')
+  fillIfEmpty(r.frequency, meta.frequency, 'frequency')
+
+  if (filled.length === 0 && r.edition_date && r.series) {
+    return { ok: true, message: 'All fields already filled.' }
+  }
+
+  await sql`
+    update documents set
+      kicker = case when kicker = '' then ${meta.kicker} else kicker end,
+      summary = case when summary = '' then ${meta.summary} else summary end,
+      description = case when description = '' then ${meta.description} else description end,
+      product_line = case when product_line = '' then ${meta.productLine} else product_line end,
+      frequency = case when frequency = '' then ${meta.frequency} else frequency end,
+      code = case when code is null then ${meta.editionCode || null} else code end,
+      edition_date = case when edition_date is null then ${meta.editionDate ?? null}::date else edition_date end,
+      coverage_areas = case when coverage_areas = '' then ${meta.coverageAreas} else coverage_areas end,
+      strapline = case when strapline = '' then ${meta.strapline} else strapline end,
+      series = case when series = '' then ${meta.series} else series end,
+      page_count = case when page_count is null then ${meta.pageCount ?? null} else page_count end,
+      updated_at = now()
+    where id = ${r.pub_id}::uuid
+  `
+
+  return { ok: true, message: filled.length > 0 ? `Generated: ${filled.join(', ')}.` : 'Details applied.' }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -1222,18 +1299,22 @@ export type LiveLinkForWatermark = {
   papermarkLinkId: string
   assignedName: string
   assignedEmail: string
+  currentWatermarkText: string
+  dataroomId: string
 }
 
 export async function getAllLiveLinksForWatermark(): Promise<LiveLinkForWatermark[]> {
   const sql = getSql()
   const drRows = (await sql`
-    select id, papermark_link_id, assigned_name, assigned_email
+    select id, papermark_link_id, assigned_name, assigned_email,
+           watermark_text, papermark_dataroom_id
     from papermark_dataroom_links
     where revoke_state = 'live'
   `) as Record<string, unknown>[]
 
   const docRows = (await sql`
-    select id, papermark_link_id, assigned_name, assigned_email
+    select id, papermark_link_id, assigned_name, assigned_email,
+           watermark_text
     from papermark_subscriber_document_links
     where revoke_state = 'live'
   `) as Record<string, unknown>[]
@@ -1245,6 +1326,8 @@ export async function getAllLiveLinksForWatermark(): Promise<LiveLinkForWatermar
       papermarkLinkId: String(r.papermark_link_id),
       assignedName: String(r.assigned_name ?? ''),
       assignedEmail: String(r.assigned_email ?? ''),
+      currentWatermarkText: String(r.watermark_text ?? ''),
+      dataroomId: String(r.papermark_dataroom_id ?? ''),
     })),
     ...docRows.map((r) => ({
       table: 'document' as const,
@@ -1252,6 +1335,8 @@ export async function getAllLiveLinksForWatermark(): Promise<LiveLinkForWatermar
       papermarkLinkId: String(r.papermark_link_id),
       assignedName: String(r.assigned_name ?? ''),
       assignedEmail: String(r.assigned_email ?? ''),
+      currentWatermarkText: String(r.watermark_text ?? ''),
+      dataroomId: '',
     })),
   ]
 }

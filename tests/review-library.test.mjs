@@ -40,11 +40,10 @@ test('actions: all review library actions require owner', () => {
   const src = read('src/app/actions/review-library.ts')
   const actions = [
     'saveReviewLibrarySettings',
-    'addReviewItem',
-    'removeReviewItem',
-    'reorderReviewItems',
     'saveReviewItemDetails',
-    'regenerateReviewItemDetails',
+    'updateSlotSecureLink',
+    'makeVersionCurrent',
+    'generateSlotDetails',
   ]
   for (const name of actions) {
     const fn = src.slice(src.indexOf(`async function ${name}`))
@@ -137,17 +136,19 @@ test('publications page: renders cards from library.items', () => {
   assert.match(src, /library\.items\.map/)
 })
 
-test('getReviewLibrary: queries complimentary_review_items with is_active', () => {
+test('getReviewLibrary: queries complimentary_review_items with slot_key filter', () => {
   const src = read('src/lib/publications.ts')
   const fn = src.slice(src.indexOf('async function getReviewLibrary'))
   assert.match(fn, /from complimentary_review_items ri/)
   assert.match(fn, /ri\.is_active = true/)
+  assert.match(fn, /ri\.slot_key in \('MIN', 'AIU', 'PLM'\)/)
+  assert.match(fn, /ri\.secure_link_url <> ''/)
 })
 
-test('getReviewLibrary: returns null when no active items', () => {
+test('getReviewLibrary: returns null unless exactly 3 items', () => {
   const src = read('src/lib/publications.ts')
   const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /items\.length === 0.*return null/)
+  assert.match(fn, /items\.length !== 3.*return null/)
 })
 
 // ---------------------------------------------------------------------------
@@ -160,19 +161,20 @@ test('getReviewLibrary: orders by display_order', () => {
   assert.match(fn, /order by ri\.display_order/)
 })
 
-test('admin page: items ordered by display_order', () => {
+test('admin page: slots ordered by display_order', () => {
   const src = read('src/app/admin/review-library/page.tsx')
-  assert.match(src, /order by ri\.display_order/)
+  assert.match(src, /order by.*display_order/)
 })
 
 // ---------------------------------------------------------------------------
 // 8. Inactive items not displayed
 // ---------------------------------------------------------------------------
 
-test('getReviewLibrary: filters by is_active', () => {
+test('getReviewLibrary: filters by is_active and slot_key', () => {
   const src = read('src/lib/publications.ts')
   const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /where ri\.is_active = true/)
+  assert.match(fn, /ri\.is_active = true/)
+  assert.match(fn, /ri\.slot_key in/)
 })
 
 // ---------------------------------------------------------------------------
@@ -211,15 +213,15 @@ test('homepage: does not link review cards directly to Papermark', () => {
 // 11. Single secure Papermark access button on publications page
 // ---------------------------------------------------------------------------
 
-test('publications page: has Enter Secure Review Library button', () => {
+test('publications page: has per-card Access review copy button', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /Enter Secure Review Library/)
+  assert.match(src, /Access review copy/)
 })
 
-test('publications page: one Papermark URL reference in secure area', () => {
+test('publications page: each card uses its own secure URL', () => {
   const src = read('src/app/publications/page.tsx')
-  const matches = src.match(/library\.papermarkUrl/g) || []
-  assert.equal(matches.length, 1, 'exactly one papermarkUrl reference')
+  assert.match(src, /card\.secureUrl/)
+  assert.doesNotMatch(src, /library\.papermarkUrl/)
 })
 
 test('publications page: secure area has confidentiality notice', () => {
@@ -283,10 +285,11 @@ test('getReviewLibrary: returns null when disabled', () => {
   assert.match(fn, /!== 'true'.*return null/)
 })
 
-test('getReviewLibrary: returns null when no URL', () => {
+test('getReviewLibrary: returns null unless exactly 3 slots with secure links', () => {
   const src = read('src/lib/publications.ts')
   const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /!papermarkUrl.*return null/)
+  assert.match(fn, /items\.length !== 3/)
+  assert.match(fn, /secure_link_url <> ''/)
 })
 
 test('publications page: review section hidden when library is null', () => {
@@ -298,17 +301,18 @@ test('publications page: review section hidden when library is null', () => {
 // 15. Enabling requires valid URL and exactly three active items
 // ---------------------------------------------------------------------------
 
-test('actions: enable validation checks HTTPS URL', () => {
+test('actions: enable validation checks all three fixed slots exist', () => {
   const src = read('src/app/actions/review-library.ts')
   const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /Cannot enable.*valid HTTPS/)
+  assert.match(fn, /Cannot enable.*three fixed slots/)
+  assert.match(fn, /slots\.length !== 3/)
 })
 
-test('actions: enable validation checks exactly three active items', () => {
+test('actions: enable validation checks mapped documents and secure links', () => {
   const src = read('src/app/actions/review-library.ts')
   const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /exactly three active review items/)
-  assert.match(fn, /!== 3/)
+  assert.match(fn, /no mapped document/)
+  assert.match(fn, /no secure link URL/)
 })
 
 // ---------------------------------------------------------------------------

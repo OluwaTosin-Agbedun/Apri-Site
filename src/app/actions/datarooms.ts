@@ -33,7 +33,7 @@ import {
 import {
   categoriseDataRoomDocument,
   documentVersionKey,
-  watermarkText,
+  subscriberWatermarkText,
 } from "@/lib/papermark-dataroom-contract"
 import {
   reconcileDownloadsFromViews,
@@ -223,7 +223,7 @@ export async function createSubscriberDataRoomLink(subscriberId: string): Promis
     assignedName: sub.full_name,
     assignedEmail: sub.email,
     watermarkEnabled: true,
-    watermarkText: watermarkText(sub.full_name, sub.email),
+    watermarkText: subscriberWatermarkText(sub.email),
     allowDownload: result.value.settings.allow_download,
     screenshotProtection: result.value.settings.enable_screenshot_protection,
     expiresAt: result.value.settings.expires_at,
@@ -473,30 +473,101 @@ export async function prepareDocumentLinksForLevel(publicTier: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Update watermarks on all live links (owner-only)
+// Subscriber watermark update — Preview + Apply (owner-only)
 // ---------------------------------------------------------------------------
 
-export async function updateAllWatermarks(): Promise<FormState> {
+export type WatermarkPreview = {
+  eligible: { table: string; id: string; email: string; papermarkLinkId: string }[]
+  alreadyCorrect: number
+  excluded: { reason: string; count: number }[]
+  total: number
+}
+
+export async function previewSubscriberWatermarkUpdate(): Promise<
+  FormState & { preview?: WatermarkPreview }
+> {
   await requireOwner()
 
-  const { getAllLiveLinksForWatermark, updateLocalWatermarkText } = await import("@/lib/dataroom-dal")
-  const { updateLinkWatermark } = await import("@/lib/papermark-datarooms")
+  const sql = getSql()
+  const { getAllLiveLinksForWatermark } = await import("@/lib/dataroom-dal")
 
   const links = await getAllLiveLinksForWatermark()
-  if (links.length === 0) return { ok: true, message: "No live links to update." }
+
+  const [reviewRoomRow] = (await sql`
+    select value from app_settings where key = 'review_library_papermark_dataroom_id' limit 1
+  `) as { value: string }[]
+  const prospectRoomId = reviewRoomRow?.value || ''
+
+  const eligible: WatermarkPreview["eligible"] = []
+  let alreadyCorrect = 0
+  const excludedMap: Record<string, number> = {}
+
+  function exclude(reason: string) {
+    excludedMap[reason] = (excludedMap[reason] || 0) + 1
+  }
+
+  for (const link of links) {
+    if (!link.assignedEmail?.trim()) {
+      exclude("No subscriber email")
+      continue
+    }
+
+    if (link.table === "dataroom" && link.dataroomId === prospectRoomId && prospectRoomId) {
+      exclude("Prospect/Complimentary Review Data Room link")
+      continue
+    }
+
+    if (!link.papermarkLinkId) {
+      exclude("No Papermark link ID (unresolved)")
+      continue
+    }
+
+    const expected = subscriberWatermarkText(link.assignedEmail)
+    if (link.currentWatermarkText === expected) {
+      alreadyCorrect++
+      continue
+    }
+
+    eligible.push({
+      table: link.table,
+      id: link.id,
+      email: link.assignedEmail,
+      papermarkLinkId: link.papermarkLinkId,
+    })
+  }
+
+  const excluded = Object.entries(excludedMap).map(([reason, count]) => ({ reason, count }))
+
+  return {
+    ok: true,
+    message: `${eligible.length} link${eligible.length === 1 ? "" : "s"} to update, ${alreadyCorrect} already correct, ${links.length - eligible.length - alreadyCorrect} excluded.`,
+    preview: { eligible, alreadyCorrect, excluded, total: links.length },
+  }
+}
+
+export async function applySubscriberWatermarkUpdate(): Promise<FormState> {
+  await requireOwner()
+
+  const preview = await previewSubscriberWatermarkUpdate()
+  if (!preview.preview) return { message: "Could not build preview." }
+
+  const { eligible } = preview.preview
+  if (eligible.length === 0) return { ok: true, message: "No links need updating." }
+
+  const { updateLocalWatermarkText } = await import("@/lib/dataroom-dal")
+  const { updateLinkWatermark } = await import("@/lib/papermark-datarooms")
 
   let updated = 0
   let failed = 0
 
-  for (const link of links) {
-    const newText = watermarkText(link.assignedName, link.assignedEmail)
+  for (const link of eligible) {
+    const newText = subscriberWatermarkText(link.email)
     const result = await updateLinkWatermark({
       linkId: link.papermarkLinkId,
-      assignedName: link.assignedName,
-      assignedEmail: link.assignedEmail,
+      assignedEmail: link.email,
     })
     if (result.ok) {
-      await updateLocalWatermarkText(link.table, link.id, newText)
+      await updateLocalWatermarkText(link.table as "dataroom" | "document", link.id, newText)
       updated++
     } else {
       failed++
@@ -507,9 +578,103 @@ export async function updateAllWatermarks(): Promise<FormState> {
   return {
     ok: failed === 0,
     message: [
-      `${updated} link${updated === 1 ? "" : "s"} updated.`,
-      failed > 0 ? `${failed} failed — Papermark may not support partial watermark updates on those links.` : null,
+      `${updated} link${updated === 1 ? "" : "s"} updated to Subscriber Edition watermark.`,
+      failed > 0 ? `${failed} failed — retry safely; already-updated links will be skipped.` : null,
     ].filter(Boolean).join(" "),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy Open Edition audit (owner-only)
+// ---------------------------------------------------------------------------
+
+export type LegacyAuditRecord = {
+  id: string
+  title: string
+  status: string
+  referencedBy: string[]
+  safe: boolean
+}
+
+export type LegacyAuditResult = {
+  records: LegacyAuditRecord[]
+  archived: number
+  unchanged: number
+}
+
+export async function auditLegacyOpenEditions(): Promise<
+  FormState & { audit?: LegacyAuditResult }
+> {
+  await requireOwner()
+  const sql = getSql()
+
+  const openDocs = (await sql`
+    select id, title, status, visibility from documents where visibility = 'OPEN'
+  `) as { id: string; title: string; status: string; visibility: string }[]
+
+  if (openDocs.length === 0) {
+    return { ok: true, message: "No OPEN-visibility documents found.", audit: { records: [], archived: 0, unchanged: 0 } }
+  }
+
+  const records: LegacyAuditRecord[] = []
+  let archived = 0
+  let unchanged = 0
+
+  for (const doc of openDocs) {
+    const refs: string[] = []
+
+    const [reviewRef] = (await sql`
+      select id from complimentary_review_items
+      where publication_id = ${doc.id}
+        or (papermark_document_id is not null
+            and papermark_document_id in (
+              select papermark_document_id from documents where id = ${doc.id}
+            ))
+      limit 1
+    `) as { id: string }[]
+    if (reviewRef) refs.push("complimentary_review_items (review slot)")
+
+    const [candidateRef] = (await sql`
+      select id from review_sync_candidates
+      where papermark_document_id in (select papermark_document_id from documents where id = ${doc.id})
+      limit 1
+    `) as { id: string }[]
+    if (candidateRef) refs.push("review_sync_candidates")
+
+    const [subAccessRef] = (await sql`
+      select id from publication_access where publication_id = ${doc.id} limit 1
+    `) as { id: string }[]
+    if (subAccessRef) refs.push("publication_access (subscriber)")
+
+    const [viewRef] = (await sql`
+      select id from document_views where publication_id = ${doc.id} limit 1
+    `) as { id: string }[]
+    if (viewRef) refs.push("document_views (engagement history)")
+
+    const isUnreferenced = refs.length === 0
+    const canArchive = isUnreferenced && doc.status !== "archived"
+
+    if (canArchive) {
+      await sql`update documents set status = 'archived', updated_at = now() where id = ${doc.id}`
+      archived++
+    } else {
+      unchanged++
+    }
+
+    records.push({
+      id: doc.id,
+      title: doc.title,
+      status: canArchive ? "archived" : doc.status,
+      referencedBy: refs,
+      safe: canArchive,
+    })
+  }
+
+  refresh()
+  return {
+    ok: true,
+    message: `${openDocs.length} OPEN record${openDocs.length === 1 ? "" : "s"} audited. ${archived} archived, ${unchanged} left unchanged.`,
+    audit: { records, archived, unchanged },
   }
 }
 
@@ -621,6 +786,22 @@ export async function generateMissingDetails(
     ok: true,
     message: parts.length > 0 ? `Details generated: ${parts.join(', ')}.` : 'No linked publications in this room.',
   }
+}
+
+// ---------------------------------------------------------------------------
+// Generate missing details for a single synced document
+// ---------------------------------------------------------------------------
+
+export async function generateMissingDetailsForDocument(
+  documentRowId: string,
+): Promise<FormState> {
+  await requireOwner()
+  if (!UUID.test(documentRowId)) return { message: "Invalid document." }
+
+  const { generateMissingDetailsForSingleDocument } = await import("@/lib/dataroom-dal")
+  const result = await generateMissingDetailsForSingleDocument(documentRowId)
+  refresh()
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -768,7 +949,7 @@ export async function migrateSubscriberToDataRoom(
     assignedName: sub.full_name,
     assignedEmail: sub.email,
     watermarkEnabled: true,
-    watermarkText: watermarkText(sub.full_name, sub.email),
+    watermarkText: subscriberWatermarkText(sub.email),
     allowDownload: result.value.settings.allow_download,
     screenshotProtection: result.value.settings.enable_screenshot_protection,
     expiresAt: result.value.settings.expires_at,
@@ -843,7 +1024,7 @@ export async function createBriefingDataRoomLink(
     assignedName: briefing.name,
     assignedEmail: briefing.email,
     watermarkEnabled: true,
-    watermarkText: watermarkText(briefing.name, briefing.email),
+    watermarkText: subscriberWatermarkText(briefing.email),
     allowDownload: result.value.settings.allow_download,
     screenshotProtection: result.value.settings.enable_screenshot_protection,
     expiresAt: result.value.settings.expires_at,
