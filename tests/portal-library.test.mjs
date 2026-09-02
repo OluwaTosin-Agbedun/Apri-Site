@@ -220,8 +220,8 @@ test('the download route validates the subscriber server-side', () => {
   const downloadRoute = read('src/app/portal/document/[id]/download/route.ts')
   assert.match(downloadRoute, /requirePortalPrincipal\(\)/)
   assert.match(downloadRoute, /getDataRoomDocumentForSubscriber\(principal\.id/)
-  assert.match(downloadRoute, /document_downloaded/)
-  assert.match(downloadRoute, /recordClientEvent/)
+  assert.doesNotMatch(downloadRoute, /recordClientEvent/,
+    "Portal download no longer records — the Papermark webhook is the single source")
   assert.doesNotMatch(downloadRoute, /PAPERMARK_API_TOKEN|PAPERMARK_API_KEY/)
 })
 

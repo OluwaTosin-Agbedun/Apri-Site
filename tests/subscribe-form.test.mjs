@@ -154,3 +154,132 @@ test('the admin subscriber form and its page agree on what a draft carries', () 
   assert.match(page, /s\.client_type/)
   assert.match(page, /client_type: string/)
 })
+
+// ---------------------------------------------------------------------------
+// Work-email validation for non-Individual tiers
+// ---------------------------------------------------------------------------
+
+import {
+  requiresWorkEmail,
+  isPersonalEmail,
+  WORK_EMAIL_MESSAGE,
+} from '../src/lib/entitlements.ts'
+
+test('Individual Access does not require a work email', () => {
+  assert.equal(requiresWorkEmail('Individual Access'), false)
+})
+
+test('every non-Individual tier requires a work email', () => {
+  for (const tier of [
+    'Professional Team Access',
+    'Political Monitor',
+    'Executive Intelligence',
+    'Board Briefing',
+  ]) {
+    assert.equal(requiresWorkEmail(tier), true, `${tier} should require work email`)
+  }
+})
+
+test('an unrecognised tier name does not require a work email', () => {
+  assert.equal(requiresWorkEmail(''), false)
+  assert.equal(requiresWorkEmail('Nonexistent Tier'), false)
+})
+
+test('known personal email providers are blocked', () => {
+  const blocked = [
+    'user@gmail.com',
+    'user@outlook.com',
+    'user@hotmail.com',
+    'user@live.com',
+    'user@yahoo.com',
+    'user@icloud.com',
+    'user@aol.com',
+    'user@proton.me',
+    'user@protonmail.com',
+    'user@gmx.com',
+    'user@gmx.net',
+    'user@mail.com',
+    'user@yandex.com',
+    'user@yandex.ru',
+  ]
+  for (const addr of blocked) {
+    assert.equal(isPersonalEmail(addr), true, `${addr} should be blocked`)
+  }
+})
+
+test('disposable email providers are blocked', () => {
+  const disposable = [
+    'x@mailinator.com',
+    'x@guerrillamail.com',
+    'x@tempmail.com',
+    'x@throwaway.email',
+    'x@yopmail.com',
+    'x@maildrop.cc',
+    'x@trashmail.com',
+    'x@10minutemail.com',
+  ]
+  for (const addr of disposable) {
+    assert.equal(isPersonalEmail(addr), true, `${addr} should be blocked`)
+  }
+})
+
+test('company / custom domain emails are accepted', () => {
+  const accepted = [
+    'ceo@acme.com',
+    'analyst@shell.com.ng',
+    'team@bigcorp.org',
+    'jane@ministry.gov.ng',
+    'info@consultancy.co.uk',
+    'user@workspace.company.com',
+  ]
+  for (const addr of accepted) {
+    assert.equal(isPersonalEmail(addr), false, `${addr} should be accepted`)
+  }
+})
+
+test('handles uppercase, whitespace and plus aliases', () => {
+  assert.equal(isPersonalEmail('  User@GMAIL.COM  '), true)
+  assert.equal(isPersonalEmail('name+test@gmail.com'), true)
+  assert.equal(isPersonalEmail('NAME+TAG@Yahoo.COM'), true)
+  assert.equal(isPersonalEmail('  CTO@BigCorp.com  '), false)
+})
+
+test('does not block all .com or .org or .ng domains', () => {
+  assert.equal(isPersonalEmail('x@company.com'), false)
+  assert.equal(isPersonalEmail('x@charity.org'), false)
+  assert.equal(isPersonalEmail('x@firm.ng'), false)
+  assert.equal(isPersonalEmail('x@oil.com.ng'), false)
+})
+
+test('the work-email error message is the one the user should see', () => {
+  assert.equal(
+    WORK_EMAIL_MESSAGE,
+    'Please use your official company or organisation email address for this access level.'
+  )
+})
+
+test('the server action enforces work email before database insert', () => {
+  const source = read('src/app/actions/public.ts')
+  const start = source.indexOf('export async function requestAccess')
+  const end = source.indexOf('export async function requestBriefing')
+  const action = source.slice(start, end)
+
+  assert.match(action, /requiresWorkEmail\(subscriptionLevel\)/)
+  assert.match(action, /isPersonalEmail\(email\)/)
+  assert.match(action, /WORK_EMAIL_MESSAGE/)
+
+  const check = action.indexOf('requiresWorkEmail')
+  const insert = action.indexOf('insert into subscribers')
+  assert.ok(check > 0, 'work-email check not found')
+  assert.ok(insert > 0, 'insert not found')
+  assert.ok(check < insert, 'work-email check must come before the database insert')
+})
+
+test('the client form validates email domain before submission', () => {
+  const form = read('src/app/access-form.tsx')
+  assert.match(form, /requiresWorkEmail/)
+  assert.match(form, /isPersonalEmail/)
+  assert.match(form, /emailDomainError/)
+  assert.match(form, /onSubmit=\{handleSubmit\}/)
+  assert.match(form, /event\.preventDefault\(\)/)
+})

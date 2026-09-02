@@ -2,7 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { requireAdmin } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
-import { getSubscriberForEngagement, getSubscriberTimeline } from "@/lib/client-engagement"
+import { getSubscriberForEngagement, getSubscriberTimeline, type EngagementTimelineEntry } from "@/lib/client-engagement"
 import { tierDisplayName } from "@/lib/entitlements"
 
 export const dynamic = "force-dynamic"
@@ -109,7 +109,7 @@ export default async function SubscriberEngagementPage({
                   </td>
                   <td className="p-3 text-xs text-muted-foreground tabular-nums">{fmtDateTime(entry.occurredAt)}</td>
                   <td className="p-3 text-xs text-muted-foreground">
-                    {entry.resendEmailId ? `Resend ID: ${entry.resendEmailId.slice(0, 12)}…` : "—"}
+                    {detailText(entry)}
                   </td>
                 </tr>
               ))}
@@ -121,6 +121,13 @@ export default async function SubscriberEngagementPage({
       <p className="text-xs text-muted-foreground mt-3">Showing the most recent {timeline.length} events.</p>
     </AdminShell>
   )
+}
+
+function detailText(entry: EngagementTimelineEntry): string {
+  const title = typeof entry.metadata.documentTitle === 'string' ? entry.metadata.documentTitle : null
+  if (title) return title
+  if (entry.resendEmailId) return `Resend ID: ${entry.resendEmailId.slice(0, 12)}…`
+  return "—"
 }
 
 function eventColor(type: string): string {

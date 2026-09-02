@@ -74,7 +74,7 @@ import {
   normalisePhone,
   type FormState,
 } from "@/lib/definitions"
-import { levelForPublicTier, seatsForSubscriptionRequest } from "@/lib/entitlements"
+import { levelForPublicTier, seatsForSubscriptionRequest, requiresWorkEmail, isPersonalEmail, WORK_EMAIL_MESSAGE } from "@/lib/entitlements"
 const MAX_REQUESTS = 3
 const WINDOW_MINUTES = 60
 const ACCEPTED: FormState = {
@@ -177,6 +177,10 @@ export async function requestAccess(
     note,
   } = parsed.data
   const phone = normalisePhone(parsed.data.phone)
+
+  if (requiresWorkEmail(subscriptionLevel) && isPersonalEmail(email)) {
+    return { errors: { email: [WORK_EMAIL_MESSAGE] } }
+  }
 
   const sql = getSql()
   const ip = await clientIp()

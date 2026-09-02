@@ -241,6 +241,50 @@ export function tierNameForVisibility(visibility: Level): string {
   return PUBLIC_TIERS.find((t) => t.level === visibility && t.defaultSeats === 1)?.name ?? LEVEL_BASE_NAMES[visibility]
 }
 
+// ---------------------------------------------------------------------------
+// Personal / free / disposable email domain blocklist
+//
+// Used by the subscription form to require a company email for all tiers above
+// Individual Access. The set is checked against the domain portion only, after
+// lowercasing. Plus-aliases (name+tag@gmail.com) are irrelevant because the
+// domain is what matters.
+// ---------------------------------------------------------------------------
+
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com',
+  'outlook.com', 'outlook.co.uk',
+  'hotmail.com', 'hotmail.co.uk', 'hotmail.fr', 'hotmail.de', 'hotmail.it',
+  'live.com', 'live.co.uk',
+  'yahoo.com', 'yahoo.co.uk', 'yahoo.co.in', 'yahoo.ca', 'yahoo.fr', 'yahoo.de', 'yahoo.it', 'yahoo.com.br',
+  'icloud.com', 'me.com', 'mac.com',
+  'aol.com', 'aol.co.uk',
+  'proton.me', 'protonmail.com', 'protonmail.ch', 'pm.me',
+  'gmx.com', 'gmx.net', 'gmx.de',
+  'mail.com',
+  'yandex.com', 'yandex.ru',
+  'mailinator.com', 'guerrillamail.com', 'guerrillamail.info', 'guerrillamail.de', 'guerrillamail.net',
+  'tempmail.com', 'throwaway.email', 'sharklasers.com',
+  'mailnesia.com', 'maildrop.cc', 'yopmail.com', 'yopmail.fr',
+  'dispostable.com', 'trashmail.com', 'trashmail.me',
+  '10minutemail.com', 'tempail.com', 'temp-mail.org',
+  'guerrillamailblock.com', 'grr.la', 'discard.email',
+  'mailsac.com', 'mohmal.com',
+])
+
+export const WORK_EMAIL_MESSAGE =
+  'Please use your official company or organisation email address for this access level.'
+
+export function requiresWorkEmail(tierName: string): boolean {
+  return tierName !== 'Individual Access' && (PUBLIC_TIER_NAMES as readonly string[]).includes(tierName)
+}
+
+export function isPersonalEmail(email: string): boolean {
+  const trimmed = email.trim().toLowerCase()
+  const at = trimmed.lastIndexOf('@')
+  if (at < 0) return false
+  return PERSONAL_EMAIL_DOMAINS.has(trimmed.slice(at + 1))
+}
+
 /** Human label for a publication series code. */
 export const SERIES = {
   PLM: 'Political Landscape Monitor',

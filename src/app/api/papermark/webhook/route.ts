@@ -180,6 +180,7 @@ function handleDownloadEvent(payload: unknown, eventId: string | null) {
       const data = readData(payload)
       const viewId = str(data.view_id ?? data.viewId ?? data.id)
       const linkId = str(data.link_id ?? data.linkId)
+      const documentId = str(data.document_id ?? data.documentId)
       const downloadedAt = str(data.downloaded_at ?? data.downloadedAt)
 
       if (!viewId) return
@@ -191,33 +192,118 @@ function handleDownloadEvent(payload: unknown, eventId: string | null) {
         where papermark_view_id = ${viewId}
       `
 
-      if (linkId) {
-        const linkRows = (await sql`
-          select subscriber_id, briefing_request_id
-          from papermark_dataroom_links
-          where papermark_link_id = ${linkId} limit 1
-        `) as { subscriber_id: string | null; briefing_request_id: string | null }[]
+      if (!linkId) return
 
-        const link = linkRows[0]
-        if (link && (link.subscriber_id || link.briefing_request_id)) {
-          await sql`
-            insert into client_engagement_events
-              (subscriber_id, briefing_request_id, event_type, webhook_event_id, occurred_at)
-            values (
-              ${link.subscriber_id}::uuid, ${link.briefing_request_id}::uuid,
-              'document_downloaded', ${'dl-' + viewId},
-              coalesce(${downloadedAt}::timestamptz, now())
-            )
-            on conflict (webhook_event_id) where webhook_event_id is not null do nothing
-          `
-        }
-      }
+      const resolved = await resolveLink(sql, linkId, documentId)
+      if (!resolved) return
+
+      const metadata = JSON.stringify({
+        source: 'papermark',
+        ...(resolved.papermarkDocumentId ? { papermarkDocumentId: resolved.papermarkDocumentId } : {}),
+        ...(resolved.documentTitle ? { documentTitle: resolved.documentTitle } : {}),
+        papermarkLinkId: linkId,
+      })
+
+      await sql`
+        insert into client_engagement_events
+          (subscriber_id, briefing_request_id, event_type, webhook_event_id, occurred_at, metadata)
+        values (
+          ${resolved.subscriberId}::uuid, ${resolved.briefingRequestId}::uuid,
+          'document_downloaded', ${'dl-' + viewId},
+          coalesce(${downloadedAt}::timestamptz, now()),
+          ${metadata}::jsonb
+        )
+        on conflict (webhook_event_id) where webhook_event_id is not null do nothing
+      `
     } catch {}
 
     if (eventId) await markProcessed(eventId, 'link.downloaded')
   })
 
   return NextResponse.json({ ok: true, accepted: 1 })
+}
+
+/**
+ * Resolve a Papermark link ID to a subscriber and, where possible, the
+ * document that was downloaded. Three tables carry link IDs, checked from
+ * most specific to least: per-document subscriber links, Data Room links,
+ * and legacy publication_access links.
+ */
+async function resolveLink(
+  sql: ReturnType<typeof getSql>,
+  linkId: string,
+  payloadDocumentId: string | null,
+): Promise<{
+  subscriberId: string | null
+  briefingRequestId: string | null
+  papermarkDocumentId: string | null
+  documentTitle: string | null
+} | null> {
+  // 1. Per-subscriber per-document links (most specific)
+  const docLinks = (await sql`
+    select dl.subscriber_id, dl.papermark_document_id,
+           coalesce(nullif(dd.title, ''), '') as title
+    from papermark_subscriber_document_links dl
+    left join papermark_dataroom_documents dd
+      on dd.papermark_document_id = dl.papermark_document_id
+    where dl.papermark_link_id = ${linkId}
+    limit 1
+  `) as { subscriber_id: string; papermark_document_id: string; title: string }[]
+
+  if (docLinks[0]) {
+    return {
+      subscriberId: docLinks[0].subscriber_id,
+      briefingRequestId: null,
+      papermarkDocumentId: docLinks[0].papermark_document_id,
+      documentTitle: docLinks[0].title || null,
+    }
+  }
+
+  // 2. Data Room links (one link per subscriber per Data Room)
+  const drLinks = (await sql`
+    select subscriber_id, briefing_request_id
+    from papermark_dataroom_links
+    where papermark_link_id = ${linkId}
+    limit 1
+  `) as { subscriber_id: string | null; briefing_request_id: string | null }[]
+
+  if (drLinks[0] && (drLinks[0].subscriber_id || drLinks[0].briefing_request_id)) {
+    let docTitle: string | null = null
+    const pmDocId = payloadDocumentId
+    if (pmDocId) {
+      const titleRows = (await sql`
+        select title from papermark_dataroom_documents
+        where papermark_document_id = ${pmDocId} limit 1
+      `) as { title: string }[]
+      if (titleRows[0]) docTitle = titleRows[0].title
+    }
+    return {
+      subscriberId: drLinks[0].subscriber_id,
+      briefingRequestId: drLinks[0].briefing_request_id,
+      papermarkDocumentId: pmDocId,
+      documentTitle: docTitle,
+    }
+  }
+
+  // 3. Legacy publication_access links
+  const pubLinks = (await sql`
+    select pa.subscriber_id, d.title
+    from publication_access pa
+    left join documents d on d.id = pa.publication_id
+    where pa.papermark_link_id = ${linkId}
+    limit 1
+  `) as { subscriber_id: string; title: string | null }[]
+
+  if (pubLinks[0]) {
+    return {
+      subscriberId: pubLinks[0].subscriber_id,
+      briefingRequestId: null,
+      papermarkDocumentId: payloadDocumentId,
+      documentTitle: pubLinks[0].title || null,
+    }
+  }
+
+  return null
 }
 
 // ---------------------------------------------------------------------------

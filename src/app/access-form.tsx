@@ -2,7 +2,13 @@
 
 import { useActionState, useState } from 'react'
 import { requestAccess } from '@/app/actions/public'
-import { PUBLIC_TIER_NAMES, tierDisplayName } from '@/lib/entitlements'
+import {
+  PUBLIC_TIER_NAMES,
+  tierDisplayName,
+  requiresWorkEmail,
+  isPersonalEmail,
+  WORK_EMAIL_MESSAGE,
+} from '@/lib/entitlements'
 
 /**
  * The subscription enquiry form.
@@ -35,11 +41,22 @@ export default function AccessForm({
   const [state, action, pending] = useActionState(requestAccess, undefined)
   const [subscriptionLevel, setSubscriptionLevel] = useState(defaultLevel)
   const [seats, setSeats] = useState('')
+  const [emailValue, setEmailValue] = useState('')
   const showSeats = Boolean(subscriptionLevel && subscriptionLevel !== 'Individual Access')
+  const emailDomainError =
+    requiresWorkEmail(subscriptionLevel) && emailValue && isPersonalEmail(emailValue)
+      ? WORK_EMAIL_MESSAGE
+      : ''
 
   function changeLevel(value: string) {
     setSubscriptionLevel(value)
     if (value === 'Individual Access' || !value) setSeats('')
+  }
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    if (emailDomainError) {
+      event.preventDefault()
+    }
   }
 
   if (state?.ok) {
@@ -54,6 +71,7 @@ export default function AccessForm({
   return (
     <form
       action={action}
+      onSubmit={handleSubmit}
       className="w-full max-w-md border border-border bg-card/30 p-6 space-y-5"
     >
       <div>
@@ -112,8 +130,13 @@ export default function AccessForm({
           autoCapitalize="none"
           spellCheck={false}
           required
+          value={emailValue}
+          onChange={(event) => setEmailValue(event.target.value)}
           className={field}
         />
+        {emailDomainError && (
+          <p className="mt-2 text-xs text-red-700">{emailDomainError}</p>
+        )}
         <Err messages={state?.errors?.email} />
       </div>
 

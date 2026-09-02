@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 import { requirePortalPrincipal } from "@/lib/subscriber-dal"
 import { getDataRoomDocumentForSubscriber } from "@/lib/papermark-client-library"
-import { recordClientEvent } from "@/lib/client-engagement"
 
 export const dynamic = "force-dynamic"
 
@@ -25,13 +24,6 @@ export async function GET(
   if (!result.allowDownload || !result.documentLinkUrl) {
     redirect(`/portal/document/${encodeURIComponent(documentRowId)}`)
   }
-
-  try {
-    await recordClientEvent(
-      { type: "subscriber", id: principal.id },
-      "document_downloaded",
-    )
-  } catch {}
 
   redirect(result.documentLinkUrl)
 }

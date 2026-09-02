@@ -172,12 +172,13 @@ export type EngagementTimelineEntry = {
   eventType: string
   occurredAt: string
   resendEmailId: string | null
+  metadata: Record<string, unknown>
 }
 
 export async function getSubscriberTimeline(subscriberId: string): Promise<EngagementTimelineEntry[]> {
   const sql = getSql()
   const rows = await sql`
-    select id, event_type, occurred_at, resend_email_id
+    select id, event_type, occurred_at, resend_email_id, metadata
     from client_engagement_events
     where subscriber_id = ${subscriberId}::uuid
     order by occurred_at desc
@@ -189,6 +190,7 @@ export async function getSubscriberTimeline(subscriberId: string): Promise<Engag
     eventType: String(r.event_type),
     occurredAt: String(r.occurred_at),
     resendEmailId: r.resend_email_id ? String(r.resend_email_id) : null,
+    metadata: (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>,
   }))
 }
 

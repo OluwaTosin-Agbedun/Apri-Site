@@ -268,3 +268,107 @@ test("notification service is server-only", () => {
   const service = read("src/lib/dataroom-notifications.ts")
   assert.match(service, /^import "server-only"/m)
 })
+
+// ---------------------------------------------------------------------------
+// 11. Download webhook: link.downloaded event handling
+// ---------------------------------------------------------------------------
+
+test("webhook handler dispatches link.downloaded events", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /link\.downloaded/i)
+  assert.match(route, /handleDownloadEvent/)
+})
+
+test("download handler resolves links across all three link tables", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /papermark_subscriber_document_links/)
+  assert.match(route, /papermark_dataroom_links/)
+  assert.match(route, /publication_access/)
+  const subDocPos = route.indexOf("papermark_subscriber_document_links")
+  const drPos = route.indexOf("papermark_dataroom_links", subDocPos + 1)
+  const pubPos = route.indexOf("publication_access", drPos + 1)
+  assert.ok(subDocPos > 0 && drPos > subDocPos && pubPos > drPos,
+    "Link tables must be checked in order: subscriber_document_links → dataroom_links → publication_access")
+})
+
+test("download handler stores document metadata in engagement event", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /documentTitle/)
+  assert.match(route, /papermarkDocumentId/)
+  assert.match(route, /papermarkLinkId/)
+  assert.match(route, /metadata.*::jsonb/)
+})
+
+test("download handler marks the view as downloaded in document_views", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /update document_views set downloaded = true/)
+  assert.match(route, /papermark_view_id/)
+})
+
+test("download handler uses idempotency via webhook event ID", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /checkIdempotency\(eventId\)/)
+  assert.match(route, /markProcessed\(eventId, 'link\.downloaded'\)/)
+  assert.match(route, /on conflict \(webhook_event_id\)/)
+  assert.match(route, /dl-.*viewId/)
+})
+
+test("download handler does not trust email — resolves subscriber from link ID", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  const dlStart = route.indexOf("function handleDownloadEvent")
+  const dlEnd = route.indexOf("function resolveLink", dlStart)
+  const downloadFn = route.slice(dlStart, dlEnd)
+  assert.doesNotMatch(downloadFn, /viewerEmail|viewer_email/)
+  assert.match(downloadFn, /resolveLink/)
+  const resolveFn = route.slice(dlEnd, route.indexOf("function handleLinkEvent"))
+  assert.match(resolveFn, /papermark_link_id = \$\{linkId\}/)
+})
+
+test("download handler returns early on unknown link (no subscriber, no briefing)", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  const resolveFn = route.slice(route.indexOf("async function resolveLink"))
+  assert.match(resolveFn, /return null/)
+})
+
+test("webhook signature verification uses timingSafeEqual", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /timingSafeEqual/)
+  assert.match(route, /createHmac\('sha256'/)
+  assert.match(route, /status: 401/)
+})
+
+test("existing view and document events are preserved alongside download handler", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /handleViewEvents/)
+  assert.match(route, /handleDocumentEvent/)
+  assert.match(route, /handleLinkEvent/)
+  assert.match(route, /handleDownloadEvent/)
+})
+
+// ---------------------------------------------------------------------------
+// 12. Download dedup: portal no longer records a duplicate click event
+// ---------------------------------------------------------------------------
+
+test("portal download route does not record a separate engagement event", () => {
+  const route = read("src/app/portal/document/[id]/download/route.ts")
+  assert.doesNotMatch(route, /recordClientEvent/)
+  assert.doesNotMatch(route, /document_downloaded/)
+})
+
+// ---------------------------------------------------------------------------
+// 13. Admin engagement timeline shows document context from metadata
+// ---------------------------------------------------------------------------
+
+test("subscriber timeline query returns metadata column", () => {
+  const dal = read("src/lib/client-engagement.ts")
+  const timelineFn = dal.slice(dal.indexOf("getSubscriberTimeline"))
+  assert.match(timelineFn, /select.*metadata/)
+  assert.match(dal, /metadata: /)
+})
+
+test("engagement detail page shows document title from metadata", () => {
+  const page = read("src/app/admin/engagement/[id]/page.tsx")
+  assert.match(page, /documentTitle/)
+  assert.match(page, /detailText/)
+  assert.match(page, /entry\.metadata/)
+})
