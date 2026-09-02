@@ -503,22 +503,17 @@ test('download: subscriber-document ownership verified server-side', () => {
 // 12. Watermark text format
 // ---------------------------------------------------------------------------
 
-test('watermark: contains APRI CONFIDENTIAL', () => {
-  const text = watermarkText('Test User', 'test@example.com')
-  assert.match(text, /APRI CONFIDENTIAL/)
-})
-
-test('watermark: contains assigned name and email', () => {
+test('watermark: contains exactly name, email and date', () => {
   const text = watermarkText('Nwaokike Desmond', 'desmond@example.com')
-  assert.match(text, /Nwaokike Desmond/)
-  assert.match(text, /desmond@example\.com/)
+  assert.equal(text, 'Nwaokike Desmond | desmond@example.com | {{date}}')
 })
 
-test('watermark: contains dynamic date token', () => {
+test('watermark: no time, IP, confidential wording or access level', () => {
   const text = watermarkText('Test', 'test@x.com')
   assert.match(text, /\{\{date\}\}/)
-  assert.match(text, /\{\{time\}\}/)
-  assert.match(text, /\{\{ipAddress\}\}/)
+  assert.doesNotMatch(text, /\{\{time\}\}/)
+  assert.doesNotMatch(text, /\{\{ipAddress\}\}/)
+  assert.doesNotMatch(text, /CONFIDENTIAL/i)
 })
 
 // ---------------------------------------------------------------------------

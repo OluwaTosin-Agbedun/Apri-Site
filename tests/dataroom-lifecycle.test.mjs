@@ -363,6 +363,58 @@ describe('subscriber/briefing isolation', () => {
     const b = watermarkConfig('Bob', 'bob@example.com')
     assert.notEqual(a.text, b.text)
   })
+
+  it('watermark text is name | email | date only', () => {
+    const text = watermarkText('Alice', 'alice@example.com')
+    assert.equal(text, 'Alice | alice@example.com | {{date}}')
+    assert.doesNotMatch(text, /CONFIDENTIAL/i)
+    assert.doesNotMatch(text, /\{\{time\}\}/)
+    assert.doesNotMatch(text, /\{\{ipAddress\}\}/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Watermark update action
+// ---------------------------------------------------------------------------
+
+describe('owner-only watermark update action', () => {
+  const actionSrc = readFileSync(
+    new URL('../src/app/actions/datarooms.ts', import.meta.url), 'utf8')
+  const dalSrc = readFileSync(
+    new URL('../src/lib/dataroom-dal.ts', import.meta.url), 'utf8')
+  const apiSrc = readFileSync(
+    new URL('../src/lib/papermark-datarooms.ts', import.meta.url), 'utf8')
+
+  it('action is owner-gated', () => {
+    const fn = actionSrc.slice(actionSrc.indexOf('export async function updateAllWatermarks'))
+    assert.match(fn, /requireOwner\(\)/)
+  })
+
+  it('action does not create new links or send emails', () => {
+    const start = actionSrc.indexOf('export async function updateAllWatermarks')
+    const end = actionSrc.indexOf('export async function', start + 1)
+    const fn = actionSrc.slice(start, end > start ? end : undefined)
+    assert.doesNotMatch(fn, /createDataRoomLink|createDocumentLink/)
+    assert.doesNotMatch(fn, /sendEmail|sendAccessRequest|sendEditionAlert/)
+  })
+
+  it('API client has a watermark-only PATCH function', () => {
+    assert.match(apiSrc, /export async function updateLinkWatermark/)
+    const fn = apiSrc.slice(apiSrc.indexOf('export async function updateLinkWatermark'))
+    assert.match(fn, /method: 'PATCH'/)
+    assert.match(fn, /enable_watermark: true/)
+    assert.match(fn, /watermark_config/)
+    assert.doesNotMatch(fn.slice(0, fn.indexOf('export async function', 10)), /expires_at/)
+  })
+
+  it('DAL can query all live links and update watermark text', () => {
+    assert.match(dalSrc, /export async function getAllLiveLinksForWatermark/)
+    assert.match(dalSrc, /export async function updateLocalWatermarkText/)
+    const fn = dalSrc.slice(dalSrc.indexOf('export async function getAllLiveLinksForWatermark'))
+    assert.match(fn, /papermark_dataroom_links/)
+    assert.match(fn, /papermark_subscriber_document_links/)
+    assert.match(fn, /revoke_state = 'live'/)
+  })
 })
 
 // ---------------------------------------------------------------------------

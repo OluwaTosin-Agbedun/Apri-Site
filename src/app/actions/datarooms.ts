@@ -460,6 +460,47 @@ export async function prepareDocumentLinksForLevel(publicTier: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Update watermarks on all live links (owner-only)
+// ---------------------------------------------------------------------------
+
+export async function updateAllWatermarks(): Promise<FormState> {
+  await requireOwner()
+
+  const { getAllLiveLinksForWatermark, updateLocalWatermarkText } = await import("@/lib/dataroom-dal")
+  const { updateLinkWatermark } = await import("@/lib/papermark-datarooms")
+
+  const links = await getAllLiveLinksForWatermark()
+  if (links.length === 0) return { ok: true, message: "No live links to update." }
+
+  let updated = 0
+  let failed = 0
+
+  for (const link of links) {
+    const newText = watermarkText(link.assignedName, link.assignedEmail)
+    const result = await updateLinkWatermark({
+      linkId: link.papermarkLinkId,
+      assignedName: link.assignedName,
+      assignedEmail: link.assignedEmail,
+    })
+    if (result.ok) {
+      await updateLocalWatermarkText(link.table, link.id, newText)
+      updated++
+    } else {
+      failed++
+    }
+  }
+
+  refresh()
+  return {
+    ok: failed === 0,
+    message: [
+      `${updated} link${updated === 1 ? "" : "s"} updated.`,
+      failed > 0 ? `${failed} failed — Papermark may not support partial watermark updates on those links.` : null,
+    ].filter(Boolean).join(" "),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Link/unlink editorial publication to a synced Data Room document
 // ---------------------------------------------------------------------------
 

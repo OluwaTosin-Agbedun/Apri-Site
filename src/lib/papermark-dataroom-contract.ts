@@ -19,13 +19,12 @@
  * link is created, and that link is only ever given to that one person — which
  * is precisely why a link is never reused between people.
  *
- * The tokens Papermark does fill in per view are kept alongside it, so a page
- * that leaks carries when it was opened and from where, as well as by whom.
+ * `{{date}}` is a Papermark dynamic token filled at view time.
  */
 export function watermarkText(assignedName: string, assignedEmail: string): string {
   const name = assignedName.trim() || 'Unnamed recipient'
   const email = assignedEmail.trim()
-  return `APRI CONFIDENTIAL — Assigned to: ${name} — ${email} — {{date}} {{time}} — {{ipAddress}}`
+  return `${name} | ${email} | {{date}}`
 }
 
 export type WatermarkConfig = {

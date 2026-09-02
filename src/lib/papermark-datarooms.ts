@@ -328,6 +328,31 @@ export async function updateDataRoomLink(args: {
 }
 
 /**
+ * PATCHes only the watermark on an existing link.
+ *
+ * Sends `enable_watermark` and `watermark_config` and nothing else, so the
+ * link URL, expiry, download permission and every other setting stay exactly
+ * as they were.
+ */
+export async function updateLinkWatermark(args: {
+  linkId: string
+  assignedName: string
+  assignedEmail: string
+}): Promise<ServiceResult<unknown>> {
+  return attempt(
+    () =>
+      papermarkRequest<unknown>(`/v1/links/${encodeURIComponent(args.linkId)}`, {
+        method: 'PATCH',
+        body: {
+          enable_watermark: true,
+          watermark_config: watermarkConfig(args.assignedName, args.assignedEmail),
+        },
+      }),
+    'Updating link watermark',
+  )
+}
+
+/**
  * Withdraws one link.
  *
  * A link that has already gone is the outcome we wanted, so a 404 counts as

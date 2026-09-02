@@ -19,19 +19,23 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('watermarkText', () => {
-  it('includes the name and email', () => {
+  it('contains exactly name, email and dynamic date', () => {
     const text = watermarkText('Nwaokike Desmond', 'nwaokike32@gmail.com')
-    assert.ok(text.includes('Nwaokike Desmond'))
-    assert.ok(text.includes('nwaokike32@gmail.com'))
-    assert.ok(text.includes('APRI CONFIDENTIAL'))
-    assert.ok(text.includes('{{date}}'))
-    assert.ok(text.includes('{{ipAddress}}'))
+    assert.equal(text, 'Nwaokike Desmond | nwaokike32@gmail.com | {{date}}')
+  })
+
+  it('does not contain time, IP, access level or confidential wording', () => {
+    const text = watermarkText('Test User', 'test@example.com')
+    assert.doesNotMatch(text, /\{\{time\}\}/)
+    assert.doesNotMatch(text, /\{\{ipAddress\}\}/)
+    assert.doesNotMatch(text, /CONFIDENTIAL/i)
+    assert.doesNotMatch(text, /Assigned to/)
+    assert.doesNotMatch(text, /L[1-4]/)
   })
 
   it('falls back to "Unnamed recipient" when name is blank', () => {
     const text = watermarkText('', 'test@example.com')
-    assert.ok(text.includes('Unnamed recipient'))
-    assert.ok(text.includes('test@example.com'))
+    assert.equal(text, 'Unnamed recipient | test@example.com | {{date}}')
   })
 })
 

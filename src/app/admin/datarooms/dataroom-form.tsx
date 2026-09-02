@@ -12,6 +12,7 @@ import {
   autoLinkPublicationsByPapermarkId,
   createPublicationForDocument,
   linkPublicationToSyncedDocument,
+  updateAllWatermarks,
 } from "@/app/actions/datarooms"
 import type { FormState } from "@/lib/definitions"
 import { tierDisplayName } from "@/lib/entitlements"
@@ -238,6 +239,42 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
       {prepareMsg && <p className="text-sm text-foreground/70 mt-2">{prepareMsg}</p>}
       {autoLinkMsg && <p className="text-sm text-foreground/70 mt-2">{autoLinkMsg}</p>}
       {deleteMsg && <p className="text-sm text-foreground/70 mt-2">{deleteMsg}</p>}
+      <WatermarkUpdateAction />
+    </div>
+  )
+}
+
+function WatermarkUpdateAction() {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState("")
+  const router = useRouter()
+
+  async function handle() {
+    if (!window.confirm("Update watermarks on all live links? This does not change URLs, expiry or downloads.")) return
+    setBusy(true)
+    setMsg("")
+    const result = await updateAllWatermarks()
+    setMsg(result?.message ?? "")
+    setBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/50">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handle}
+          disabled={busy}
+          className={btnSecondary}
+        >
+          {busy ? "Updating watermarks..." : "Update all watermarks"}
+        </button>
+        <span className="text-xs text-muted-foreground">
+          Rewrites the watermark text on every live link without changing URLs or sending emails.
+        </span>
+      </div>
+      {msg && <p className="text-sm text-foreground/70 mt-2">{msg}</p>}
     </div>
   )
 }

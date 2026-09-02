@@ -1001,6 +1001,73 @@ export async function createPublicationForSyncedDocument(args: {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Watermark bulk update
+// ---------------------------------------------------------------------------
+
+export type LiveLinkForWatermark = {
+  table: 'dataroom' | 'document'
+  id: string
+  papermarkLinkId: string
+  assignedName: string
+  assignedEmail: string
+}
+
+export async function getAllLiveLinksForWatermark(): Promise<LiveLinkForWatermark[]> {
+  const sql = getSql()
+  const drRows = (await sql`
+    select id, papermark_link_id, assigned_name, assigned_email
+    from papermark_dataroom_links
+    where revoke_state = 'live'
+  `) as Record<string, unknown>[]
+
+  const docRows = (await sql`
+    select id, papermark_link_id, assigned_name, assigned_email
+    from papermark_subscriber_document_links
+    where revoke_state = 'live'
+  `) as Record<string, unknown>[]
+
+  return [
+    ...drRows.map((r) => ({
+      table: 'dataroom' as const,
+      id: String(r.id),
+      papermarkLinkId: String(r.papermark_link_id),
+      assignedName: String(r.assigned_name ?? ''),
+      assignedEmail: String(r.assigned_email ?? ''),
+    })),
+    ...docRows.map((r) => ({
+      table: 'document' as const,
+      id: String(r.id),
+      papermarkLinkId: String(r.papermark_link_id),
+      assignedName: String(r.assigned_name ?? ''),
+      assignedEmail: String(r.assigned_email ?? ''),
+    })),
+  ]
+}
+
+export async function updateLocalWatermarkText(
+  table: 'dataroom' | 'document',
+  id: string,
+  text: string,
+): Promise<void> {
+  const sql = getSql()
+  if (table === 'dataroom') {
+    await sql`
+      update papermark_dataroom_links
+      set watermark_text = ${text}, updated_at = now()
+      where id = ${id}::uuid
+    `
+  } else {
+    await sql`
+      update papermark_subscriber_document_links
+      set watermark_text = ${text}, updated_at = now()
+      where id = ${id}::uuid
+    `
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 function mapLinkRow(r: Record<string, unknown>): DataRoomLinkRecord {
   return {
     id: String(r.id ?? ''),
