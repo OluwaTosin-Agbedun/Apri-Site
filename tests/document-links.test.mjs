@@ -20,6 +20,9 @@ import {
   watermarkText,
   portalTypeLabel,
   portalCategoryLabel,
+  parseEditionDate,
+  generateEditionCode,
+  derivePublicationMetadata,
 } from '../src/lib/papermark-dataroom-contract.ts'
 import {
   papermarkDocumentEmbedUrl,
@@ -1010,9 +1013,9 @@ test('admin: createPublicationForDocument action exists and requires owner', () 
 
 test('admin: createPublicationForDocument creates draft, unpublished record', () => {
   const src = read('src/lib/dataroom-dal.ts')
-  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
-  assert.match(fn, /\$\{'draft'\}/)
-  assert.match(fn, /\$\{false\}/)
+  const insertFn = src.slice(src.indexOf('async function insertWithSafeSlug'))
+  assert.match(insertFn, /\$\{'draft'\}/)
+  assert.match(insertFn, /\$\{false\}/)
 })
 
 test('admin: createPublicationForSyncedDocument sets papermark_document_id', () => {
@@ -1029,9 +1032,11 @@ test('admin: createPublicationForSyncedDocument links publication_id immediately
 
 test('admin: createPublicationForSyncedDocument reuses existing record by Papermark ID', () => {
   const src = read('src/lib/dataroom-dal.ts')
-  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
-  assert.match(fn, /select id from documents/)
-  assert.match(fn, /where papermark_document_id =/)
+  const matchFn = src.slice(src.indexOf('async function findCanonicalMatch'))
+  assert.match(matchFn, /select id from documents/)
+  assert.match(matchFn, /where papermark_document_id =/)
+  const createFn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  assert.match(createFn, /findCanonicalMatch/)
 })
 
 test('admin: createPublicationForSyncedDocument does not create open_link_url', () => {
@@ -1099,4 +1104,389 @@ test('download route: not affected by editorial changes', () => {
   const src = read('src/app/portal/document/[id]/download/route.ts')
   assert.match(src, /documentLinkUrl/)
   assert.doesNotMatch(src, /publication_id/)
+})
+
+// ---------------------------------------------------------------------------
+// 33. Enhanced filename cleaning
+// ---------------------------------------------------------------------------
+
+test('humaniseFilename: removes (1) copy indicator', () => {
+  assert.equal(humaniseFilename('MIN-2026-08 (1).pdf'), 'MIN 2026 08')
+})
+
+test('humaniseFilename: removes (2) copy indicator', () => {
+  assert.equal(humaniseFilename('Report (2).pdf'), 'Report')
+})
+
+test('humaniseFilename: removes trailing "copy" suffix', () => {
+  assert.equal(humaniseFilename('PLM-August-2026 copy.pdf'), 'PLM August 2026')
+})
+
+test('humaniseFilename: removes trailing "Copy 2" suffix', () => {
+  assert.equal(humaniseFilename('QIB-Q3-2026 Copy 2.pdf'), 'QIB Q3 2026')
+})
+
+test('humaniseFilename: still handles basic .pdf and underscores', () => {
+  assert.equal(humaniseFilename('some_report_name.pdf'), 'some report name')
+})
+
+// ---------------------------------------------------------------------------
+// 34. Edition date parsing
+// ---------------------------------------------------------------------------
+
+test('parseEditionDate: YYYY-MM format', () => {
+  assert.equal(parseEditionDate('MIN-2026-08'), '2026-08-01')
+})
+
+test('parseEditionDate: YYYY-MM-DD format', () => {
+  assert.equal(parseEditionDate('AIU-2026-08-15'), '2026-08-15')
+})
+
+test('parseEditionDate: month name with year', () => {
+  assert.equal(parseEditionDate('PLM-August-2026'), '2026-08-01')
+})
+
+test('parseEditionDate: abbreviated month name', () => {
+  assert.equal(parseEditionDate('PLM Sep 2026'), '2026-09-01')
+})
+
+test('parseEditionDate: quarter Q3', () => {
+  assert.equal(parseEditionDate('QIB-Q3-2026'), '2026-07-01')
+})
+
+test('parseEditionDate: quarter Q1', () => {
+  assert.equal(parseEditionDate('QIB Q1 2026'), '2026-01-01')
+})
+
+test('parseEditionDate: returns null for unrecognised', () => {
+  assert.equal(parseEditionDate('Some Random Title'), null)
+})
+
+test('parseEditionDate: year before month name', () => {
+  assert.equal(parseEditionDate('PLM 2026 January'), '2026-01-01')
+})
+
+// ---------------------------------------------------------------------------
+// 35. Edition code generation
+// ---------------------------------------------------------------------------
+
+test('generateEditionCode: standard MIN', () => {
+  assert.equal(generateEditionCode('MIN', '2026-08-01'), 'APRI-MIN-2026-08')
+})
+
+test('generateEditionCode: QIB quarterly', () => {
+  assert.equal(generateEditionCode('QIB', '2026-07-01'), 'APRI-QIB-2026-07')
+})
+
+test('generateEditionCode: empty series returns empty', () => {
+  assert.equal(generateEditionCode('', '2026-08-01'), '')
+})
+
+test('generateEditionCode: null date returns empty', () => {
+  assert.equal(generateEditionCode('MIN', null), '')
+})
+
+// ---------------------------------------------------------------------------
+// 36. Metadata derivation
+// ---------------------------------------------------------------------------
+
+test('derivePublicationMetadata: MIN with date', () => {
+  const meta = derivePublicationMetadata({
+    filename: 'MIN-2026-08.pdf',
+    category: 'MIN',
+    numPages: 12,
+  })
+  assert.equal(meta.title, 'MIN 2026 08')
+  assert.equal(meta.series, 'MIN')
+  assert.equal(meta.editionDate, '2026-08-01')
+  assert.equal(meta.editionCode, 'APRI-MIN-2026-08')
+  assert.equal(meta.frequency, 'Monthly')
+  assert.equal(meta.pageCount, 12)
+  assert.equal(meta.kicker, 'August 2026')
+  assert.ok(meta.summary.length > 0)
+  assert.ok(meta.description.length > 0)
+  assert.ok(meta.coverageAreas.length > 0)
+  assert.equal(meta.productLine, 'Political Intelligence')
+})
+
+test('derivePublicationMetadata: QIB quarterly', () => {
+  const meta = derivePublicationMetadata({
+    filename: 'QIB-Q3-2026.pdf',
+    category: 'QIB',
+    numPages: 30,
+  })
+  assert.equal(meta.series, 'QIB')
+  assert.equal(meta.editionDate, '2026-07-01')
+  assert.equal(meta.frequency, 'Quarterly')
+  assert.equal(meta.kicker, 'July 2026')
+})
+
+test('derivePublicationMetadata: OTHER category gets no template', () => {
+  const meta = derivePublicationMetadata({
+    filename: 'random-doc.pdf',
+    category: 'OTHER',
+  })
+  assert.equal(meta.series, '')
+  assert.equal(meta.frequency, '')
+  assert.equal(meta.productLine, '')
+  assert.equal(meta.editionCode, '')
+})
+
+test('derivePublicationMetadata: slug is lowercase with hyphens', () => {
+  const meta = derivePublicationMetadata({
+    filename: 'PLM August 2026 Report.pdf',
+    category: 'PLM',
+  })
+  assert.equal(meta.slug, 'plm-august-2026-report')
+})
+
+test('derivePublicationMetadata: visibility from tier', () => {
+  const meta = derivePublicationMetadata({
+    filename: 'test.pdf',
+    category: 'MIN',
+    publicTier: 'Executive Intelligence',
+  })
+  assert.equal(meta.visibility, 'L3')
+})
+
+test('derivePublicationMetadata: AEO series', () => {
+  const meta = derivePublicationMetadata({
+    filename: 'AEO-2026-09.pdf',
+    category: 'AEO',
+  })
+  assert.equal(meta.series, 'AEO')
+  assert.equal(meta.frequency, 'Event-driven')
+})
+
+// ---------------------------------------------------------------------------
+// 37. Auto-creation during sync
+// ---------------------------------------------------------------------------
+
+test('sync action: auto-creates publications for unlinked documents', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  const fn = src.slice(src.indexOf('async function syncDataRoomForLevel'))
+  assert.match(fn, /autoCreatePublicationsForRoom/)
+})
+
+test('DAL: autoCreatePublicationsForRoom exists and queries unlinked docs', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function autoCreatePublicationsForRoom'))
+  assert.match(fn, /publication_id is null/)
+  assert.match(fn, /is_present = true/)
+  assert.match(fn, /createPublicationForSyncedDocument/)
+})
+
+test('DAL: autoCreatePublicationsForRoom tracks created, linked, skipped', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function autoCreatePublicationsForRoom'))
+  assert.match(fn, /created\+\+/)
+  assert.match(fn, /linked\+\+/)
+  assert.match(fn, /skipped\+\+/)
+})
+
+// ---------------------------------------------------------------------------
+// 38. Canonical matching
+// ---------------------------------------------------------------------------
+
+test('DAL: findCanonicalMatch checks papermark_document_id first', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(
+    src.indexOf('async function findCanonicalMatch'),
+    src.indexOf('async function createPublicationForSyncedDocument'),
+  )
+  const pmIdPos = fn.indexOf('papermark_document_id')
+  const canonicalPos = fn.indexOf('series =')
+  assert.ok(pmIdPos < canonicalPos, 'Papermark ID match should come before canonical match')
+})
+
+test('DAL: findCanonicalMatch uses series + lower(title) + edition_date', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(
+    src.indexOf('async function findCanonicalMatch'),
+    src.indexOf('async function createPublicationForSyncedDocument'),
+  )
+  assert.match(fn, /series =/)
+  assert.match(fn, /lower\(title\)/)
+  assert.match(fn, /edition_date =/)
+})
+
+test('DAL: findCanonicalMatch limits to 2 to detect ambiguity', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(
+    src.indexOf('async function findCanonicalMatch'),
+    src.indexOf('async function createPublicationForSyncedDocument'),
+  )
+  assert.match(fn, /limit 2/)
+  assert.match(fn, /\.length === 1/)
+})
+
+// ---------------------------------------------------------------------------
+// 39. Race-safe slug generation
+// ---------------------------------------------------------------------------
+
+test('DAL: insertWithSafeSlug retries on slug conflict', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(
+    src.indexOf('async function insertWithSafeSlug'),
+    src.indexOf('async function findCanonicalMatch'),
+  )
+  assert.match(fn, /23505/)
+  assert.match(fn, /documents_slug_key/)
+  assert.match(fn, /for.*attempt/)
+})
+
+test('DAL: insertWithSafeSlug appends suffix on conflict', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(
+    src.indexOf('async function insertWithSafeSlug'),
+    src.indexOf('async function findCanonicalMatch'),
+  )
+  assert.match(fn, /`\$\{baseSlug\}-\$\{attempt \+ 1\}`/)
+})
+
+// ---------------------------------------------------------------------------
+// 40. Generate missing details action
+// ---------------------------------------------------------------------------
+
+test('admin: generateMissingDetails action exists and requires owner', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  assert.match(src, /async function generateMissingDetails/)
+  const fn = src.slice(src.indexOf('async function generateMissingDetails'))
+  assert.match(fn, /requireOwner/)
+})
+
+test('admin: generateMissingDetails calls generateMissingDetailsForRoom', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  const fn = src.slice(src.indexOf('async function generateMissingDetails'))
+  assert.match(fn, /generateMissingDetailsForRoom/)
+})
+
+test('DAL: generateMissingDetailsForRoom preserves admin edits', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function generateMissingDetailsForRoom'))
+  assert.match(fn, /case when kicker = '' then/)
+  assert.match(fn, /case when summary = '' then/)
+  assert.match(fn, /case when description = '' then/)
+  assert.match(fn, /case when series = '' then/)
+})
+
+test('DAL: generateMissingDetailsForRoom only fills empty fields', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function generateMissingDetailsForRoom'))
+  assert.match(fn, /case when code is null then/)
+  assert.match(fn, /case when edition_date is null then/)
+  assert.match(fn, /case when page_count is null then/)
+})
+
+// ---------------------------------------------------------------------------
+// 41. Generate missing details button in admin UI
+// ---------------------------------------------------------------------------
+
+test('admin: Generate missing details button exists', () => {
+  const src = read('src/app/admin/datarooms/dataroom-form.tsx')
+  assert.match(src, /Generate missing details/)
+  assert.match(src, /generateMissingDetails/)
+})
+
+test('admin: Generate missing details imported from actions', () => {
+  const src = read('src/app/admin/datarooms/dataroom-form.tsx')
+  const importBlock = src.slice(src.indexOf('import {'), src.indexOf('} from "@/app/actions/datarooms"'))
+  assert.match(importBlock, /generateMissingDetails/)
+})
+
+// ---------------------------------------------------------------------------
+// 42. Same PDF across levels does not create duplicates
+// ---------------------------------------------------------------------------
+
+test('DAL: createPublicationForSyncedDocument checks for existing pub before insert', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const createFn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  const matchPos = createFn.indexOf('findCanonicalMatch')
+  const insertPos = createFn.indexOf('insertWithSafeSlug')
+  assert.ok(matchPos > 0 && insertPos > 0, 'both match and insert calls should exist')
+  assert.ok(matchPos < insertPos, 'canonical match should precede insert')
+})
+
+test('DAL: createPublicationForSyncedDocument returns created:false for matched pub', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  const matchBlock = fn.slice(fn.indexOf('if (matchId)'))
+  assert.match(matchBlock, /created: false/)
+})
+
+// ---------------------------------------------------------------------------
+// 43. Repeated sync does not duplicate publications
+// ---------------------------------------------------------------------------
+
+test('DAL: createPublicationForSyncedDocument bails if publication_id already set', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(src.indexOf('async function createPublicationForSyncedDocument'))
+  const earlyReturn = fn.slice(0, fn.indexOf('derivePublicationMetadata'))
+  assert.match(earlyReturn, /if \(doc\.publication_id\)/)
+  assert.match(earlyReturn, /created: false/)
+})
+
+// ---------------------------------------------------------------------------
+// 44. Full metadata is prefilled on auto-creation
+// ---------------------------------------------------------------------------
+
+test('DAL: insertWithSafeSlug writes all metadata fields', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(
+    src.indexOf('async function insertWithSafeSlug'),
+    src.indexOf('async function findCanonicalMatch'),
+  )
+  const fields = [
+    'slug', 'title', 'kicker', 'strapline', 'summary', 'description',
+    'series', 'product_line', 'frequency', 'code', 'edition_date',
+    'visibility', 'page_count', 'coverage_areas', 'papermark_document_id',
+  ]
+  for (const f of fields) {
+    assert.match(fn, new RegExp(f), `insertWithSafeSlug should include ${f}`)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 45. Publications remain draft and editable
+// ---------------------------------------------------------------------------
+
+test('auto-created publications are draft and not published', () => {
+  const src = read('src/lib/dataroom-dal.ts')
+  const fn = src.slice(
+    src.indexOf('async function insertWithSafeSlug'),
+    src.indexOf('async function findCanonicalMatch'),
+  )
+  assert.match(fn, /\$\{'draft'\}/)
+  assert.match(fn, /\$\{false\}/)
+  assert.doesNotMatch(fn, /is_published.*true/)
+})
+
+// ---------------------------------------------------------------------------
+// 46. Sync message reports publication counts
+// ---------------------------------------------------------------------------
+
+test('sync action: message includes publication creation counts', () => {
+  const src = read('src/app/actions/datarooms.ts')
+  const fn = src.slice(
+    src.indexOf('async function syncDataRoomForLevel'),
+    src.indexOf('// ---', src.indexOf('async function syncDataRoomForLevel') + 10),
+  )
+  assert.match(fn, /pubCounts\.created/)
+  assert.match(fn, /pubCounts\.linked/)
+})
+
+// ---------------------------------------------------------------------------
+// 47. derivePublicationMetadata uses contract functions
+// ---------------------------------------------------------------------------
+
+test('contract: derivePublicationMetadata exists and is exported', () => {
+  assert.equal(typeof derivePublicationMetadata, 'function')
+})
+
+test('contract: parseEditionDate exists and is exported', () => {
+  assert.equal(typeof parseEditionDate, 'function')
+})
+
+test('contract: generateEditionCode exists and is exported', () => {
+  assert.equal(typeof generateEditionCode, 'function')
 })

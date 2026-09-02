@@ -143,10 +143,23 @@ export async function syncDataRoomForLevel(publicTier: string): Promise<FormStat
   await updateDataRoomSyncState(mapping.dataroomId, mapping.dataroomName, documents.length, null)
   await updateLevelRoomSyncState(publicTier, null)
 
+  const { autoCreatePublicationsForRoom } = await import("@/lib/dataroom-dal")
+  const pubCounts = await autoCreatePublicationsForRoom(mapping.dataroomId, publicTier)
+
   refresh()
+  const parts = [
+    `${documents.length} documents (${counts.added} new, ${counts.updated} updated, ${counts.removed} removed)`,
+  ]
+  if (pubCounts.created > 0 || pubCounts.linked > 0) {
+    const pubParts = [
+      pubCounts.created > 0 ? `${pubCounts.created} created` : null,
+      pubCounts.linked > 0 ? `${pubCounts.linked} linked` : null,
+    ].filter(Boolean).join(', ')
+    parts.push(`publications: ${pubParts}`)
+  }
   return {
     ok: true,
-    message: `Synced: ${documents.length} documents (${counts.added} new, ${counts.updated} updated, ${counts.removed} removed).`,
+    message: `Synced: ${parts.join('. ')}.`,
   }
 }
 
@@ -581,6 +594,32 @@ export async function autoLinkPublicationsByPapermarkId(
   return {
     ok: true,
     message: parts.length > 0 ? parts.join(', ') + '.' : 'No documents in this room.',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generate missing publication details for existing records (owner only)
+// ---------------------------------------------------------------------------
+
+export async function generateMissingDetails(
+  publicTier: string,
+): Promise<FormState> {
+  await requireOwner()
+  if (!(PUBLIC_TIER_NAMES as readonly string[]).includes(publicTier)) return { message: "Unknown level." }
+
+  const room = await resolveDataRoom({ publicTier })
+  if (!room) return { message: `No Data Room mapped for ${publicTier}.` }
+
+  const { generateMissingDetailsForRoom } = await import("@/lib/dataroom-dal")
+  const counts = await generateMissingDetailsForRoom(room.dataroomId, publicTier)
+  refresh()
+  const parts = [
+    counts.updated > 0 ? `${counts.updated} updated` : null,
+    counts.skipped > 0 ? `${counts.skipped} already complete` : null,
+  ].filter(Boolean)
+  return {
+    ok: true,
+    message: parts.length > 0 ? `Details generated: ${parts.join(', ')}.` : 'No linked publications in this room.',
   }
 }
 

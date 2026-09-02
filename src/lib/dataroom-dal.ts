@@ -921,6 +921,80 @@ export async function autoLinkByPapermarkId(
 // Create or reuse a publication record for a synced DR document
 // ---------------------------------------------------------------------------
 
+async function insertWithSafeSlug(
+  sql: ReturnType<typeof getSql>,
+  baseSlug: string,
+  values: Record<string, unknown>,
+): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const trySlug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`
+    try {
+      const inserted = (await sql`
+        insert into documents (
+          slug, title, kicker, strapline, summary, description,
+          series, product_line, frequency, code, edition_date,
+          visibility, page_count, coverage_areas,
+          status, is_published, papermark_document_id
+        ) values (
+          ${trySlug},
+          ${values.title as string},
+          ${values.kicker as string},
+          ${values.strapline as string},
+          ${values.summary as string},
+          ${values.description as string},
+          ${values.series as string},
+          ${values.productLine as string},
+          ${values.frequency as string},
+          ${(values.editionCode as string) || null},
+          ${(values.editionDate as string) ?? null}::date,
+          ${values.visibility as string},
+          ${(values.pageCount as number) ?? null},
+          ${values.coverageAreas as string},
+          ${'draft'}, ${false},
+          ${values.papermarkDocumentId as string}
+        )
+        returning id
+      `) as { id: string }[]
+      return inserted[0]!.id
+    } catch (err: unknown) {
+      const pgErr = err as { code?: string; constraint?: string }
+      if (pgErr.code === '23505' && pgErr.constraint === 'documents_slug_key') continue
+      throw err
+    }
+  }
+  throw new Error('Could not generate unique slug after 10 attempts.')
+}
+
+async function findCanonicalMatch(
+  sql: ReturnType<typeof getSql>,
+  papermarkDocumentId: string,
+  series: string,
+  title: string,
+  editionDate: string | null,
+): Promise<string | null> {
+  // Match by Papermark document ID first
+  const byPmId = (await sql`
+    select id from documents
+    where papermark_document_id = ${papermarkDocumentId}
+    limit 1
+  `) as { id: string }[]
+  if (byPmId[0]) return byPmId[0].id
+
+  // Match by canonical combination: series + lower(title) + edition_date
+  if (series && title && editionDate) {
+    const byCanonical = (await sql`
+      select id from documents
+      where series = ${series}
+        and lower(title) = ${title.toLowerCase()}
+        and edition_date = ${editionDate}::date
+      limit 2
+    `) as { id: string }[]
+    if (byCanonical.length === 1) return byCanonical[0]!.id
+  }
+
+  return null
+}
+
 export async function createPublicationForSyncedDocument(args: {
   documentRowId: string
   publicTier?: string | null
@@ -929,7 +1003,7 @@ export async function createPublicationForSyncedDocument(args: {
 
   const rows = (await sql`
     select dd.id, dd.papermark_document_id, dd.title, dd.num_pages,
-           dd.category, dd.publication_id
+           dd.category, dd.folder_path, dd.publication_id
     from papermark_dataroom_documents dd
     where dd.id = ${args.documentRowId}::uuid
     limit 1
@@ -939,6 +1013,7 @@ export async function createPublicationForSyncedDocument(args: {
     title: string
     num_pages: number | null
     category: string
+    folder_path: string | null
     publication_id: string | null
   }[]
 
@@ -949,44 +1024,44 @@ export async function createPublicationForSyncedDocument(args: {
     return { publicationId: doc.publication_id, created: false }
   }
 
-  // Check for existing documents record with same Papermark document ID
-  const existing = (await sql`
-    select id from documents
-    where papermark_document_id = ${doc.papermark_document_id}
-    limit 1
-  `) as { id: string }[]
+  const { derivePublicationMetadata } = await import('./papermark-dataroom-contract')
+  const meta = derivePublicationMetadata({
+    filename: doc.title,
+    category: doc.category as import('./papermark-dataroom-contract').PortalCategoryKey,
+    folderPath: doc.folder_path,
+    numPages: doc.num_pages,
+    publicTier: args.publicTier,
+  })
 
-  if (existing[0]) {
+  const matchId = await findCanonicalMatch(
+    sql, doc.papermark_document_id, meta.series, meta.title, meta.editionDate,
+  )
+
+  if (matchId) {
     await sql`
       update papermark_dataroom_documents
-      set publication_id = ${existing[0].id}::uuid, updated_at = now()
+      set publication_id = ${matchId}::uuid, updated_at = now()
       where id = ${doc.id}::uuid
     `
-    return { publicationId: existing[0].id, created: false }
+    return { publicationId: matchId, created: false }
   }
 
-  const { humaniseFilename, categoryToSeries, categoryToDefaultVisibility } = await import('./papermark-dataroom-contract')
-  const displayTitle = humaniseFilename(doc.title)
-  const series = categoryToSeries(doc.category as import('./papermark-dataroom-contract').PortalCategoryKey)
-  const visibility = categoryToDefaultVisibility(
-    doc.category as import('./papermark-dataroom-contract').PortalCategoryKey,
-    args.publicTier,
-  )
-  const slug = displayTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-
-  const inserted = (await sql`
-    insert into documents (
-      slug, title, kicker, summary, series, visibility, page_count,
-      status, is_published, papermark_document_id
-    ) values (
-      ${slug || 'untitled'}, ${displayTitle}, ${''}, ${''}, ${series},
-      ${visibility}, ${doc.num_pages ?? null},
-      ${'draft'}, ${false}, ${doc.papermark_document_id}
-    )
-    returning id
-  `) as { id: string }[]
-
-  const pubId = inserted[0]!.id
+  const pubId = await insertWithSafeSlug(sql, meta.slug, {
+    title: meta.title,
+    kicker: meta.kicker,
+    strapline: meta.strapline,
+    summary: meta.summary,
+    description: meta.description,
+    series: meta.series,
+    productLine: meta.productLine,
+    frequency: meta.frequency,
+    editionCode: meta.editionCode,
+    editionDate: meta.editionDate,
+    visibility: meta.visibility,
+    pageCount: meta.pageCount,
+    coverageAreas: meta.coverageAreas,
+    papermarkDocumentId: doc.papermark_document_id,
+  })
 
   await sql`
     update papermark_dataroom_documents
@@ -995,6 +1070,142 @@ export async function createPublicationForSyncedDocument(args: {
   `
 
   return { publicationId: pubId, created: true }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk auto-create publications for all unlinked documents in a room
+// ---------------------------------------------------------------------------
+
+export async function autoCreatePublicationsForRoom(
+  dataroomId: string,
+  publicTier?: string | null,
+): Promise<{ created: number; linked: number; skipped: number }> {
+  const sql = getSql()
+
+  const unlinked = (await sql`
+    select id from papermark_dataroom_documents
+    where papermark_dataroom_id = ${dataroomId}
+      and is_present = true
+      and publication_id is null
+    order by title
+  `) as { id: string }[]
+
+  let created = 0
+  let linked = 0
+  let skipped = 0
+
+  for (const row of unlinked) {
+    try {
+      const result = await createPublicationForSyncedDocument({
+        documentRowId: row.id,
+        publicTier,
+      })
+      if (result.created) created++
+      else linked++
+    } catch {
+      skipped++
+    }
+  }
+
+  return { created, linked, skipped }
+}
+
+// ---------------------------------------------------------------------------
+// Generate missing details for existing publications
+// ---------------------------------------------------------------------------
+
+export async function generateMissingDetailsForRoom(
+  dataroomId: string,
+  publicTier?: string | null,
+): Promise<{ updated: number; skipped: number }> {
+  const sql = getSql()
+
+  const rows = (await sql`
+    select dd.id as dd_id, dd.title as filename, dd.category, dd.folder_path,
+           dd.num_pages, dd.publication_id,
+           d.id as pub_id, d.title as pub_title, d.kicker, d.summary,
+           d.description, d.series, d.product_line, d.frequency,
+           d.code, d.edition_date, d.coverage_areas, d.strapline
+    from papermark_dataroom_documents dd
+    join documents d on d.id = dd.publication_id
+    where dd.papermark_dataroom_id = ${dataroomId}
+      and dd.is_present = true
+      and dd.publication_id is not null
+    order by dd.title
+  `) as {
+    dd_id: string
+    filename: string
+    category: string
+    folder_path: string | null
+    num_pages: number | null
+    pub_id: string
+    pub_title: string
+    kicker: string
+    summary: string
+    description: string
+    series: string
+    product_line: string
+    frequency: string
+    code: string | null
+    edition_date: string | null
+    coverage_areas: string
+    strapline: string
+  }[]
+
+  let updated = 0
+  let skipped = 0
+
+  for (const row of rows) {
+    const { derivePublicationMetadata } = await import('./papermark-dataroom-contract')
+    const meta = derivePublicationMetadata({
+      filename: row.filename,
+      category: row.category as import('./papermark-dataroom-contract').PortalCategoryKey,
+      folderPath: row.folder_path,
+      numPages: row.num_pages,
+      publicTier,
+    })
+
+    const sets: string[] = []
+    const fillIfEmpty = (dbVal: string | null, metaVal: string, col: string) => {
+      if ((!dbVal || dbVal === '') && metaVal) sets.push(col)
+    }
+
+    fillIfEmpty(row.kicker, meta.kicker, 'kicker')
+    fillIfEmpty(row.summary, meta.summary, 'summary')
+    fillIfEmpty(row.description, meta.description, 'description')
+    fillIfEmpty(row.product_line, meta.productLine, 'product_line')
+    fillIfEmpty(row.frequency, meta.frequency, 'frequency')
+    fillIfEmpty(row.code, meta.editionCode, 'code')
+    fillIfEmpty(row.coverage_areas, meta.coverageAreas, 'coverage_areas')
+    fillIfEmpty(row.strapline, meta.strapline, 'strapline')
+    const needsEditionDate = !row.edition_date && meta.editionDate
+    const needsSeries = (!row.series || row.series === '') && meta.series
+
+    if (sets.length === 0 && !needsEditionDate && !needsSeries) {
+      skipped++
+      continue
+    }
+
+    await sql`
+      update documents set
+        kicker = case when kicker = '' then ${meta.kicker} else kicker end,
+        summary = case when summary = '' then ${meta.summary} else summary end,
+        description = case when description = '' then ${meta.description} else description end,
+        product_line = case when product_line = '' then ${meta.productLine} else product_line end,
+        frequency = case when frequency = '' then ${meta.frequency} else frequency end,
+        code = case when code is null then ${meta.editionCode || null} else code end,
+        edition_date = case when edition_date is null then ${meta.editionDate ?? null}::date else edition_date end,
+        coverage_areas = case when coverage_areas = '' then ${meta.coverageAreas} else coverage_areas end,
+        strapline = case when strapline = '' then ${meta.strapline} else strapline end,
+        series = case when series = '' then ${meta.series} else series end,
+        page_count = case when page_count is null then ${meta.pageCount ?? null} else page_count end,
+        updated_at = now()
+      where id = ${row.pub_id}::uuid
+    `
+    updated++
+  }
+
+  return { updated, skipped }
 }
 
 // ---------------------------------------------------------------------------

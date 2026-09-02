@@ -213,12 +213,14 @@ export function portalTypeLabel(key: PortalCategoryKey): string {
 }
 
 /**
- * Strip `.pdf` and replace underscores/hyphens with spaces for display.
- * Used as a fallback when no editorial title exists.
+ * Strip `.pdf`, copy indicators like "(1)", trailing "copy 2", underscores
+ * and hyphens, producing a human-readable title from a raw filename.
  */
 export function humaniseFilename(raw: string): string {
   return raw
     .replace(/\.pdf$/i, '')
+    .replace(/\s*\(\d+\)\s*$/g, '')
+    .replace(/\s+copy\s*\d*$/i, '')
     .replace(/[_-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim() || raw
@@ -335,6 +337,172 @@ export function categoryToDefaultVisibility(
     case 'QIB': return 'L3'
     case 'AEO': return 'L1'
     default: return 'L1'
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Metadata derivation for auto-created publications
+// ---------------------------------------------------------------------------
+
+const MONTH_NAMES = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+] as const
+
+const MONTH_ABBREVS = [
+  'jan', 'feb', 'mar', 'apr', 'may', 'jun',
+  'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+] as const
+
+export function parseEditionDate(title: string): string | null {
+  const s = title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+
+  // YYYY MM DD or YYYY MM
+  const ymd = s.match(/\b(20\d{2})\s+(\d{1,2})(?:\s+(\d{1,2}))?\b/)
+  if (ymd) {
+    const m = parseInt(ymd[2]!, 10)
+    if (m >= 1 && m <= 12) {
+      const d = ymd[3] ? Math.min(parseInt(ymd[3]!, 10), 28) : 1
+      return `${ymd[1]}-${String(m).padStart(2, '0')}-${String(d || 1).padStart(2, '0')}`
+    }
+  }
+
+  // Month name YYYY or YYYY Month
+  for (let i = 0; i < MONTH_NAMES.length; i++) {
+    const nameRe = new RegExp(`\\b${MONTH_NAMES[i]!}\\b.*\\b(20\\d{2})\\b|\\b(20\\d{2})\\b.*\\b${MONTH_NAMES[i]!}\\b`)
+    const abbrRe = new RegExp(`\\b${MONTH_ABBREVS[i]!}\\b.*\\b(20\\d{2})\\b|\\b(20\\d{2})\\b.*\\b${MONTH_ABBREVS[i]!}\\b`)
+    const nameMatch = s.match(nameRe) || s.match(abbrRe)
+    if (nameMatch) {
+      const year = nameMatch[1] || nameMatch[2]
+      return `${year}-${String(i + 1).padStart(2, '0')}-01`
+    }
+  }
+
+  // Q1-Q4 YYYY
+  const quarter = s.match(/\bq([1-4])\b.*\b(20\d{2})\b|\b(20\d{2})\b.*\bq([1-4])\b/)
+  if (quarter) {
+    const q = parseInt(quarter[1] || quarter[4]!, 10)
+    const year = quarter[2] || quarter[3]
+    const m = (q - 1) * 3 + 1
+    return `${year}-${String(m).padStart(2, '0')}-01`
+  }
+
+  return null
+}
+
+export function generateEditionCode(series: string, editionDate: string | null): string {
+  if (!series || !editionDate) return ''
+  const [y, m] = editionDate.split('-')
+  if (!y || !m) return ''
+  return `APRI-${series}-${y}-${m}`
+}
+
+type SeriesTemplate = {
+  productLine: string
+  frequency: string
+  summaryTemplate: string
+  descriptionTemplate: string
+  coverageAreas: string
+}
+
+const SERIES_TEMPLATES: Record<string, SeriesTemplate> = {
+  PLM: {
+    productLine: 'Political Intelligence',
+    frequency: 'Monthly',
+    summaryTemplate: 'Political Landscape Monitor — a monthly assessment of the political and policy environment.',
+    descriptionTemplate: 'This edition of the Political Landscape Monitor provides a comprehensive assessment of the current political landscape, policy developments and regulatory shifts relevant to business operations and investment decisions in Nigeria.',
+    coverageAreas: 'Political landscape\nPolicy developments\nRegulatory environment\nGovernance trends',
+  },
+  AEO: {
+    productLine: 'Political Intelligence',
+    frequency: 'Event-driven',
+    summaryTemplate: 'Election & Democratic Governance Monitor — tracking electoral processes, governance transitions and democratic developments.',
+    descriptionTemplate: 'This edition of the Election & Democratic Governance Monitor analyses ongoing electoral and democratic governance developments, assessing their implications for the business and investment environment.',
+    coverageAreas: 'Electoral processes\nDemocratic governance\nPolitical transitions\nInstitutional developments',
+  },
+  AIU: {
+    productLine: 'Political Intelligence',
+    frequency: 'As required',
+    summaryTemplate: 'Athena Intelligence Update — focused analysis on a developing situation or event.',
+    descriptionTemplate: 'This Athena Intelligence Update provides focused analysis on a specific political, regulatory or security development of immediate relevance to business and investment decisions.',
+    coverageAreas: 'Current developments\nSecurity environment\nPolicy impact\nBusiness implications',
+  },
+  MIN: {
+    productLine: 'Political Intelligence',
+    frequency: 'Monthly',
+    summaryTemplate: 'Monthly Intelligence Note — a concise brief on the key political and security developments of the month.',
+    descriptionTemplate: 'This Monthly Intelligence Note summarises the key political, regulatory and security developments of the reporting period, with forward-looking assessments for business and investment planning.',
+    coverageAreas: 'Political developments\nSecurity environment\nEconomic policy\nRegulatory changes',
+  },
+  QIB: {
+    productLine: 'Political Intelligence',
+    frequency: 'Quarterly',
+    summaryTemplate: 'Quarterly Intelligence Brief — a strategic review of the political and economic environment.',
+    descriptionTemplate: 'This Quarterly Intelligence Brief provides a strategic review of the political, economic and security environment over the reporting quarter, with an outlook for the period ahead.',
+    coverageAreas: 'Quarterly political review\nEconomic environment\nSecurity assessment\nStrategic outlook',
+  },
+}
+
+export type DerivedMetadata = {
+  title: string
+  kicker: string
+  strapline: string
+  series: string
+  productLine: string
+  frequency: string
+  editionCode: string
+  editionDate: string | null
+  pageCount: number | null
+  summary: string
+  description: string
+  coverageAreas: string
+  visibility: string
+  slug: string
+}
+
+export function derivePublicationMetadata(args: {
+  filename: string
+  category: PortalCategoryKey
+  folderPath?: string | null
+  numPages?: number | null
+  publicTier?: string | null
+}): DerivedMetadata {
+  const title = humaniseFilename(args.filename)
+  const series = categoryToSeries(args.category)
+  const editionDate = parseEditionDate(args.filename)
+  const editionCode = generateEditionCode(series, editionDate)
+  const visibility = categoryToDefaultVisibility(args.category, args.publicTier)
+  const template = series ? SERIES_TEMPLATES[series] : null
+
+  let kicker = ''
+  if (editionDate) {
+    const [y, m] = editionDate.split('-')
+    if (y && m) {
+      const mi = parseInt(m, 10) - 1
+      const monthName = mi >= 0 && mi < 12
+        ? MONTH_NAMES[mi]!.charAt(0).toUpperCase() + MONTH_NAMES[mi]!.slice(1)
+        : m
+      kicker = `${monthName} ${y}`
+    }
+  }
+
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled'
+
+  return {
+    title,
+    kicker,
+    strapline: '',
+    series,
+    productLine: template?.productLine ?? '',
+    frequency: template?.frequency ?? '',
+    editionCode,
+    editionDate,
+    pageCount: args.numPages ?? null,
+    summary: template?.summaryTemplate ?? '',
+    description: template?.descriptionTemplate ?? '',
+    coverageAreas: template?.coverageAreas ?? '',
+    visibility,
+    slug,
   }
 }
 

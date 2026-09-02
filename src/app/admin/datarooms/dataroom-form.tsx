@@ -13,6 +13,7 @@ import {
   createPublicationForDocument,
   linkPublicationToSyncedDocument,
   updateAllWatermarks,
+  generateMissingDetails,
 } from "@/app/actions/datarooms"
 import type { FormState } from "@/lib/definitions"
 import { tierDisplayName } from "@/lib/entitlements"
@@ -124,6 +125,8 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
   const [prepareMsg, setPrepareMsg] = useState("")
   const [autoLinking, setAutoLinking] = useState("")
   const [autoLinkMsg, setAutoLinkMsg] = useState("")
+  const [generating, setGenerating] = useState("")
+  const [generateMsg, setGenerateMsg] = useState("")
   const [tier, setTier] = useState("")
   const router = useRouter()
 
@@ -179,6 +182,16 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
     if (result?.ok) router.refresh()
   }
 
+  async function handleGenerateDetails() {
+    if (!tier) return
+    setGenerating(tier)
+    setGenerateMsg("")
+    const result = await generateMissingDetails(tier)
+    setGenerateMsg(result?.message ?? "")
+    setGenerating("")
+    if (result?.ok) router.refresh()
+  }
+
   return (
     <div className="mt-6 pt-6 border-t border-border">
       <p className={label}>Quick actions on an existing mapping</p>
@@ -227,6 +240,14 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
         </button>
         <button
           type="button"
+          onClick={handleGenerateDetails}
+          disabled={!tier || generating !== ""}
+          className={btnSecondary}
+        >
+          {generating ? "Generating..." : "Generate missing details"}
+        </button>
+        <button
+          type="button"
           onClick={handleDelete}
           disabled={!tier || deleting !== ""}
           className="border border-red-300 px-4 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
@@ -238,6 +259,7 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
       {notifyMsg && <p className="text-sm text-foreground/70 mt-2">{notifyMsg}</p>}
       {prepareMsg && <p className="text-sm text-foreground/70 mt-2">{prepareMsg}</p>}
       {autoLinkMsg && <p className="text-sm text-foreground/70 mt-2">{autoLinkMsg}</p>}
+      {generateMsg && <p className="text-sm text-foreground/70 mt-2">{generateMsg}</p>}
       {deleteMsg && <p className="text-sm text-foreground/70 mt-2">{deleteMsg}</p>}
       <WatermarkUpdateAction />
     </div>
