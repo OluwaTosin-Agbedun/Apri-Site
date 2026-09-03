@@ -8,9 +8,12 @@ import {
 import {
   dataRoomLinkSettings,
   documentLinkSettings,
+  reviewLinkSettings,
+  isDocumentTargetedLink,
   subscriberWatermarkConfig,
   type DataRoomLinkSettings,
   type DocumentLinkSettings,
+  type ReviewLinkSettings,
 } from './papermark-dataroom-contract'
 import { papermarkExpiresAt } from './papermark-contract'
 
@@ -62,6 +65,8 @@ export type DataRoomLink = {
   name?: string | null
   url?: string
   dataroom_id?: string | null
+  document_id?: string | null
+  target_type?: string | null
   expires_at?: string | null
   email_protected?: boolean
   email_authenticated?: boolean
@@ -418,4 +423,188 @@ export async function createDocumentLink(args: {
     }
     return { linkId: link.id, url, settings }
   }, 'Creating the personal document link')
+}
+
+// ---------------------------------------------------------------------------
+// Complimentary Review links (prospect-facing, one per fixed slot)
+// ---------------------------------------------------------------------------
+
+export type ReviewLink = {
+  linkId: string
+  url: string
+  documentId: string
+  settings: ReviewLinkSettings
+}
+
+/**
+ * The verified custom domain to mint review links on, if one is configured.
+ *
+ * Papermark refuses a domain it has not verified for the team, and that refusal
+ * fails the whole link creation -- so an unset variable has to mean "let
+ * Papermark choose", never a guessed hostname.
+ */
+function reviewLinkDomain(): string | null {
+  const domain = (process.env.PAPERMARK_CUSTOM_DOMAIN ?? '').trim()
+  return domain || null
+}
+
+/**
+ * Creates the public review link for one document.
+ *
+ * Always `document_id`, never `dataroom_id`: a Data Room link would put every
+ * PDF in the room behind one public card. The response is checked before it is
+ * returned, so a link that came back pointing somewhere else is reported as a
+ * failure rather than handed back to be stored.
+ */
+export async function createReviewDocumentLink(args: {
+  documentId: string
+  slotKey: string
+  documentTitle?: string
+}): Promise<ServiceResult<ReviewLink>> {
+  const documentId = args.documentId.trim()
+  if (!documentId) {
+    return { ok: false, status: null, message: 'No Papermark document id for this slot.' }
+  }
+
+  const settings = reviewLinkSettings({
+    documentId,
+    slotKey: args.slotKey,
+    documentTitle: args.documentTitle,
+    customDomain: reviewLinkDomain(),
+  })
+
+  return attempt(async () => {
+    const link = await papermarkRequest<DataRoomLink>('/v1/links', {
+      method: 'POST',
+      body: settings,
+    })
+
+    if (!link.id) {
+      throw new PapermarkError('Papermark created a link with no id.')
+    }
+
+    const target = isDocumentTargetedLink(link, documentId)
+    if (!target.ok) {
+      // The link exists but points at the wrong thing. Surface it with its id
+      // so the caller can revoke the orphan rather than silently leak it.
+      throw new PapermarkError(
+        `${target.reason} The stray link id is ${link.id} and should be revoked in Papermark.`,
+      )
+    }
+
+    const url = link.url
+    if (!url || !url.startsWith('https://')) {
+      throw new PapermarkError(
+        `Papermark created link ${link.id} with no usable https address.`,
+      )
+    }
+
+    return { linkId: link.id, url, documentId, settings }
+  }, 'Creating the Complimentary Review link')
+}
+
+/**
+ * Reads one review link back and confirms it still targets the given document.
+ *
+ * Used both to verify a link the app created and to validate a URL the owner
+ * pasted manually -- a pasted address is not trusted until Papermark confirms
+ * what it points at.
+ */
+export async function verifyReviewDocumentLink(args: {
+  linkId: string
+  expectedDocumentId: string
+}): Promise<ServiceResult<{ url: string; documentId: string }>> {
+  const linkId = args.linkId.trim()
+  if (!linkId) {
+    return { ok: false, status: null, message: 'No Papermark link id stored for this slot.' }
+  }
+
+  return attempt(async () => {
+    const link = await papermarkRequest<DataRoomLink>(
+      `/v1/links/${encodeURIComponent(linkId)}`,
+    )
+
+    const target = isDocumentTargetedLink(link, args.expectedDocumentId)
+    if (!target.ok) throw new PapermarkError(target.reason)
+
+    const url = link.url
+    if (!url || !url.startsWith('https://')) {
+      throw new PapermarkError(`Papermark link ${linkId} has no usable https address.`)
+    }
+
+    return { url, documentId: link.document_id as string }
+  }, 'Verifying the Complimentary Review link')
+}
+
+/**
+ * Re-applies the review link settings to an existing link.
+ *
+ * Repairs a link whose watermark or email gate was changed inside Papermark
+ * without recreating it, so the public URL on the card keeps working.
+ */
+export async function updateReviewDocumentLink(args: {
+  linkId: string
+  documentId: string
+  slotKey: string
+  documentTitle?: string
+}): Promise<ServiceResult<{ url: string }>> {
+  const linkId = args.linkId.trim()
+  if (!linkId) {
+    return { ok: false, status: null, message: 'No Papermark link id stored for this slot.' }
+  }
+
+  const settings = reviewLinkSettings({
+    documentId: args.documentId,
+    slotKey: args.slotKey,
+    documentTitle: args.documentTitle,
+    customDomain: reviewLinkDomain(),
+  })
+
+  return attempt(async () => {
+    const link = await papermarkRequest<DataRoomLink>(
+      `/v1/links/${encodeURIComponent(linkId)}`,
+      {
+        method: 'PATCH',
+        body: {
+          email_protected: settings.email_protected,
+          email_authenticated: settings.email_authenticated,
+          enable_watermark: settings.enable_watermark,
+          watermark_config: settings.watermark_config,
+          enable_screenshot_protection: settings.enable_screenshot_protection,
+          allow_download: settings.allow_download,
+        },
+      },
+    )
+
+    const target = isDocumentTargetedLink(link, args.documentId)
+    if (!target.ok) throw new PapermarkError(target.reason)
+
+    const url = link.url
+    if (!url || !url.startsWith('https://')) {
+      throw new PapermarkError(`Papermark link ${linkId} has no usable https address.`)
+    }
+
+    return { url }
+  }, 'Updating the Complimentary Review link')
+}
+
+/**
+ * Revokes one review link.
+ *
+ * Called to clean up an orphan created when the API succeeded but the database
+ * write did not, and to retire a superseded edition's link after a new one goes
+ * live. Never used on a subscriber link.
+ */
+export async function revokeReviewDocumentLink(
+  linkId: string,
+): Promise<ServiceResult<true>> {
+  const id = linkId.trim()
+  if (!id) return { ok: false, status: null, message: 'No link id to revoke.' }
+
+  return attempt(async () => {
+    await papermarkRequest<void>(`/v1/links/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+    return true as const
+  }, 'Revoking the Complimentary Review link')
 }

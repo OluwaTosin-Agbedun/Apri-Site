@@ -34,11 +34,14 @@ export default async function ReviewLibraryPage() {
   const slots = (await sql`
     select ri.id, ri.publication_id, ri.slot_key, ri.display_order, ri.is_active,
            ri.publication_type, ri.description, ri.frequency, ri.audience,
-           ri.secure_link_url,
+           ri.secure_link_url, ri.secure_link_id,
+           ri.secure_link_document_id, ri.secure_link_verified_at,
            ri.papermark_document_id, ri.papermark_dataroom_id,
            ri.last_synced_at, ri.owner_edited_fields,
            ri.pending_papermark_document_id, ri.pending_clean_title,
            ri.pending_version_key, ri.pending_detected_at,
+           ri.pending_secure_link_id, ri.pending_secure_link_url,
+           ri.pending_secure_link_document_id, ri.pending_secure_link_verified_at,
            d.title as pub_title, d.series, d.slug
     from complimentary_review_items ri
     join documents d on d.id = ri.publication_id
@@ -55,6 +58,9 @@ export default async function ReviewLibraryPage() {
     frequency: string
     audience: string
     secure_link_url: string
+    secure_link_id: string | null
+    secure_link_document_id: string | null
+    secure_link_verified_at: string | null
     papermark_document_id: string | null
     papermark_dataroom_id: string | null
     last_synced_at: string | null
@@ -63,6 +69,10 @@ export default async function ReviewLibraryPage() {
     pending_clean_title: string | null
     pending_version_key: string | null
     pending_detected_at: string | null
+    pending_secure_link_id: string | null
+    pending_secure_link_url: string | null
+    pending_secure_link_document_id: string | null
+    pending_secure_link_verified_at: string | null
     pub_title: string
     series: string
     slug: string
@@ -112,6 +122,9 @@ export default async function ReviewLibraryPage() {
           frequency: r.frequency,
           audience: r.audience,
           secureLinkUrl: r.secure_link_url,
+          secureLinkId: r.secure_link_id,
+          secureLinkDocumentId: r.secure_link_document_id,
+          secureLinkVerifiedAt: r.secure_link_verified_at,
           papermarkDocumentId: r.papermark_document_id,
           papermarkDataroomId: r.papermark_dataroom_id,
           lastSyncedAt: r.last_synced_at,
@@ -120,6 +133,10 @@ export default async function ReviewLibraryPage() {
           pendingCleanTitle: r.pending_clean_title,
           pendingVersionKey: r.pending_version_key,
           pendingDetectedAt: r.pending_detected_at,
+          pendingSecureLinkId: r.pending_secure_link_id,
+          pendingSecureLinkUrl: r.pending_secure_link_url,
+          pendingSecureLinkDocumentId: r.pending_secure_link_document_id,
+          pendingSecureLinkVerifiedAt: r.pending_secure_link_verified_at,
           pubTitle: r.pub_title,
           series: r.series,
           slug: r.slug,

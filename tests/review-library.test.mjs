@@ -264,9 +264,25 @@ test('subscriber entitlements: unchanged', () => {
   assert.doesNotMatch(src, /review.library/i)
 })
 
-test('watermark contract: unchanged', () => {
+test('watermark contract: subscriber wording free of review wording', () => {
+  // Phase 5.1 added the prospect (Complimentary Review) watermark to this same
+  // contract file, which is the right home for it. What must stay true is that
+  // the two watermarks never bleed into each other: a paid subscriber's pages
+  // must never be stamped as a review copy.
   const src = read('src/lib/papermark-dataroom-contract.ts')
-  assert.doesNotMatch(src, /complimentary/i)
+
+  const subscriberBlock = src.slice(
+    src.indexOf('export function subscriberWatermarkText'),
+    src.indexOf('// Watermark — Complimentary Review'),
+  )
+  assert.doesNotMatch(subscriberBlock, /complimentary/i)
+  assert.doesNotMatch(subscriberBlock, /Review Copy/)
+
+  const subscriberConfig = src.slice(
+    src.indexOf('export function subscriberWatermarkConfig'),
+    src.indexOf('export function watermarkConfig'),
+  )
+  assert.doesNotMatch(subscriberConfig, /complimentary/i)
 })
 
 test('subscriber DAL: no reference to complimentary review', () => {

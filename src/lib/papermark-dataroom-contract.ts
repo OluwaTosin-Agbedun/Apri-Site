@@ -71,6 +71,46 @@ export function watermarkConfig(
 }
 
 // ---------------------------------------------------------------------------
+// Watermark — Complimentary Review (prospect) Edition
+// ---------------------------------------------------------------------------
+
+/**
+ * The Chancellor-approved Complimentary Review watermark.
+ *
+ * Unlike the subscriber watermark, the address is NOT baked in: a prospect
+ * proves their own address through Papermark email verification, so `{{email}}`
+ * is left as a Papermark dynamic token and filled per viewer at view time. That
+ * is what lets one link serve every prospect while still stamping each copy
+ * with the reader who opened it.
+ *
+ * This must never include an IP address. IP is retained only in Papermark's
+ * own private access logs, never on the page and never on the public site.
+ */
+export const PROSPECT_WATERMARK_TEXT =
+  'APRI Complimentary Review Copy · {{email}} · {{date}} {{time}} · Confidential · Not for redistribution'
+
+export function prospectWatermarkText(): string {
+  return PROSPECT_WATERMARK_TEXT
+}
+
+/**
+ * Complimentary Review watermark config. Same restraint as the subscriber
+ * edition — opacity 0.15, font size 18 — so a review copy reads as cleanly as
+ * a paid one while still being unmistakably marked.
+ */
+export function prospectWatermarkConfig(): WatermarkConfig {
+  return {
+    text: PROSPECT_WATERMARK_TEXT,
+    is_tiled: true,
+    position: 'middle-center',
+    rotation: 45,
+    color: '#6B7280',
+    font_size: 18,
+    opacity: 0.15,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Link settings
 // ---------------------------------------------------------------------------
 
@@ -175,6 +215,119 @@ export function documentLinkSettings(args: {
     enable_agreement: false,
     show_banner: false,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Complimentary Review link settings
+// ---------------------------------------------------------------------------
+
+export type ReviewLinkSettings = {
+  document_id: string
+  name: string
+  expires_at: string | null
+  email_protected: boolean
+  email_authenticated: boolean
+  allow_list: string[]
+  deny_list: string[]
+  enable_watermark: boolean
+  watermark_config: WatermarkConfig
+  enable_screenshot_protection: boolean
+  allow_download: boolean
+  enable_agreement: boolean
+  show_banner: boolean
+  domain?: string
+  slug?: string
+}
+
+/**
+ * The body for one review slot's public-facing document link.
+ *
+ * Three deliberate differences from the subscriber link:
+ *
+ *  - `email_protected` and `email_authenticated` are both on. A prospect is
+ *    anonymous until Papermark verifies their address, and that verification is
+ *    the only gate — so unlike a subscriber link, which APRI has already
+ *    authenticated, this one must do the checking itself.
+ *  - `allow_list` stays empty. The link is offered publicly on /publications to
+ *    anyone willing to verify an address, so restricting it to named addresses
+ *    would defeat its purpose.
+ *  - The watermark leaves `{{email}}` as a token rather than baking one in,
+ *    because one link serves every prospect.
+ *
+ * `document_id` is required and `dataroom_id` is never sent: a Data Room link
+ * would expose all three PDFs plus anything else in the room behind a single
+ * card, which is exactly the leak the fixed-slot design exists to prevent.
+ */
+export function reviewLinkSettings(args: {
+  documentId: string
+  slotKey: string
+  documentTitle?: string
+  customDomain?: string | null
+  slug?: string | null
+}): ReviewLinkSettings {
+  const label = args.documentTitle ? ` — ${args.documentTitle.slice(0, 60)}` : ''
+  const settings: ReviewLinkSettings = {
+    document_id: args.documentId,
+    name: `APRI Complimentary Review — ${args.slotKey}${label}`,
+    expires_at: null,
+    email_protected: true,
+    email_authenticated: true,
+    allow_list: [],
+    deny_list: [],
+    enable_watermark: true,
+    watermark_config: prospectWatermarkConfig(),
+    enable_screenshot_protection: true,
+    allow_download: true,
+    enable_agreement: false,
+    show_banner: false,
+  }
+
+  // Only sent when a verified custom domain is configured. Papermark rejects a
+  // domain it has not verified, so an unset value must mean "omit the field"
+  // rather than a guessed hostname that would fail the whole request.
+  const domain = (args.customDomain ?? '').trim()
+  if (domain) {
+    settings.domain = domain
+    const slug = (args.slug ?? '').trim()
+    if (slug) settings.slug = slug
+  }
+
+  return settings
+}
+
+/**
+ * Whether a Papermark link response really is a single-document link for the
+ * document we asked for.
+ *
+ * A link that came back pointing at a Data Room, or at a different document,
+ * must never be stored: it would put the wrong PDF — or every PDF — behind a
+ * public card. Papermark does not always echo `target_type`, so an absent
+ * value is tolerated while a present-and-wrong one is rejected.
+ */
+export function isDocumentTargetedLink(
+  link: {
+    document_id?: string | null
+    dataroom_id?: string | null
+    target_type?: string | null
+  },
+  expectedDocumentId: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (link.target_type && link.target_type !== 'document') {
+    return { ok: false, reason: `Papermark reported target_type "${link.target_type}", not "document".` }
+  }
+  if (link.dataroom_id) {
+    return { ok: false, reason: 'Papermark returned a Data Room link, not a document link.' }
+  }
+  if (!link.document_id) {
+    return { ok: false, reason: 'Papermark returned a link with no document id.' }
+  }
+  if (link.document_id !== expectedDocumentId) {
+    return {
+      ok: false,
+      reason: `Papermark link targets document ${link.document_id}, not the mapped document ${expectedDocumentId}.`,
+    }
+  }
+  return { ok: true }
 }
 
 // ---------------------------------------------------------------------------

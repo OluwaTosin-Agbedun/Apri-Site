@@ -217,6 +217,8 @@ export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
       where ri.is_active = true
         and ri.slot_key in ('MIN', 'AIU', 'PLM')
         and ri.secure_link_url <> ''
+        and ri.secure_link_verified_at is not null
+        and ri.secure_link_document_id = ri.papermark_document_id
       order by ri.display_order, ri.created_at
     `) as {
       pub_title: string

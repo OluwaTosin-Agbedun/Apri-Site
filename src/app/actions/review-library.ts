@@ -95,10 +95,18 @@ export async function saveReviewLibrarySettings(
 
   if (enabled) {
     const slots = (await sql`
-      select slot_key, secure_link_url, publication_id
+      select slot_key, secure_link_url, publication_id, papermark_document_id,
+             secure_link_document_id, secure_link_verified_at
       from complimentary_review_items
       where slot_key in ('MIN', 'AIU', 'PLM') and is_active = true
-    `) as { slot_key: string; secure_link_url: string; publication_id: string }[]
+    `) as {
+      slot_key: string
+      secure_link_url: string
+      publication_id: string
+      papermark_document_id: string | null
+      secure_link_document_id: string | null
+      secure_link_verified_at: string | null
+    }[]
 
     if (slots.length !== 3) {
       return { message: "Cannot enable: all three fixed slots (MIN, AIU, PLM) must exist and be active." }
@@ -108,6 +116,14 @@ export async function saveReviewLibrarySettings(
     for (const s of slots) {
       if (!s.publication_id) missing.push(`${s.slot_key}: no mapped document`)
       if (!s.secure_link_url) missing.push(`${s.slot_key}: no secure link URL`)
+      else if (!s.secure_link_verified_at) {
+        missing.push(`${s.slot_key}: secure link not verified against Papermark`)
+      } else if (
+        s.papermark_document_id &&
+        s.secure_link_document_id !== s.papermark_document_id
+      ) {
+        missing.push(`${s.slot_key}: secure link points at a different document than the one mapped`)
+      }
     }
     if (missing.length > 0) {
       return { message: `Cannot enable. ${missing.join('; ')}.` }
@@ -184,17 +200,376 @@ export async function updateSlotSecureLink(
   }
 
   const sql = getSql()
-  const updated = (await sql`
-    update complimentary_review_items
-    set secure_link_url = ${url}, updated_at = now()
-    where slot_key = ${slotKey}
-    returning id
-  `) as { id: string }[]
 
-  if (!updated[0]) return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
+  // Clearing the field is always allowed: it takes the slot out of the public
+  // library, which is the safe direction.
+  if (!url) {
+    const cleared = (await sql`
+      update complimentary_review_items
+      set secure_link_url = '', secure_link_id = null,
+          secure_link_document_id = null, secure_link_verified_at = null,
+          updated_at = now()
+      where slot_key = ${slotKey}
+      returning id
+    `) as { id: string }[]
+    if (!cleared[0]) return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
+    refresh()
+    return { ok: true, message: "Secure link cleared. This slot is no longer public." }
+  }
+
+  const slot = (await sql`
+    select id, papermark_document_id
+    from complimentary_review_items
+    where slot_key = ${slotKey}
+    limit 1
+  `) as { id: string; papermark_document_id: string | null }[]
+
+  if (!slot[0]) return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
+
+  const docId = (slot[0].papermark_document_id ?? '').trim()
+  if (!docId) {
+    return { message: `${slotKey} has no mapped Papermark document. Map one before saving a link.` }
+  }
+
+  // A pasted address is not trusted. The link id is read out of the URL and
+  // checked against Papermark, because a URL that happens to be https and
+  // happens to be on the right host can still point at the wrong document --
+  // or at the whole Data Room, which is the leak this design exists to stop.
+  const linkId = reviewLinkIdFromUrl(url)
+  if (!linkId) {
+    return {
+      message:
+        "Could not read a Papermark link id out of that URL. Use Create secure review link instead, or paste the full Papermark share URL.",
+    }
+  }
+
+  const { verifyReviewDocumentLink } = await import("@/lib/papermark-datarooms")
+  const verified = await verifyReviewDocumentLink({ linkId, expectedDocumentId: docId })
+  if (!verified.ok) {
+    return { message: `Not saved. ${verified.message}` }
+  }
+
+  await sql`
+    update complimentary_review_items
+    set secure_link_url = ${verified.value.url},
+        secure_link_id = ${linkId},
+        secure_link_document_id = ${docId},
+        secure_link_verified_at = now(),
+        updated_at = now()
+    where id = ${slot[0].id}::uuid
+  `
 
   refresh()
-  return { ok: true, message: "Secure link saved." }
+  return { ok: true, message: "Secure link verified against Papermark and saved." }
+}
+
+/**
+ * Reads a Papermark link id out of a share URL.
+ *
+ * Papermark share URLs end in the link id, on either the api host or a verified
+ * custom domain. Anything else returns null so the caller refuses the paste
+ * rather than storing an address it cannot verify.
+ */
+function reviewLinkIdFromUrl(url: string): string | null {
+  try {
+    const u = new URL(url)
+    const segments = u.pathname.split('/').filter(Boolean)
+    const last = segments[segments.length - 1] ?? ''
+    return /^[A-Za-z0-9_-]{6,}$/.test(last) ? last : null
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provision the secure review link through the Papermark API (owner only)
+// ---------------------------------------------------------------------------
+
+type SlotLinkRow = {
+  id: string
+  papermark_document_id: string | null
+  secure_link_url: string
+  secure_link_id: string | null
+  secure_link_document_id: string | null
+  pending_papermark_document_id: string | null
+  pending_clean_title: string | null
+  pending_secure_link_id: string | null
+  pending_secure_link_url: string | null
+  pending_secure_link_document_id: string | null
+  pub_title: string | null
+}
+
+async function loadSlotForLinking(
+  sql: ReturnType<typeof getSql>,
+  slotKey: string,
+): Promise<SlotLinkRow | null> {
+  const rows = (await sql`
+    select ri.id, ri.papermark_document_id, ri.secure_link_url,
+           ri.secure_link_id, ri.secure_link_document_id,
+           ri.pending_papermark_document_id, ri.pending_clean_title,
+           ri.pending_secure_link_id, ri.pending_secure_link_url,
+           ri.pending_secure_link_document_id,
+           d.title as pub_title
+    from complimentary_review_items ri
+    left join documents d on d.id = ri.publication_id
+    where ri.slot_key = ${slotKey}
+    limit 1
+  `) as SlotLinkRow[]
+  return rows[0] ?? null
+}
+
+/**
+ * Confirms exactly one unambiguous current document is mapped to a slot.
+ *
+ * Refusing here rather than guessing is deliberate: creating a link against the
+ * wrong document would publish the wrong PDF, and the sync deliberately leaves
+ * a newly detected edition pending rather than replacing the mapping.
+ */
+async function resolveCurrentDocument(
+  sql: ReturnType<typeof getSql>,
+  slotKey: string,
+  slot: SlotLinkRow,
+): Promise<{ ok: true; documentId: string; title: string } | { ok: false; message: string }> {
+  const docId = (slot.papermark_document_id ?? '').trim()
+  if (!docId) {
+    return {
+      ok: false,
+      message: `${slotKey} has no mapped Papermark document. Sync the Data Room and map a document to this slot first.`,
+    }
+  }
+
+  // More than one candidate approved for the same series means the mapping is
+  // ambiguous and a human has to resolve it before a public link is minted.
+  const approved = (await sql`
+    select papermark_document_id from review_sync_candidates
+    where detected_series = ${slotKey} and sync_status = 'approved' and is_present = true
+  `) as { papermark_document_id: string }[]
+
+  const distinct = [...new Set(approved.map((r) => r.papermark_document_id))]
+  if (distinct.length > 1) {
+    return {
+      ok: false,
+      message: `${slotKey} has ${distinct.length} approved documents in the Data Room. Resolve the duplicate before creating a link.`,
+    }
+  }
+
+  return { ok: true, documentId: docId, title: slot.pub_title ?? slotKey }
+}
+
+/**
+ * Creates the slot's public review link through the Papermark API.
+ *
+ * Idempotent: a slot that already has a verified link for the same document is
+ * left alone rather than accumulating duplicate public links for one PDF.
+ */
+export async function createSlotSecureLink(slotKey: string): Promise<FormState> {
+  await requireOwner()
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
+  }
+
+  const sql = getSql()
+  const slot = await loadSlotForLinking(sql, slotKey)
+  if (!slot) return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
+
+  const current = await resolveCurrentDocument(sql, slotKey, slot)
+  if (!current.ok) return { message: current.message }
+
+  // Already provisioned for this exact document: do not mint a second link.
+  if (
+    slot.secure_link_id &&
+    slot.secure_link_document_id === current.documentId &&
+    slot.secure_link_url
+  ) {
+    return {
+      ok: true,
+      message: `${slotKey} already has a link for this document. Use Verify to re-check it.`,
+    }
+  }
+
+  const { createReviewDocumentLink, revokeReviewDocumentLink } = await import(
+    "@/lib/papermark-datarooms"
+  )
+
+  const created = await createReviewDocumentLink({
+    documentId: current.documentId,
+    slotKey,
+    documentTitle: current.title,
+  })
+
+  // The slot is left exactly as it was, so a failed call cannot take a working
+  // card off the public page.
+  if (!created.ok) return { message: `Link not created. ${created.message}` }
+
+  const previousLinkId = slot.secure_link_id
+
+  try {
+    await sql`
+      update complimentary_review_items
+      set secure_link_url = ${created.value.url},
+          secure_link_id = ${created.value.linkId},
+          secure_link_document_id = ${current.documentId},
+          secure_link_verified_at = now(),
+          updated_at = now()
+      where id = ${slot.id}::uuid
+    `
+  } catch (error) {
+    // The link exists in Papermark but is recorded nowhere. Best-effort revoke
+    // so it does not sit there as an unreferenced public address.
+    const revoked = await revokeReviewDocumentLink(created.value.linkId)
+    const tail = revoked.ok
+      ? "The new link was revoked, so nothing was left exposed."
+      : `The new link ${created.value.linkId} could NOT be revoked and must be removed manually in Papermark.`
+    return {
+      message: `Papermark created the link but saving it failed. ${tail} ${
+        error instanceof Error ? error.message : "Unknown storage error."
+      }`,
+    }
+  }
+
+  // A superseded link for the same slot is retired on a best-effort basis; the
+  // new link is already live either way.
+  let tail = ""
+  if (previousLinkId && previousLinkId !== created.value.linkId) {
+    const revoked = await revokeReviewDocumentLink(previousLinkId)
+    tail = revoked.ok
+      ? " The previous link was revoked."
+      : ` The previous link ${previousLinkId} could not be revoked and still needs manual revocation in Papermark.`
+  }
+
+  refresh()
+  return { ok: true, message: `${slotKey} secure review link created.${tail}` }
+}
+
+/**
+ * Re-checks the slot's saved link against Papermark, repairing its settings.
+ *
+ * Touches only the link id already stored for this slot -- never lists, never
+ * walks the Data Room, and never goes near a subscriber link.
+ */
+export async function verifySlotSecureLink(slotKey: string): Promise<FormState> {
+  await requireOwner()
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
+  }
+
+  const sql = getSql()
+  const slot = await loadSlotForLinking(sql, slotKey)
+  if (!slot) return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
+
+  const current = await resolveCurrentDocument(sql, slotKey, slot)
+  if (!current.ok) return { message: current.message }
+
+  const linkId = (slot.secure_link_id ?? '').trim()
+  if (!linkId) {
+    return {
+      message: `${slotKey} has no API-created link to verify. Use Create secure review link.`,
+    }
+  }
+
+  const { verifyReviewDocumentLink, updateReviewDocumentLink } = await import(
+    "@/lib/papermark-datarooms"
+  )
+
+  const verified = await verifyReviewDocumentLink({
+    linkId,
+    expectedDocumentId: current.documentId,
+  })
+  if (!verified.ok) return { message: `Verification failed. ${verified.message}` }
+
+  // Re-apply the review settings so a watermark or email gate changed inside
+  // Papermark is put back without minting a new address.
+  const repaired = await updateReviewDocumentLink({
+    linkId,
+    documentId: current.documentId,
+    slotKey,
+    documentTitle: current.title,
+  })
+  if (!repaired.ok) return { message: `Link verified but settings could not be re-applied. ${repaired.message}` }
+
+  await sql`
+    update complimentary_review_items
+    set secure_link_url = ${repaired.value.url},
+        secure_link_document_id = ${current.documentId},
+        secure_link_verified_at = now(),
+        updated_at = now()
+    where id = ${slot.id}::uuid
+  `
+
+  refresh()
+  return { ok: true, message: `${slotKey} link verified and settings re-applied.` }
+}
+
+/**
+ * Creates a link for a pending new edition without touching the live card.
+ *
+ * Writes only the `pending_secure_link_*` columns, so the public page keeps
+ * serving the current edition until the owner confirms Make current.
+ */
+export async function preparePendingSecureLink(slotKey: string): Promise<FormState> {
+  await requireOwner()
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
+  }
+
+  const sql = getSql()
+  const slot = await loadSlotForLinking(sql, slotKey)
+  if (!slot) return { message: `Slot ${slotKey} not found.` }
+
+  const pendingDocId = (slot.pending_papermark_document_id ?? '').trim()
+  if (!pendingDocId) return { message: `${slotKey} has no pending edition.` }
+
+  if (
+    slot.pending_secure_link_id &&
+    slot.pending_secure_link_document_id === pendingDocId &&
+    slot.pending_secure_link_url
+  ) {
+    return {
+      ok: true,
+      message: `${slotKey} pending edition already has a prepared link.`,
+    }
+  }
+
+  const { createReviewDocumentLink, revokeReviewDocumentLink } = await import(
+    "@/lib/papermark-datarooms"
+  )
+
+  const created = await createReviewDocumentLink({
+    documentId: pendingDocId,
+    slotKey,
+    documentTitle: slot.pending_clean_title ?? slotKey,
+  })
+  if (!created.ok) return { message: `Link not created. ${created.message}` }
+
+  try {
+    await sql`
+      update complimentary_review_items
+      set pending_secure_link_url = ${created.value.url},
+          pending_secure_link_id = ${created.value.linkId},
+          pending_secure_link_document_id = ${pendingDocId},
+          pending_secure_link_verified_at = now(),
+          updated_at = now()
+      where id = ${slot.id}::uuid
+    `
+  } catch (error) {
+    const revoked = await revokeReviewDocumentLink(created.value.linkId)
+    const tail = revoked.ok
+      ? "The new link was revoked, so nothing was left exposed."
+      : `The new link ${created.value.linkId} could NOT be revoked and must be removed manually in Papermark.`
+    return {
+      message: `Papermark created the pending link but saving it failed. ${tail} ${
+        error instanceof Error ? error.message : "Unknown storage error."
+      }`,
+    }
+  }
+
+  // Deliberately only the admin page. The public pages must not change: the
+  // pending edition is not live until the owner confirms it.
+  revalidatePath("/admin/review-library")
+  return {
+    ok: true,
+    message: `${slotKey} pending edition link prepared. The public card is unchanged until you choose Make current.`,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +742,10 @@ export async function makeVersionCurrent(slotKey: string): Promise<FormState> {
   const slot = (await sql`
     select ri.id, ri.publication_id, ri.owner_edited_fields,
            ri.pending_papermark_document_id, ri.pending_clean_title,
-           ri.publication_type, ri.description, ri.frequency, ri.audience
+           ri.publication_type, ri.description, ri.frequency, ri.audience,
+           ri.secure_link_id,
+           ri.pending_secure_link_id, ri.pending_secure_link_url,
+           ri.pending_secure_link_document_id, ri.pending_secure_link_verified_at
     from complimentary_review_items ri
     where ri.slot_key = ${slotKey}
     limit 1
@@ -381,18 +759,47 @@ export async function makeVersionCurrent(slotKey: string): Promise<FormState> {
     description: string
     frequency: string
     audience: string
+    secure_link_id: string | null
+    pending_secure_link_id: string | null
+    pending_secure_link_url: string | null
+    pending_secure_link_document_id: string | null
+    pending_secure_link_verified_at: string | null
   }[]
 
   if (!slot[0]) return { message: `Slot ${slotKey} not found.` }
-  if (!slot[0].pending_papermark_document_id) return { message: "No pending version." }
+
+  const pendingDocId = slot[0].pending_papermark_document_id
+  if (!pendingDocId) return { message: "No pending version." }
+
+  // The new edition must already have its own verified link. Promoting without
+  // one would swap the card's document while leaving the old edition's URL on
+  // it, so the public page would advertise the new title and serve the old PDF.
+  const pendingLinkUrl = (slot[0].pending_secure_link_url ?? '').trim()
+  if (
+    !slot[0].pending_secure_link_id ||
+    !pendingLinkUrl ||
+    !slot[0].pending_secure_link_verified_at ||
+    slot[0].pending_secure_link_document_id !== pendingDocId
+  ) {
+    return {
+      message: `${slotKey} cannot go live yet: the pending edition has no verified secure link. Use Prepare secure link first.`,
+    }
+  }
 
   const series = slotKey as ReviewSeries
   const meta = generateReviewMetadata(series, slot[0].pending_clean_title ?? '')
   const edited = new Set(slot[0].owner_edited_fields ?? [])
+  const previousLinkId = slot[0].secure_link_id
 
+  // One statement, so the document and the URL that serves it can never be
+  // observed out of step with each other.
   await sql`
     update complimentary_review_items set
-      papermark_document_id = ${slot[0].pending_papermark_document_id},
+      papermark_document_id = ${pendingDocId},
+      secure_link_url = ${pendingLinkUrl},
+      secure_link_id = ${slot[0].pending_secure_link_id},
+      secure_link_document_id = ${pendingDocId},
+      secure_link_verified_at = now(),
       publication_type = ${edited.has('publication_type') ? slot[0].publication_type : meta.publicationType},
       description = ${edited.has('description') ? slot[0].description : meta.description},
       frequency = ${edited.has('frequency') ? slot[0].frequency : meta.frequency},
@@ -401,6 +808,10 @@ export async function makeVersionCurrent(slotKey: string): Promise<FormState> {
       pending_clean_title = null,
       pending_version_key = null,
       pending_detected_at = null,
+      pending_secure_link_id = null,
+      pending_secure_link_url = null,
+      pending_secure_link_document_id = null,
+      pending_secure_link_verified_at = null,
       last_synced_at = now(),
       updated_at = now()
     where id = ${slot[0].id}::uuid
@@ -420,11 +831,23 @@ export async function makeVersionCurrent(slotKey: string): Promise<FormState> {
 
   await sql`
     update review_sync_candidates set sync_status = 'approved', updated_at = now()
-    where papermark_document_id = ${slot[0].pending_papermark_document_id}
+    where papermark_document_id = ${pendingDocId}
   `
 
+  // The new edition is already live. Retiring the superseded link is
+  // best-effort, and a failure is reported rather than rolled back, because
+  // rolling back would take the new edition off the page to fix a stale link.
+  let tail = ""
+  if (previousLinkId && previousLinkId !== slot[0].pending_secure_link_id) {
+    const { revokeReviewDocumentLink } = await import("@/lib/papermark-datarooms")
+    const revoked = await revokeReviewDocumentLink(previousLinkId)
+    tail = revoked.ok
+      ? " The previous edition's link was revoked."
+      : ` WARNING: the previous edition's link ${previousLinkId} could not be revoked (${revoked.message}) and still needs manual revocation in Papermark.`
+  }
+
   refresh()
-  return { ok: true, message: `${slotKey} updated to new edition.` }
+  return { ok: true, message: `${slotKey} updated to new edition.${tail}` }
 }
 
 // ---------------------------------------------------------------------------

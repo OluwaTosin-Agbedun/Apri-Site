@@ -9,6 +9,9 @@ import {
   syncReviewLibrary,
   ensureFixedSlots,
   updateSlotSecureLink,
+  createSlotSecureLink,
+  verifySlotSecureLink,
+  preparePendingSecureLink,
   makeVersionCurrent,
   generateSlotDetails,
   mapCandidateToCard,
@@ -43,6 +46,9 @@ type ReviewSlot = {
   frequency: string
   audience: string
   secureLinkUrl: string
+  secureLinkId: string | null
+  secureLinkDocumentId: string | null
+  secureLinkVerifiedAt: string | null
   papermarkDocumentId: string | null
   papermarkDataroomId: string | null
   lastSyncedAt: string | null
@@ -51,6 +57,10 @@ type ReviewSlot = {
   pendingCleanTitle: string | null
   pendingVersionKey: string | null
   pendingDetectedAt: string | null
+  pendingSecureLinkId: string | null
+  pendingSecureLinkUrl: string | null
+  pendingSecureLinkDocumentId: string | null
+  pendingSecureLinkVerifiedAt: string | null
   pubTitle: string
   series: string
   slug: string
@@ -443,6 +453,10 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
   const [linkUrl, setLinkUrl] = useState(slot.secureLinkUrl)
   const [linkBusy, setLinkBusy] = useState(false)
   const [linkMsg, setLinkMsg] = useState("")
+  const [linkOk, setLinkOk] = useState(false)
+  const [manualMode, setManualMode] = useState(false)
+  const [pendBusy, setPendBusy] = useState(false)
+  const [pendMsg, setPendMsg] = useState("")
   const [genBusy, setGenBusy] = useState(false)
   const [makeBusy, setMakeBusy] = useState(false)
   const router = useRouter()
@@ -452,7 +466,37 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
     setLinkMsg("")
     const result = await updateSlotSecureLink(slot.slotKey, linkUrl)
     setLinkMsg(result?.message ?? "")
+    setLinkOk(!!result?.ok)
     setLinkBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  async function handleCreateLink() {
+    setLinkBusy(true)
+    setLinkMsg("")
+    const result = await createSlotSecureLink(slot.slotKey)
+    setLinkMsg(result?.message ?? "")
+    setLinkOk(!!result?.ok)
+    setLinkBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  async function handleVerifyLink() {
+    setLinkBusy(true)
+    setLinkMsg("")
+    const result = await verifySlotSecureLink(slot.slotKey)
+    setLinkMsg(result?.message ?? "")
+    setLinkOk(!!result?.ok)
+    setLinkBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  async function handlePreparePendingLink() {
+    setPendBusy(true)
+    setPendMsg("")
+    const result = await preparePendingSecureLink(slot.slotKey)
+    setPendMsg(result?.message ?? "")
+    setPendBusy(false)
     if (result?.ok) router.refresh()
   }
 
@@ -473,6 +517,26 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
 
   const hasSecureLink = !!slot.secureLinkUrl
   const hasPending = !!slot.pendingDocumentId
+  const hasDoc = !!slot.papermarkDocumentId
+
+  // Ready means the API confirmed this exact link targets the document the slot
+  // is mapped to. A URL alone is not ready: it may point at a stale edition, or
+  // at the whole Data Room.
+  const linkReady =
+    hasSecureLink &&
+    !!slot.secureLinkVerifiedAt &&
+    !!slot.secureLinkDocumentId &&
+    slot.secureLinkDocumentId === slot.papermarkDocumentId
+
+  const linkStale =
+    hasSecureLink && !!slot.secureLinkDocumentId &&
+    slot.secureLinkDocumentId !== slot.papermarkDocumentId
+
+  const pendingLinkReady =
+    !!slot.pendingSecureLinkId &&
+    !!slot.pendingSecureLinkUrl &&
+    !!slot.pendingSecureLinkVerifiedAt &&
+    slot.pendingSecureLinkDocumentId === slot.pendingDocumentId
 
   return (
     <div className="border border-border bg-card/30 p-6">
@@ -488,7 +552,7 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
             </span>
             {slot.papermarkDocumentId && (
               <span className="text-xs text-muted-foreground">
-                Papermark PDF: mapped
+                Papermark PDF: <span className="font-medium">{slot.pubTitle}</span>
               </span>
             )}
             {slot.lastSyncedAt && (
@@ -497,6 +561,21 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
               </span>
             )}
           </div>
+          {slot.papermarkDocumentId && (
+            <p className="text-xs text-muted-foreground mt-1 font-mono break-all">
+              Document ID: {slot.papermarkDocumentId}
+            </p>
+          )}
+          {slot.secureLinkId && (
+            <p className="text-xs text-muted-foreground mt-1 font-mono break-all">
+              Link ID: {slot.secureLinkId}
+              {slot.secureLinkVerifiedAt && (
+                <span className="font-sans">
+                  {' '}&middot; verified {new Date(slot.secureLinkVerifiedAt).toLocaleString()}
+                </span>
+              )}
+            </p>
+          )}
           {slot.ownerEditedFields.length > 0 && (
             <p className="text-xs text-amber-600 mt-1">
               Owner-edited: {slot.ownerEditedFields.join(', ')}
@@ -504,9 +583,17 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          {hasSecureLink ? (
+          {linkReady ? (
             <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-accent/10 text-accent">
-              Link set
+              Ready
+            </span>
+          ) : linkStale ? (
+            <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-red-100 text-red-800">
+              Error: link points elsewhere
+            </span>
+          ) : hasSecureLink ? (
+            <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800">
+              Unverified
             </span>
           ) : (
             <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800">
@@ -528,44 +615,163 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
             <strong>Pending edition:</strong> {slot.pendingCleanTitle}
           </p>
           {slot.pendingDetectedAt && (
-            <p className="text-xs text-blue-700 mb-3">
+            <p className="text-xs text-blue-700 mb-2">
               Detected: {new Date(slot.pendingDetectedAt).toLocaleString()}
             </p>
           )}
-          <button
-            type="button"
-            onClick={handleMakeCurrent}
-            disabled={makeBusy}
-            className="text-xs text-blue-700 font-medium hover:text-blue-900 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {makeBusy ? "Updating..." : "Make current"}
-          </button>
+          <p className="text-xs text-blue-700 font-mono break-all mb-3">
+            Document ID: {slot.pendingDocumentId}
+          </p>
+
+          {pendingLinkReady ? (
+            <p className="text-xs text-blue-900 mb-3">
+              Secure link prepared and verified. This edition is <strong>not public yet</strong>.
+            </p>
+          ) : (
+            <p className="text-xs text-blue-800 mb-3">
+              This edition needs its own verified secure link before it can go live.
+            </p>
+          )}
+
+          <div className="flex items-center gap-4 flex-wrap">
+            <button
+              type="button"
+              onClick={handlePreparePendingLink}
+              disabled={pendBusy}
+              className="text-xs text-blue-700 font-medium hover:text-blue-900 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {pendBusy
+                ? "Preparing..."
+                : pendingLinkReady
+                  ? "Re-prepare secure link"
+                  : "Prepare secure link"}
+            </button>
+            <button
+              type="button"
+              onClick={handleMakeCurrent}
+              disabled={makeBusy || !pendingLinkReady}
+              title={pendingLinkReady ? undefined : "Prepare a verified secure link for this edition first."}
+              className="text-xs text-blue-700 font-medium hover:text-blue-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {makeBusy ? "Updating..." : "Make current"}
+            </button>
+          </div>
+          {pendMsg && (
+            <p className="text-xs mt-2 text-blue-900">{pendMsg}</p>
+          )}
         </div>
       )}
 
       {/* Secure link */}
       <div className="border border-border/50 bg-background p-4 mb-4">
         <label className={label}>Secure Document Link</label>
-        <p className="text-xs text-muted-foreground mb-2">
-          Paste the Papermark document-level link for this PDF. Visitors click &ldquo;Access review copy&rdquo; on the public page to open this link directly.
+        <p className="text-xs text-muted-foreground mb-3">
+          APRI creates this link through the Papermark API against this slot&rsquo;s exact
+          PDF, with verified-email access and the Complimentary Review watermark.
+          Visitors click &ldquo;Access review copy&rdquo; on the public page to open it directly.
         </p>
-        <div className="flex items-end gap-3">
-          <input
-            type="url"
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            placeholder="https://..."
-            className={`${field} flex-1`}
-          />
-          <button type="button" onClick={handleSaveLink} disabled={linkBusy} className={btnSecondary}>
-            {linkBusy ? "..." : "Update secure link"}
-          </button>
+
+        {!hasDoc && (
+          <p className="text-xs text-amber-700 mb-3">
+            No Papermark document is mapped to this slot yet. Sync the Data Room and
+            map a document before creating a link.
+          </p>
+        )}
+
+        {hasSecureLink && (
+          <p className="text-xs text-muted-foreground mb-3 break-all">
+            Current URL:{' '}
+            <a
+              href={slot.secureLinkUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
+              {slot.secureLinkUrl}
+            </a>
+          </p>
+        )}
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {!hasSecureLink ? (
+            <button
+              type="button"
+              onClick={handleCreateLink}
+              disabled={linkBusy || !hasDoc}
+              className={btnSecondary}
+            >
+              {linkBusy ? "Creating..." : "Create secure review link"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleVerifyLink}
+                disabled={linkBusy || !hasDoc || !slot.secureLinkId}
+                className={btnSecondary}
+              >
+                {linkBusy ? "Checking..." : "Verify/update secure review link"}
+              </button>
+              {linkStale && (
+                <button
+                  type="button"
+                  onClick={handleCreateLink}
+                  disabled={linkBusy || !hasDoc}
+                  className={btnSecondary}
+                >
+                  Recreate for mapped document
+                </button>
+              )}
+            </>
+          )}
         </div>
+
         {linkMsg && (
-          <p className={`text-xs mt-1 ${linkMsg === "Secure link saved." ? "text-accent" : "text-red-600"}`}>
+          <p className={`text-xs mt-2 ${linkOk ? "text-accent" : "text-red-600"}`}>
             {linkMsg}
           </p>
         )}
+
+        {/* Emergency fallback. A pasted URL is still verified through the
+            Papermark API before the slot counts as Ready. */}
+        <div className="mt-4 pt-4 border-t border-border/50">
+          {!manualMode ? (
+            <button
+              type="button"
+              onClick={() => setManualMode(true)}
+              className="text-xs text-muted-foreground underline hover:text-foreground transition-colors cursor-pointer"
+            >
+              Emergency fallback: paste a Papermark URL manually
+            </button>
+          ) : (
+            <>
+              <label className={label}>Emergency fallback — paste URL</label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Use this only if the API button will not work. The URL is still verified
+                against Papermark as a single-document link before this slot goes public.
+              </p>
+              <div className="flex items-end gap-3">
+                <input
+                  type="url"
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  placeholder="https://..."
+                  className={`${field} flex-1`}
+                />
+                <button type="button" onClick={handleSaveLink} disabled={linkBusy} className={btnSecondary}>
+                  {linkBusy ? "..." : "Verify and save"}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManualMode(false)}
+                className="text-xs text-muted-foreground mt-2 cursor-pointer hover:text-foreground transition-colors"
+              >
+                Hide
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Card details */}
