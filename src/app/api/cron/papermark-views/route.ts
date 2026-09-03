@@ -1,9 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import {
-  collectPapermarkAnalytics,
-  MAX_DURATION_SECONDS,
-} from '@/lib/papermark-collector'
+import { collectPapermarkAnalytics } from '@/lib/papermark-collector'
 import { getUnalertedGaps, markGapsAlerted } from '@/lib/provisioning'
 import { revokeLapsedAccess } from '@/lib/revocation'
 import { sendCopyGapAlert } from '@/lib/copy-gap-email'
@@ -16,9 +13,15 @@ import { sendFindingAlert } from '@/lib/finding-email'
 
 export const dynamic = 'force-dynamic'
 
-// Vercel's hobby/pro function ceiling for a cron invocation. Kept explicit so
-// the poll is cut short by our own budget rather than by an opaque timeout.
-export const maxDuration = MAX_DURATION_SECONDS
+// Vercel's hobby/pro function ceiling for a cron invocation.
+//
+// Written as a literal, not as the collector's MAX_DURATION_SECONDS. Next.js
+// reads route segment config by statically analysing the module without
+// executing it, so an imported constant is not a value it can see -- which is
+// what failed the production build. The collector keeps its own copy of the
+// same 60 seconds and derives its internal time budget from it; the two are
+// intentionally stated separately rather than shared.
+export const maxDuration = 60
 
 /**
  * GET /api/cron/papermark-views
