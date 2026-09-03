@@ -12,6 +12,20 @@ type ReviewCard = {
   description: string
   frequency: string
   audience: string
+  /**
+   * The Chancellor-approved publication title, where one has been set.
+   *
+   * Held here so the admin can offer it, but never written automatically: the
+   * title lives on the publication record (documents.title), not on the review
+   * card, and overwriting a publication's title as a side effect of a card
+   * prefill would change what every other surface calls it.
+   */
+  approvedTitle?: string
+}
+
+/** The approved title for a fixed slot, if one has been set. */
+export function approvedTitleForSlot(slotKey: string): string | null {
+  return APPROVED_CARDS[slotKey]?.approvedTitle ?? null
 }
 
 const APPROVED_CARDS: Record<string, ReviewCard> = {
@@ -30,11 +44,12 @@ const APPROVED_CARDS: Record<string, ReviewCard> = {
     audience: 'APRI subscribers and prospective readers',
   },
   PLM: {
-    publicationType: 'Monthly Strategic Assessment',
+    publicationType: 'ATHENA ELECTION OBSERVATORY',
     description:
-      'A monthly monitoring product covering Nigeria’s democratic, electoral and political landscape. Although public-facing, it should appear here as part of the broader monthly intelligence bouquet available to APRI readers.',
+      'A monthly monitoring publication from the Athena Election Observatory covering Nigeria’s democratic, electoral and political landscape. The Political Landscape Monitor is made available to APRI subscribers as part of their subscription.',
     frequency: 'Monthly',
     audience: 'APRI subscribers and prospective readers',
+    approvedTitle: 'Athena Political Landscape Monitor | Issue 01 | July 2026',
   },
 }
 

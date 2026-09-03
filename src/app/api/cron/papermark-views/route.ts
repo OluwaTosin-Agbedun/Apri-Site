@@ -1,13 +1,9 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { getSql } from '@/lib/db'
 import {
-  isPapermarkConfigured,
-  listLinks,
-  listViewsForLink,
-  getViewDetail,
-} from '@/lib/papermark'
-import { recordView, refreshLastViewed } from '@/lib/view-attribution'
+  collectPapermarkAnalytics,
+  MAX_DURATION_SECONDS,
+} from '@/lib/papermark-collector'
 import { getUnalertedGaps, markGapsAlerted } from '@/lib/provisioning'
 import { revokeLapsedAccess } from '@/lib/revocation'
 import { sendCopyGapAlert } from '@/lib/copy-gap-email'
@@ -22,27 +18,20 @@ export const dynamic = 'force-dynamic'
 
 // Vercel's hobby/pro function ceiling for a cron invocation. Kept explicit so
 // the poll is cut short by our own budget rather than by an opaque timeout.
-export const maxDuration = 60
-
-/** How many of the newest views get a second call for their duration. */
-const ENRICH_LIMIT = 25
-
-/** Views older than this are ignored: this is a catch-up, not a backfill. */
-const LOOKBACK_DAYS = 14
+export const maxDuration = MAX_DURATION_SECONDS
 
 /**
  * GET /api/cron/papermark-views
  *
- * The safety net behind the webhook. Pulls recent views from Papermark and
- * upserts them by papermark_view_id, so anything the webhook missed -- a
- * deploy, an outage, a dropped delivery -- is filled in within a day.
- *
- * Idempotent by construction: every row is written through recordView, which
- * conflicts on papermark_view_id, so running this twice changes nothing.
+ * The safety net behind the webhook. The collection itself lives in
+ * `@/lib/papermark-collector`, which the owner's "Sync Papermark analytics
+ * now" button also calls -- so a manual run and this scheduled run do exactly
+ * the same work. That equivalence is the point: the manual run is how the owner
+ * checks whether the scheduled one is working.
  *
  * Protected by CRON_SECRET. Vercel Cron sends it as `Authorization: Bearer …`;
  * a manual run can pass `?secret=`. Without the secret configured the route
- * refuses to run at all rather than defaulting to open.
+ * refuses to run rather than defaulting to open.
  */
 export async function GET(request: Request) {
   const expected = process.env.CRON_SECRET
@@ -54,124 +43,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Not authorised.' }, { status: 401 })
   }
 
-  // Exits quietly, and successfully, when there is no API token. A cron that
-  // reported failure every night until the key arrives would train us to
-  // ignore it.
-  if (!isPapermarkConfigured()) {
-    return NextResponse.json({
-      ok: true,
-      skipped: 'papermark-not-configured',
-      message: 'No Papermark API token set; nothing to poll.',
-    })
-  }
-
   const startedAt = Date.now()
-  const since = Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000
 
-  let links: Awaited<ReturnType<typeof listLinks>>
-  try {
-    links = await listLinks()
-  } catch {
-    // No detail echoed: the message could quote the request, which holds the token.
-    return NextResponse.json(
-      { ok: false, error: 'Could not list links from Papermark.' },
-      { status: 502 }
-    )
-  }
-
-  // Only links we actually issued are worth polling. A link id we have never
-  // stored cannot be attributed to a subscriber anyway.
-  const known = await knownLinkIds()
-
-  const candidates = links
-    .map((l) => l.id)
-    .filter((id): id is string => Boolean(id))
-    .filter((id) => known.size === 0 || known.has(id))
-
-  let seen = 0
-  let created = 0
-  let attributed = 0
-  let unmatched = 0
-  let enriched = 0
-  const touched = new Set<string>()
-
-  for (const linkId of candidates) {
-    // Leave headroom so the run ends by returning a summary rather than being
-    // killed mid-write.
-    if (Date.now() - startedAt > (maxDuration - 10) * 1000) break
-
-    let views
-    try {
-      views = await listViewsForLink(linkId)
-    } catch {
-      continue // One bad link must not end the run.
-    }
-
-    for (const view of views) {
-      if (!view?.id) continue
-
-      const viewedAt = view.viewed_at ? Date.parse(view.viewed_at) : NaN
-      if (Number.isFinite(viewedAt) && viewedAt < since) continue
-
-      seen++
-
-      let durationSeconds: number | null = null
-      if (enriched < ENRICH_LIMIT) {
-        const detail = await getViewDetail(view.id)
-        if (typeof detail?.total_duration_seconds === 'number') {
-          durationSeconds = Math.round(detail.total_duration_seconds)
-        }
-        enriched++
-      }
-
-      try {
-        const { created: isNew, attribution } = await recordView({
-          papermarkViewId: view.id,
-          papermarkLinkId: view.link_id ?? linkId,
-          papermarkDocumentId: view.document_id ?? null,
-          viewerEmail: view.viewer_email ?? null,
-          viewedAt: view.viewed_at ?? null,
-          durationSeconds,
-          completionPct: null,
-          downloaded: Boolean(view.downloaded_at),
-          source: 'poll',
-        })
-
-        if (isNew) created++
-        if (attribution.subscriberId) {
-          attributed++
-          touched.add(attribution.subscriberId)
-        } else {
-          unmatched++
-        }
-      } catch {
-        // Skip the row, keep the run going.
-      }
-    }
-  }
-
-  for (const subscriberId of touched) {
-    try {
-      await refreshLastViewed(subscriberId)
-    } catch {
-      // Derived field; not worth failing the run.
-    }
-  }
-
-  await recordRun({ seen, created, attributed, unmatched })
+  const collection = await collectPapermarkAnalytics()
 
   // Reconciliation runs alongside the poll: a copy nobody made is the failure
-  // that no permission check catches, so it is checked on the same schedule as
-  // the views rather than waiting for someone to open the admin.
+  // no permission check catches, so it is checked on the same schedule as the
+  // views rather than waiting for someone to open the admin.
   const reconciliation = await reconcile()
 
   return NextResponse.json({
-    ok: true,
-    linksPolled: candidates.length,
-    viewsSeen: seen,
-    rowsCreated: created,
-    attributed,
-    unmatched,
+    ok: collection.ok,
+    ...(collection.skipped ? { skipped: collection.skipped } : {}),
+    linksPolled: collection.linksChecked,
+    viewsSeen: collection.viewsFound,
+    rowsCreated: collection.newViews,
+    downloadsRecorded: collection.downloadsRecorded,
+    attributed: collection.attributed,
+    unmatched: collection.unmatched,
+    unknownLinkIds: collection.unknownLinkIds,
+    enriched: collection.enriched,
+    enrichmentCoveragePct: collection.enrichmentCoveragePct,
+    failures: collection.failures,
     ...reconciliation,
     elapsedMs: Date.now() - startedAt,
   })
@@ -255,36 +148,4 @@ function constantTimeEquals(a: string, b: string): boolean {
   const bufB = Buffer.from(b, 'utf8')
   if (bufA.length !== bufB.length) return false
   return timingSafeEqual(bufA, bufB)
-}
-
-/** Every Papermark link id we have on file, from either place it can live. */
-async function knownLinkIds(): Promise<Set<string>> {
-  const sql = getSql()
-  const rows = (await sql`
-    select papermark_link_id as id from subscribers where papermark_link_id is not null
-    union
-    select papermark_link_id as id from publication_access where papermark_link_id is not null
-  `) as { id: string }[]
-
-  return new Set(rows.map((r) => r.id))
-}
-
-/** Leaves a trace of the last run, so a silent cron is visible in the admin. */
-async function recordRun(summary: {
-  seen: number
-  created: number
-  attributed: number
-  unmatched: number
-}): Promise<void> {
-  try {
-    const sql = getSql()
-    const value = JSON.stringify({ ...summary, at: new Date().toISOString() })
-    await sql`
-      insert into app_settings (key, value)
-      values ('papermark_last_poll', ${value})
-      on conflict (key) do update set value = excluded.value
-    `
-  } catch {
-    // Diagnostics only.
-  }
 }

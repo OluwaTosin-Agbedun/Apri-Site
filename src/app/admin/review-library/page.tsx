@@ -1,6 +1,8 @@
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
+import { ApprovedRecipientsSection } from "./recipients-form"
+import { approvedTitleForSlot } from "@/lib/review-prefill"
 import ReviewLibraryForm from "./review-form"
 
 export const dynamic = "force-dynamic"
@@ -28,6 +30,17 @@ export default async function ReviewLibraryPage() {
 
   const enabled = enabledRow[0]?.value === "true"
   const dataroomId = drIdRow[0]?.value ?? ""
+
+  // Read server-side. The list is handed to the form so the owner can edit what
+  // they typed; it is never fetched by client JavaScript and never rendered on a
+  // public page.
+  const recipientsRow = (await sql`
+    select value from app_settings where key = 'review_approved_recipients' limit 1
+  `) as { value: string }[]
+  const approvedRecipients = (recipientsRow[0]?.value ?? '')
+    .split(/[\n\r,;\t]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.length > 0)
   const lastSyncAt = lastSyncRow[0]?.value ?? ""
   const lastSyncResult = lastSyncResultRow[0]?.value ?? ""
 
@@ -106,6 +119,13 @@ export default async function ReviewLibraryPage() {
       title="Complimentary Review Library"
       description="Manage the three fixed review publications shown to prospective subscribers."
     >
+      <div className="mb-8">
+        <ApprovedRecipientsSection
+          emails={approvedRecipients}
+          slotsWithLinks={slots.filter((r) => r.secure_link_id).length}
+        />
+      </div>
+
       <ReviewLibraryForm
         enabled={enabled}
         dataroomId={dataroomId}
@@ -140,6 +160,7 @@ export default async function ReviewLibraryPage() {
           pubTitle: r.pub_title,
           series: r.series,
           slug: r.slug,
+          approvedTitle: approvedTitleForSlot(r.slot_key),
         }))}
         candidates={candidates.map((c) => ({
           id: c.id,

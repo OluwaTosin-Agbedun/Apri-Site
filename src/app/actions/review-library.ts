@@ -18,6 +18,14 @@ import {
   type RepairCandidate,
   type RepairDecision,
 } from "@/lib/review-repair"
+import {
+  parseRecipients,
+  serialiseRecipients,
+  deserialiseRecipients,
+  canProvisionLinks,
+  MAX_RECIPIENTS,
+} from "@/lib/review-recipients"
+import { approvedTitleForSlot } from "@/lib/review-prefill"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -288,6 +296,335 @@ function reviewLinkIdFromUrl(url: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Approved Complimentary Review recipients
+// ---------------------------------------------------------------------------
+//
+// Stored as one app_settings row rather than a table: it is a single
+// owner-managed value, read server-side only, and never rendered on a public
+// page or sent to client JavaScript.
+
+const RECIPIENTS_KEY = 'review_approved_recipients'
+
+/** The approved list, re-validated on read. */
+async function readApprovedRecipients(
+  sql: ReturnType<typeof getSql>,
+): Promise<string[]> {
+  const rows = (await sql`
+    select value from app_settings where key = ${RECIPIENTS_KEY} limit 1
+  `) as { value: string }[]
+  return deserialiseRecipients(rows[0]?.value ?? '')
+}
+
+/** Owner-only read, for the admin form. */
+export async function getApprovedRecipients(): Promise<{
+  emails: string[]
+  count: number
+}> {
+  await requireOwner()
+  const emails = await readApprovedRecipients(getSql())
+  return { emails, count: emails.length }
+}
+
+/**
+ * Saves the approved list.
+ *
+ * Saving does NOT touch Papermark. The allow lists currently applied to the
+ * three links stay exactly as they are until the owner explicitly presses
+ * Apply, so an edit here cannot cut off a reader mid-review by accident.
+ */
+export async function saveApprovedRecipients(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  await requireOwner()
+
+  const raw = String(formData.get('recipients') ?? '')
+  if (raw.length > 100_000) {
+    return { message: 'That list is too large. Paste at most a few hundred addresses.' }
+  }
+
+  const parsed = parseRecipients(raw)
+
+  if (parsed.emails.length > MAX_RECIPIENTS) {
+    return {
+      message: `${parsed.emails.length} addresses is more than the ${MAX_RECIPIENTS} limit. Trim the list.`,
+    }
+  }
+
+  const sql = getSql()
+  await sql`
+    insert into app_settings (key, value)
+    values (${RECIPIENTS_KEY}, ${serialiseRecipients(parsed.emails)})
+    on conflict (key) do update set value = excluded.value
+  `
+
+  revalidatePath("/admin/review-library")
+
+  const notes: string[] = [`${parsed.emails.length} approved recipient${parsed.emails.length === 1 ? '' : 's'} saved.`]
+  if (parsed.duplicates > 0) notes.push(`${parsed.duplicates} duplicate${parsed.duplicates === 1 ? '' : 's'} removed.`)
+  if (parsed.invalid.length > 0) {
+    notes.push(`${parsed.invalid.length} entr${parsed.invalid.length === 1 ? 'y was' : 'ies were'} not valid and ${parsed.invalid.length === 1 ? 'was' : 'were'} skipped: ${parsed.invalid.slice(0, 5).join(', ')}${parsed.invalid.length > 5 ? '…' : ''}`)
+  }
+  notes.push('The links themselves are unchanged until you press Apply email restrictions.')
+
+  return { ok: true, message: notes.join(' ') }
+}
+
+export type RestrictionRow = {
+  slotKey: string
+  linkId: string | null
+  documentId: string | null
+  currentAllowList: string[]
+  willChange: boolean
+  problem: string | null
+}
+
+export type RestrictionPreview = {
+  ok: boolean
+  message: string
+  approvedCount: number
+  rows: RestrictionRow[]
+}
+
+/**
+ * Shows what applying the restrictions would change, without changing it.
+ *
+ * Reads each link's live allow list from Papermark rather than assuming what
+ * APRI last set, so the owner compares against what is genuinely in force.
+ */
+export async function previewEmailRestrictions(): Promise<RestrictionPreview> {
+  await requireOwner()
+  const sql = getSql()
+
+  const approved = await readApprovedRecipients(sql)
+
+  const slots = (await sql`
+    select slot_key, secure_link_id, papermark_document_id
+    from complimentary_review_items
+    where slot_key in ('MIN', 'AIU', 'PLM')
+    order by display_order, created_at
+  `) as {
+    slot_key: string
+    secure_link_id: string | null
+    papermark_document_id: string | null
+  }[]
+
+  if (!canProvisionLinks(approved)) {
+    return {
+      ok: false,
+      approvedCount: 0,
+      rows: [],
+      message:
+        'No approved recipients are configured. Applying an empty list would open every ' +
+        'review link to any verified address, so nothing will be applied.',
+    }
+  }
+
+  const { getReviewLinkSettings } = await import("@/lib/papermark-datarooms")
+  const rows: RestrictionRow[] = []
+
+  for (const slot of slots) {
+    const linkId = (slot.secure_link_id ?? '').trim()
+    if (!linkId) {
+      rows.push({
+        slotKey: slot.slot_key,
+        linkId: null,
+        documentId: slot.papermark_document_id,
+        currentAllowList: [],
+        willChange: false,
+        problem: 'No API-created link. Create the secure review link first.',
+      })
+      continue
+    }
+
+    const current = await getReviewLinkSettings(linkId)
+    if (!current.ok) {
+      rows.push({
+        slotKey: slot.slot_key,
+        linkId,
+        documentId: slot.papermark_document_id,
+        currentAllowList: [],
+        willChange: false,
+        problem: current.message,
+      })
+      continue
+    }
+
+    const existing = [...current.value.allowList].map((e) => e.toLowerCase()).sort()
+    const target = [...approved].sort()
+    rows.push({
+      slotKey: slot.slot_key,
+      linkId,
+      documentId: slot.papermark_document_id,
+      currentAllowList: current.value.allowList,
+      willChange: existing.join('|') !== target.join('|'),
+      problem: null,
+    })
+  }
+
+  const changing = rows.filter((r) => r.willChange).length
+  return {
+    ok: true,
+    approvedCount: approved.length,
+    rows,
+    message:
+      `${approved.length} approved recipient${approved.length === 1 ? '' : 's'}. ` +
+      `${changing} of ${rows.length} links would change. Nothing has been applied yet.`,
+  }
+}
+
+/**
+ * Applies the approved list to the three existing links.
+ *
+ * A narrow PATCH per link: nothing is recreated, so each URL, link id, target
+ * document, watermark, download permission and verification setting survives.
+ * Failures are reported per slot rather than aborting the run, so one bad link
+ * does not prevent the other two being restricted.
+ */
+export async function applyEmailRestrictions(): Promise<{
+  ok: boolean
+  message: string
+  updated: number
+  failures: { slotKey: string; reason: string }[]
+}> {
+  await requireOwner()
+  const sql = getSql()
+
+  const approved = await readApprovedRecipients(sql)
+
+  // Fail closed, before touching anything.
+  if (!canProvisionLinks(approved)) {
+    return {
+      ok: false,
+      updated: 0,
+      failures: [],
+      message:
+        'Refused: no approved recipients are configured. An empty allow list would let ' +
+        'anyone who can verify an address open the review documents.',
+    }
+  }
+
+  const slots = (await sql`
+    select slot_key, secure_link_id, papermark_document_id
+    from complimentary_review_items
+    where slot_key in ('MIN', 'AIU', 'PLM')
+    order by display_order, created_at
+  `) as {
+    slot_key: string
+    secure_link_id: string | null
+    papermark_document_id: string | null
+  }[]
+
+  const { setReviewLinkAllowList } = await import("@/lib/papermark-datarooms")
+
+  let updated = 0
+  const failures: { slotKey: string; reason: string }[] = []
+
+  for (const slot of slots) {
+    const linkId = (slot.secure_link_id ?? '').trim()
+    const docId = (slot.papermark_document_id ?? '').trim()
+
+    if (!linkId || !docId) {
+      failures.push({
+        slotKey: slot.slot_key,
+        reason: !linkId ? 'No API-created link to restrict.' : 'No mapped document.',
+      })
+      continue
+    }
+
+    const result = await setReviewLinkAllowList({
+      linkId,
+      documentId: docId,
+      allowList: approved,
+    })
+
+    if (result.ok) {
+      updated++
+      // Only the verification timestamp moves. The URL, link id and document id
+      // are deliberately not rewritten here -- the PATCH did not change them.
+      await sql`
+        update complimentary_review_items
+        set secure_link_verified_at = now(), updated_at = now()
+        where slot_key = ${slot.slot_key}
+      `
+    } else {
+      failures.push({ slotKey: slot.slot_key, reason: result.message })
+    }
+  }
+
+  refresh()
+
+  return {
+    ok: failures.length === 0,
+    updated,
+    failures,
+    message:
+      `Applied to ${updated} of ${slots.length} links.` +
+      (failures.length > 0
+        ? ` ${failures.length} failed: ${failures.map((f) => `${f.slotKey} (${f.reason})`).join('; ')}`
+        : ' Every URL, link id, document, watermark and download setting is unchanged.'),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Edit the linked publication's title (owner only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Renames the publication a review slot points at.
+ *
+ * Updates `documents.title` and nothing else. Deliberately absent: no second
+ * publication is created, the slug is untouched (so no public URL moves),
+ * status and visibility are untouched, the Papermark document mapping is
+ * untouched, and no link is recreated. A rename is a rename.
+ */
+export async function updateSlotPublicationTitle(
+  slotKey: string,
+  title: string,
+): Promise<FormState> {
+  await requireOwner()
+  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
+    return { message: "Invalid slot." }
+  }
+
+  const clean = title.trim().replace(/\s+/g, ' ')
+  if (clean.length < 3) return { message: "A title needs at least three characters." }
+  if (clean.length > 300) return { message: "That title is too long (300 characters maximum)." }
+
+  const sql = getSql()
+
+  const slot = (await sql`
+    select publication_id from complimentary_review_items
+    where slot_key = ${slotKey} limit 1
+  `) as { publication_id: string | null }[]
+
+  const publicationId = slot[0]?.publication_id
+  if (!publicationId) {
+    return { message: `${slotKey} has no linked publication to rename.` }
+  }
+
+  const updated = (await sql`
+    update documents set title = ${clean}, updated_at = now()
+    where id = ${publicationId}::uuid
+    returning id, slug
+  `) as { id: string; slug: string }[]
+
+  if (!updated[0]) return { message: "That publication no longer exists." }
+
+  refresh()
+  return {
+    ok: true,
+    message: `Title updated. The slug (${updated[0].slug}) and the Papermark mapping are unchanged.`,
+  }
+}
+
+/** The Chancellor-approved title for a slot, offered in the admin. */
+export async function getApprovedSlotTitle(slotKey: string): Promise<string | null> {
+  await requireOwner()
+  return approvedTitleForSlot(slotKey)
+}
+
+// ---------------------------------------------------------------------------
 // Provision the secure review link through the Papermark API (owner only)
 // ---------------------------------------------------------------------------
 
@@ -397,10 +734,22 @@ export async function createSlotSecureLink(slotKey: string): Promise<FormState> 
     "@/lib/papermark-datarooms"
   )
 
+  // Fails closed: with nobody approved there is no such thing as a correctly
+  // restricted link, so none is created.
+  const approved = await readApprovedRecipients(sql)
+  if (!canProvisionLinks(approved)) {
+    return {
+      message:
+        'No approved review recipients are configured. Add at least one address under ' +
+        'Approved Review Recipients before creating a link.',
+    }
+  }
+
   const created = await createReviewDocumentLink({
     documentId: current.documentId,
     slotKey,
     documentTitle: current.title,
+    allowList: approved,
   })
 
   // The slot is left exactly as it was, so a failed call cannot take a working
@@ -485,11 +834,21 @@ export async function verifySlotSecureLink(slotKey: string): Promise<FormState> 
 
   // Re-apply the review settings so a watermark or email gate changed inside
   // Papermark is put back without minting a new address.
+  const approved = await readApprovedRecipients(sql)
+  if (!canProvisionLinks(approved)) {
+    return {
+      message:
+        'Link verified, but settings were not re-applied: no approved recipients are ' +
+        'configured and re-applying would send an empty allow list.',
+    }
+  }
+
   const repaired = await updateReviewDocumentLink({
     linkId,
     documentId: current.documentId,
     slotKey,
     documentTitle: current.title,
+    allowList: approved,
   })
   if (!repaired.ok) return { message: `Link verified but settings could not be re-applied. ${repaired.message}` }
 
@@ -540,10 +899,20 @@ export async function preparePendingSecureLink(slotKey: string): Promise<FormSta
     "@/lib/papermark-datarooms"
   )
 
+  const approved = await readApprovedRecipients(sql)
+  if (!canProvisionLinks(approved)) {
+    return {
+      message:
+        'No approved review recipients are configured. Add at least one address before ' +
+        'preparing a link for the pending edition.',
+    }
+  }
+
   const created = await createReviewDocumentLink({
     documentId: pendingDocId,
     slotKey,
     documentTitle: slot.pending_clean_title ?? slotKey,
+    allowList: approved,
   })
   if (!created.ok) return { message: `Link not created. ${created.message}` }
 

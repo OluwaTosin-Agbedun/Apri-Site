@@ -1,4 +1,5 @@
 import Link from "next/link"
+import TrackedAccessLink from "@/components/TrackedAccessLink"
 import {
   requirePortalPrincipal,
   getLibraryFor,
@@ -357,18 +358,24 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
           </div>
         </div>
         <div className="flex gap-3 shrink-0 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border sm:items-start sm:pt-1">
-          <Link
+          <TrackedAccessLink
             href={`/portal/document/${encodeURIComponent(document.id)}/download`}
+            eventType="subscriber_document_download_clicked"
+            papermarkDocumentId={document.papermarkDocumentId}
+            internal
             className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors py-2 sm:py-1"
           >
             Download
-          </Link>
-          <Link
+          </TrackedAccessLink>
+          <TrackedAccessLink
             href={`/portal/document/${encodeURIComponent(document.id)}`}
+            eventType="subscriber_document_view_clicked"
+            papermarkDocumentId={document.papermarkDocumentId}
+            internal
             className="text-sm font-medium text-accent hover:text-accent-hover transition-colors py-2 sm:py-1"
           >
             View <span aria-hidden>&rarr;</span>
-          </Link>
+          </TrackedAccessLink>
         </div>
       </div>
     </div>

@@ -119,7 +119,9 @@ test('publications page: shows section title', () => {
 
 test('publications page: shows introductory text', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /complimentary review page provides selected sample publications/)
+  // Chancellor-corrected wording.
+  assert.match(src, /This complimentary review provides prospective subscribers with/)
+  assert.match(src, /selected examples of publications and analytical products/)
 })
 
 test('publications page: shows verified email badge', () => {
@@ -407,8 +409,8 @@ test('prefill: PLM gets approved Chancellor wording', () => {
     summary: '',
     description: '',
   })
-  assert.equal(result.publicationType, 'Monthly Strategic Assessment')
-  assert.match(result.description, /monthly monitoring product/)
+  assert.equal(result.publicationType, 'ATHENA ELECTION OBSERVATORY')
+  assert.match(result.description, /monthly monitoring publication from the Athena Election Observatory/)
   assert.equal(result.frequency, 'Monthly')
 })
 

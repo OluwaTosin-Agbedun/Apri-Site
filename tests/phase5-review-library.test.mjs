@@ -51,7 +51,9 @@ describe('approved display content', () => {
   })
 
   it('PLM has correct publication type', () => {
-    assert.match(prefill, /PLM:[\s\S]*?publicationType:\s*'Monthly Strategic Assessment'/)
+    // Corrected by the Chancellor: the PLM is presented under the Athena
+    // Election Observatory rather than as a generic strategic assessment.
+    assert.match(prefill, /PLM:[\s\S]*?publicationType:\s*'ATHENA ELECTION OBSERVATORY'/)
   })
 
   it('MIN description mentions political, regulatory and political-economy', () => {

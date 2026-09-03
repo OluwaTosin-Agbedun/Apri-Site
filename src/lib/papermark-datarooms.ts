@@ -460,10 +460,25 @@ export async function createReviewDocumentLink(args: {
   documentId: string
   slotKey: string
   documentTitle?: string
+  allowList: readonly string[]
 }): Promise<ServiceResult<ReviewLink>> {
   const documentId = args.documentId.trim()
   if (!documentId) {
     return { ok: false, status: null, message: 'No Papermark document id for this slot.' }
+  }
+
+  // Fails closed. Papermark reads an empty allow_list as "any verified
+  // address", so minting a link with one would publish the document to anybody
+  // willing to type an email -- the precise opposite of "no approved
+  // recipients".
+  if (args.allowList.length === 0) {
+    return {
+      ok: false,
+      status: null,
+      message:
+        'No approved review recipients are configured. Add at least one address in ' +
+        'Approved Review Recipients before creating a link.',
+    }
   }
 
   const settings = reviewLinkSettings({
@@ -471,6 +486,7 @@ export async function createReviewDocumentLink(args: {
     slotKey: args.slotKey,
     documentTitle: args.documentTitle,
     customDomain: reviewLinkDomain(),
+    allowList: args.allowList,
   })
 
   return attempt(async () => {
@@ -547,10 +563,21 @@ export async function updateReviewDocumentLink(args: {
   documentId: string
   slotKey: string
   documentTitle?: string
+  allowList: readonly string[]
 }): Promise<ServiceResult<{ url: string }>> {
   const linkId = args.linkId.trim()
   if (!linkId) {
     return { ok: false, status: null, message: 'No Papermark link id stored for this slot.' }
+  }
+
+  if (args.allowList.length === 0) {
+    return {
+      ok: false,
+      status: null,
+      message:
+        'No approved review recipients are configured. Re-applying settings with an ' +
+        'empty allow list would open the link to any verified address.',
+    }
   }
 
   const settings = reviewLinkSettings({
@@ -558,6 +585,7 @@ export async function updateReviewDocumentLink(args: {
     slotKey: args.slotKey,
     documentTitle: args.documentTitle,
     customDomain: reviewLinkDomain(),
+    allowList: args.allowList,
   })
 
   return attempt(async () => {
@@ -568,6 +596,7 @@ export async function updateReviewDocumentLink(args: {
         body: {
           email_protected: settings.email_protected,
           email_authenticated: settings.email_authenticated,
+          allow_list: settings.allow_list,
           enable_watermark: settings.enable_watermark,
           watermark_config: settings.watermark_config,
           enable_screenshot_protection: settings.enable_screenshot_protection,
@@ -607,4 +636,90 @@ export async function revokeReviewDocumentLink(
     })
     return true as const
   }, 'Revoking the Complimentary Review link')
+}
+
+/**
+ * Replaces one review link's allow list and nothing else.
+ *
+ * A narrow PATCH on purpose. The link is not recreated, so its id, its URL, the
+ * document it targets, its watermark, its download permission and its
+ * email-verification setting all survive untouched -- which is what keeps the
+ * three public review URLs working while the recipient list changes underneath
+ * them.
+ *
+ * The response is re-checked against the intended document before it is
+ * accepted, so a PATCH that somehow retargeted the link is reported as a
+ * failure rather than silently trusted.
+ */
+export async function setReviewLinkAllowList(args: {
+  linkId: string
+  documentId: string
+  allowList: readonly string[]
+}): Promise<ServiceResult<{ url: string; allowList: string[] }>> {
+  const linkId = args.linkId.trim()
+  if (!linkId) {
+    return { ok: false, status: null, message: 'No Papermark link id stored for this slot.' }
+  }
+
+  if (args.allowList.length === 0) {
+    return {
+      ok: false,
+      status: null,
+      message: 'Refusing to send an empty allow list: Papermark would treat it as unrestricted.',
+    }
+  }
+
+  return attempt(async () => {
+    const link = await papermarkRequest<DataRoomLink>(
+      `/v1/links/${encodeURIComponent(linkId)}`,
+      {
+        method: 'PATCH',
+        // Only the allow list. Every other setting is deliberately absent from
+        // this body so Papermark leaves it as it is.
+        body: { allow_list: [...args.allowList] },
+      },
+    )
+
+    const target = isDocumentTargetedLink(link, args.documentId)
+    if (!target.ok) throw new PapermarkError(target.reason)
+
+    const url = link.url
+    if (!url || !url.startsWith('https://')) {
+      throw new PapermarkError(`Papermark link ${linkId} has no usable https address.`)
+    }
+
+    return { url, allowList: link.allow_list ?? [...args.allowList] }
+  }, 'Updating the review link allow list')
+}
+
+/**
+ * Reads one review link's current settings, for the Preview step.
+ *
+ * Used so the owner sees what the allow lists actually are in Papermark before
+ * changing them, rather than what APRI believes they should be.
+ */
+export async function getReviewLinkSettings(
+  linkId: string,
+): Promise<ServiceResult<{
+  allowList: string[]
+  emailProtected: boolean
+  emailAuthenticated: boolean
+  allowDownload: boolean
+  watermarkEnabled: boolean
+  documentId: string | null
+}>> {
+  const id = linkId.trim()
+  if (!id) return { ok: false, status: null, message: 'No link id.' }
+
+  return attempt(async () => {
+    const link = await papermarkRequest<DataRoomLink>(`/v1/links/${encodeURIComponent(id)}`)
+    return {
+      allowList: link.allow_list ?? [],
+      emailProtected: link.email_protected === true,
+      emailAuthenticated: link.email_authenticated === true,
+      allowDownload: link.allow_download === true,
+      watermarkEnabled: link.enable_watermark === true,
+      documentId: link.document_id ?? null,
+    }
+  }, 'Reading the review link settings')
 }

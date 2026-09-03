@@ -42,125 +42,83 @@ export async function principalForResendEmail(resendEmailId: string): Promise<Cl
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard summary
+// Dashboard summary -- corrected in Phase 6
 // ---------------------------------------------------------------------------
+//
+// The figures this file used to produce were wrong in four specific ways, and
+// they are named here because the shapes they returned are gone and anyone
+// looking for them should know why:
+//
+//  1. `viewClicks` counted `portal_opened` alongside `private_link_opened`, so
+//     signing in to the portal registered as clicking through to a document.
+//     Opening the library is not opening a publication.
+//  2. `papermarkViews` was `count(*) from document_views`, a row count. Two
+//     collectors writing the same view, or one reader returning ten times, read
+//     as ten "views" with no way to see one reader behind them.
+//  3. Lifetime and 30-day figures sat in the same object -- `signedIn30d` beside
+//     a lifetime `portalOpens` -- so no two numbers could be compared.
+//  4. Nothing distinguished a paying subscriber from a briefing client or a
+//     Complimentary Review prospect, so an unpaid reader raised the same
+//     counter as a subscriber.
+//
+// The replacements live in `@/lib/engagement-analytics`, which takes an explicit
+// `DateWindow` and applies it to every query, counts distinct Papermark ids
+// rather than rows, and separates readers by type. The definitions themselves
+// are in `@/lib/engagement-metrics` so they can be tested directly.
+//
+// Nothing is re-exported from here under the old names on purpose: a caller
+// reaching for `getEngagementSummary()` and silently receiving differently
+// scoped numbers would be worse than a compile error.
 
-export type EngagementSummary = {
-  activeSubscribers: number
-  signedIn30d: number
-  neverSignedIn: number
-  portalVisitors30d: number
-  portalOpens: number
-  viewClicks: number
-  papermarkViews: number
-  downloadClicks: number
-  papermarkDownloads: number
-  emailsSent: number
-  emailsDelivered: number
-  emailsOpened: number
-  emailsClicked: number
-  emailFailures: number
+/**
+ * The subscriber-facing engagement figures used by the weekly digest and the
+ * per-subscriber detail page.
+ *
+ * Kept deliberately small and explicitly windowed. `windowDays` is required,
+ * so a caller cannot accidentally get a lifetime total where they expected a
+ * recent one.
+ */
+export type SubscriberActivity = {
+  subscriberId: string
+  /** Distinct publications with a confirmed Papermark view in the window. */
+  documentsOpened: number
+  /** Distinct Papermark view ids in the window. Not a row count. */
+  viewSessions: number
+  /** Confirmed download events in the window, including repeats. */
+  downloadEvents: number
+  lastViewedAt: string | null
 }
 
-export async function getEngagementSummary(): Promise<EngagementSummary> {
+export async function getSubscriberActivity(
+  subscriberId: string,
+  windowDays: number,
+): Promise<SubscriberActivity> {
   const sql = getSql()
-  const [row] = await sql`select
-    (select count(*)::int from subscribers where client_type='subscriber' and lower(status)='active') as active_subscribers,
-    (select count(distinct e.subscriber_id)::int from client_engagement_events e
-      where e.event_type='signin_completed' and e.occurred_at > now() - interval '30 days') as signed_in_30d,
-    (select count(*)::int from subscribers s
-      where s.client_type='subscriber' and lower(s.status)='active'
-        and not exists(select 1 from client_engagement_events e where e.subscriber_id=s.id and e.event_type='signin_completed')) as never_signed_in,
-    (select count(distinct e.subscriber_id)::int from client_engagement_events e
-      where e.event_type='portal_opened' and e.occurred_at > now() - interval '30 days') as portal_visitors_30d,
-    (select count(*)::int from client_engagement_events where event_type='portal_opened') as portal_opens,
-    (select count(*)::int from client_engagement_events where event_type in ('portal_opened','private_link_opened')) as view_clicks,
-    (select count(*)::int from document_views) as papermark_views,
-    (select count(*)::int from client_engagement_events where event_type='document_downloaded') as download_clicks,
-    (select count(*)::int from document_views where downloaded=true) as papermark_downloads,
-    (select count(*)::int from client_engagement_events where event_type='signin_email_sent') as emails_sent,
-    (select count(*)::int from client_engagement_events where event_type='email_delivered') as emails_delivered,
-    (select count(*)::int from client_engagement_events where event_type='email_opened') as emails_opened,
-    (select count(*)::int from client_engagement_events where event_type='email_clicked') as emails_clicked,
-    (select count(*)::int from client_engagement_events where event_type in ('email_failed','email_bounced')) as email_failures
-  ` as Record<string,number>[]
 
+  const rows = (await sql`
+    select
+      count(distinct dv.publication_id)::int    as documents_opened,
+      count(distinct dv.papermark_view_id)::int as view_sessions,
+      max(dv.viewed_at)                         as last_viewed_at,
+      (
+        select count(distinct de.source_event_id)::int
+        from document_download_events de
+        where de.subscriber_id = ${subscriberId}::uuid
+          and de.downloaded_at > now() - (${windowDays} || ' days')::interval
+      ) as download_events
+    from document_views dv
+    where dv.subscriber_id = ${subscriberId}::uuid
+      and dv.viewed_at > now() - (${windowDays} || ' days')::interval
+  `) as Record<string, unknown>[]
+
+  const r = rows[0] ?? {}
   return {
-    activeSubscribers: row?.active_subscribers ?? 0,
-    signedIn30d: row?.signed_in_30d ?? 0,
-    neverSignedIn: row?.never_signed_in ?? 0,
-    portalVisitors30d: row?.portal_visitors_30d ?? 0,
-    portalOpens: row?.portal_opens ?? 0,
-    viewClicks: row?.view_clicks ?? 0,
-    papermarkViews: row?.papermark_views ?? 0,
-    downloadClicks: row?.download_clicks ?? 0,
-    papermarkDownloads: row?.papermark_downloads ?? 0,
-    emailsSent: row?.emails_sent ?? 0,
-    emailsDelivered: row?.emails_delivered ?? 0,
-    emailsOpened: row?.emails_opened ?? 0,
-    emailsClicked: row?.emails_clicked ?? 0,
-    emailFailures: row?.email_failures ?? 0,
+    subscriberId,
+    documentsOpened: Number(r.documents_opened ?? 0),
+    viewSessions: Number(r.view_sessions ?? 0),
+    downloadEvents: Number(r.download_events ?? 0),
+    lastViewedAt: r.last_viewed_at ? String(r.last_viewed_at) : null,
   }
-}
-
-// ---------------------------------------------------------------------------
-// Subscriber engagement rows
-// ---------------------------------------------------------------------------
-
-export type SubscriberEngagementRow = {
-  id: string
-  name: string
-  email: string
-  publicTier: string
-  status: string
-  lastSignIn: string | null
-  lastPortalVisit: string | null
-  portalVisits30d: number
-  docsViewed: number
-  docsDownloaded: number
-  emailsSent: number
-  emailsDelivered: number
-  emailFailures: number
-  lastActivity: string | null
-}
-
-export async function getSubscriberEngagementRows(): Promise<SubscriberEngagementRow[]> {
-  const sql = getSql()
-  const rows = await sql`
-    select s.id, coalesce(nullif(s.full_name,''),s.name) as name, s.email,
-      s.public_tier, s.status,
-      max(e.occurred_at) filter(where e.event_type='signin_completed') as last_signin,
-      max(e.occurred_at) filter(where e.event_type='portal_opened') as last_portal_visit,
-      count(*) filter(where e.event_type='portal_opened' and e.occurred_at > now()-interval '30 days')::int as portal_visits_30d,
-      (select count(*)::int from document_views dv where dv.subscriber_id=s.id) as docs_viewed,
-      (select count(*)::int from document_views dv where dv.subscriber_id=s.id and dv.downloaded=true) as docs_downloaded,
-      count(*) filter(where e.event_type='signin_email_sent')::int as emails_sent,
-      count(*) filter(where e.event_type='email_delivered')::int as emails_delivered,
-      count(*) filter(where e.event_type in ('email_failed','email_bounced'))::int as email_failures,
-      max(e.occurred_at) as last_activity
-    from subscribers s
-    left join client_engagement_events e on e.subscriber_id=s.id
-    where s.client_type='subscriber'
-    group by s.id
-    order by last_activity desc nulls last, name
-  ` as Record<string,unknown>[]
-
-  return rows.map(r => ({
-    id: String(r.id),
-    name: String(r.name ?? ''),
-    email: String(r.email ?? ''),
-    publicTier: String(r.public_tier ?? ''),
-    status: String(r.status ?? ''),
-    lastSignIn: r.last_signin ? String(r.last_signin) : null,
-    lastPortalVisit: r.last_portal_visit ? String(r.last_portal_visit) : null,
-    portalVisits30d: Number(r.portal_visits_30d ?? 0),
-    docsViewed: Number(r.docs_viewed ?? 0),
-    docsDownloaded: Number(r.docs_downloaded ?? 0),
-    emailsSent: Number(r.emails_sent ?? 0),
-    emailsDelivered: Number(r.emails_delivered ?? 0),
-    emailFailures: Number(r.email_failures ?? 0),
-    lastActivity: r.last_activity ? String(r.last_activity) : null,
-  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -226,14 +184,4 @@ export async function getSubscriberForEngagement(subscriberId: string): Promise<
     termEnd: r.term_end ? String(r.term_end) : null,
     createdAt: r.created_at ? String(r.created_at) : null,
   }
-}
-
-// ---------------------------------------------------------------------------
-// Backward-compatible export (engagement-digest still imports it)
-// ---------------------------------------------------------------------------
-
-export async function getClientEngagementDashboard() {
-  const summary = await getEngagementSummary()
-  const rows = await getSubscriberEngagementRows()
-  return { summary, rows }
 }

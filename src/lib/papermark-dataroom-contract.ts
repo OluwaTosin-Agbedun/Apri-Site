@@ -248,9 +248,11 @@ export type ReviewLinkSettings = {
  *    anonymous until Papermark verifies their address, and that verification is
  *    the only gate — so unlike a subscriber link, which APRI has already
  *    authenticated, this one must do the checking itself.
- *  - `allow_list` stays empty. The link is offered publicly on /publications to
- *    anyone willing to verify an address, so restricting it to named addresses
- *    would defeat its purpose.
+ *  - `allow_list` carries the approved recipient list. Papermark then verifies
+ *    the address AND checks it against that list, so a review copy reaches only
+ *    people the Chancellor has approved. An empty list is refused by the caller
+ *    rather than sent: Papermark treats an empty allow list as "any verified
+ *    address", which is the opposite of what an empty approved list means.
  *  - The watermark leaves `{{email}}` as a token rather than baking one in,
  *    because one link serves every prospect.
  *
@@ -264,6 +266,8 @@ export function reviewLinkSettings(args: {
   documentTitle?: string
   customDomain?: string | null
   slug?: string | null
+  /** Approved recipient addresses. Must not be empty -- see below. */
+  allowList?: readonly string[]
 }): ReviewLinkSettings {
   const label = args.documentTitle ? ` — ${args.documentTitle.slice(0, 60)}` : ''
   const settings: ReviewLinkSettings = {
@@ -272,7 +276,7 @@ export function reviewLinkSettings(args: {
     expires_at: null,
     email_protected: true,
     email_authenticated: true,
-    allow_list: [],
+    allow_list: [...(args.allowList ?? [])],
     deny_list: [],
     enable_watermark: true,
     watermark_config: prospectWatermarkConfig(),

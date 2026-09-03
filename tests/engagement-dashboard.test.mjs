@@ -44,79 +44,77 @@ test("engagement dashboard migration adds document_downloaded and publication_no
 // 3. Engagement DAL has comprehensive metrics
 // ---------------------------------------------------------------------------
 
-test("engagement DAL exports all 14 summary metrics", () => {
-  const dal = read("src/lib/client-engagement.ts")
-  for (const metric of [
-    "activeSubscribers", "signedIn30d", "neverSignedIn",
-    "portalVisitors30d", "portalOpens", "viewClicks",
-    "papermarkViews", "downloadClicks", "papermarkDownloads",
-    "emailsSent", "emailsDelivered", "emailsOpened",
-    "emailsClicked", "emailFailures",
+/**
+ * Phase 6 replaced the summary shape these tests were written against.
+ *
+ * The old `EngagementSummary` mixed lifetime totals with 30-day figures in one
+ * object and counted `portal_opened` as a document view. The replacement takes
+ * an explicit window and counts distinct Papermark ids, so the assertions below
+ * check the new guarantees rather than the old field names.
+ */
+test("engagement analytics exports the windowed overview metrics", () => {
+  const dal = read("src/lib/engagement-analytics.ts")
+  for (const field of [
+    "activeSubscribers",
+    "uniquePaidReaders",
+    "uniqueProspectReaders",
+    "viewSessions",
+    "downloadEvents",
+    "uniqueDownloaders",
+    "accessClicks",
+    "dormantSubscribers",
+    "unmatchedViews",
   ]) {
-    assert.match(dal, new RegExp(metric))
+    assert.match(dal, new RegExp(field), `${field} must be reported`)
   }
 })
 
-test("engagement DAL queries document_views for Papermark-confirmed counts", () => {
-  const dal = read("src/lib/client-engagement.ts")
-  assert.match(dal, /from document_views/)
-  assert.match(dal, /downloaded=true/)
+test("engagement analytics counts distinct Papermark ids, not rows", () => {
+  const dal = read("src/lib/engagement-analytics.ts")
+  assert.match(dal, /count\(distinct dv\.papermark_view_id\)/)
+  assert.match(dal, /count\(distinct de\.source_event_id\)/)
+  // The old row-count formula must not return.
+  assert.doesNotMatch(dal, /count\(\*\)::int from document_views\) as papermark_views/)
 })
 
-test("subscriber engagement rows include level, docs and email metrics", () => {
-  const dal = read("src/lib/client-engagement.ts")
-  assert.match(dal, /public_tier/)
-  assert.match(dal, /docs_viewed/)
-  assert.match(dal, /docs_downloaded/)
-  assert.match(dal, /emails_sent/)
-  assert.match(dal, /email_failures/)
+test("engagement analytics never counts portal_opened as a view", () => {
+  assert.doesNotMatch(read("src/lib/engagement-analytics.ts"), /portal_opened/)
 })
 
-test("subscriber timeline returns events ordered by time", () => {
-  const dal = read("src/lib/client-engagement.ts")
-  assert.match(dal, /getSubscriberTimeline/)
-  assert.match(dal, /order by occurred_at desc/)
-  assert.match(dal, /limit 200/)
+test("engagement analytics applies one window to every figure", () => {
+  const dal = read("src/lib/engagement-analytics.ts")
+  assert.match(dal, /window: DateWindow/)
+  const lower = (dal.match(/>= \$\{fromIso\}::timestamptz/g) ?? []).length
+  assert.ok(lower >= 8, "figures must be windowed")
 })
 
-test("subscriber detail lookup is scoped to subscriber client_type", () => {
+test("subscriber activity requires an explicit window", () => {
   const dal = read("src/lib/client-engagement.ts")
-  assert.match(dal, /getSubscriberForEngagement/)
-  assert.match(dal, /client_type='subscriber'/)
+  assert.match(dal, /getSubscriberActivity/)
+  assert.match(dal, /windowDays: number/)
 })
 
-// ---------------------------------------------------------------------------
-// 4. Engagement page has summary cards and subscriber table
-// ---------------------------------------------------------------------------
-
-test("engagement page shows 14 summary cards", () => {
+test("engagement page has four sections and a period selector", () => {
   const page = read("src/app/admin/engagement/page.tsx")
-  for (const label of [
-    "Active subscribers", "Signed in (30d)", "Never signed in",
-    "Portal visitors (30d)", "Portal opens", "APRI view clicks",
-    "Papermark views", "APRI download clicks", "Papermark downloads",
-    "Emails sent", "Emails delivered", "Emails opened",
-    "Emails clicked", "Failures",
-  ]) {
-    assert.match(page, new RegExp(label.replace(/[()]/g, "\\$&")))
+  for (const tab of ["Overview", "Publications", "Readers", "Diagnostics"]) {
+    assert.match(page, new RegExp(`label: "${tab}"`))
   }
+  assert.match(page, /WINDOW_PRESETS/)
+  assert.match(page, /name="window" value="custom"/)
 })
 
-test("engagement page has all required filters", () => {
-  const page = read("src/app/admin/engagement/page.tsx")
-  assert.match(page, /name="q"/)
-  assert.match(page, /name="level"/)
-  assert.match(page, /name="status"/)
-  assert.match(page, /name="never"/)
-  assert.match(page, /name="failure"/)
-  assert.match(page, /name="viewed"/)
-  assert.match(page, /name="from"/)
-  assert.match(page, /name="to"/)
+test("engagement page filters readers by type", () => {
+  const client = read("src/app/admin/engagement/engagement-client.tsx")
+  assert.match(client, /function ReaderTypeFilter/)
+  assert.match(client, /complimentary_review/)
 })
 
 test("engagement page links to subscriber detail", () => {
   const page = read("src/app/admin/engagement/page.tsx")
-  assert.match(page, /\/admin\/engagement\/\$\{r\.id\}/)
+  // The Readers tab links a reader who holds a subscriber record; a
+  // Complimentary Review reader has none and is correctly not linked.
+  assert.match(page, /\/admin\/engagement\/\$\{r\.subscriberId\}/)
+  assert.match(page, /r\.subscriberId \? \(/)
 })
 
 test("engagement page shows subscriber-only metrics, no briefing", () => {
@@ -279,55 +277,140 @@ test("webhook handler dispatches link.downloaded events", () => {
   assert.match(route, /handleDownloadEvent/)
 })
 
-test("download handler resolves links across all three link tables", () => {
+test("download handler resolves links through the canonical resolver", () => {
+  // Phase 6 moved resolution out of the route so the webhook and the poll
+  // cannot disagree. The resolver covers four link tables, adding the
+  // Complimentary Review slot link the route never checked.
   const route = read("src/app/api/papermark/webhook/route.ts")
-  assert.match(route, /papermark_subscriber_document_links/)
-  assert.match(route, /papermark_dataroom_links/)
-  assert.match(route, /publication_access/)
-  const subDocPos = route.indexOf("papermark_subscriber_document_links")
-  const drPos = route.indexOf("papermark_dataroom_links", subDocPos + 1)
-  const pubPos = route.indexOf("publication_access", drPos + 1)
-  assert.ok(subDocPos > 0 && drPos > subDocPos && pubPos > drPos,
-    "Link tables must be checked in order: subscriber_document_links → dataroom_links → publication_access")
+  assert.match(route, /attribute/)
+  assert.match(route, /from '@\/lib\/view-attribution'/)
+  assert.doesNotMatch(route, /async function resolveLink/)
+
+  const resolver = read("src/lib/view-attribution.ts")
+  const order = [
+    "papermark_subscriber_document_links",
+    "papermark_dataroom_links",
+    "complimentary_review_items",
+    "publication_access",
+  ]
+  let last = -1
+  for (const table of order) {
+    const at = resolver.indexOf(table)
+    assert.ok(at > last, `${table} must be checked in order`)
+    last = at
+  }
 })
 
-test("download handler stores document metadata in engagement event", () => {
+test("download handler still records the subscriber engagement event", () => {
   const route = read("src/app/api/papermark/webhook/route.ts")
-  assert.match(route, /documentTitle/)
+  assert.match(route, /insert into client_engagement_events/)
+  assert.match(route, /'document_downloaded'/)
   assert.match(route, /papermarkDocumentId/)
-  assert.match(route, /papermarkLinkId/)
-  assert.match(route, /metadata.*::jsonb/)
+})
+
+test("download handler records one row per confirmed download", () => {
+  // A boolean on the view cannot represent a reader downloading four times,
+  // which is why document_download_events exists.
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /recordDownload/)
+  const resolver = read("src/lib/view-attribution.ts")
+  assert.match(resolver, /insert into document_download_events/)
 })
 
 test("download handler marks the view as downloaded in document_views", () => {
-  const route = read("src/app/api/papermark/webhook/route.ts")
-  assert.match(route, /update document_views set downloaded = true/)
-  assert.match(route, /papermark_view_id/)
+  // Now performed inside recordDownload, so the poll does it identically.
+  const resolver = read("src/lib/view-attribution.ts")
+  assert.match(resolver, /update document_views set downloaded = true/)
+  assert.match(resolver, /if \(input\.papermarkViewId\)/)
 })
 
-test("download handler uses idempotency via webhook event ID", () => {
+test("download handler is idempotent on the source event id", () => {
+  const resolver = read("src/lib/view-attribution.ts")
+  assert.match(resolver, /on conflict \(source_event_id\) do update set/)
   const route = read("src/app/api/papermark/webhook/route.ts")
-  assert.match(route, /checkIdempotency\(eventId\)/)
-  assert.match(route, /markProcessed\(eventId, 'link\.downloaded'\)/)
+  // The view id keys it when present, else the webhook event id.
+  assert.match(route, /viewId \? `view:\$\{viewId\}` : eventId \? `event:\$\{eventId\}` : null/)
   assert.match(route, /on conflict \(webhook_event_id\)/)
-  assert.match(route, /dl-.*viewId/)
 })
 
-test("download handler does not trust email — resolves subscriber from link ID", () => {
-  const route = read("src/app/api/papermark/webhook/route.ts")
-  const dlStart = route.indexOf("function handleDownloadEvent")
-  const dlEnd = route.indexOf("function resolveLink", dlStart)
-  const downloadFn = route.slice(dlStart, dlEnd)
-  assert.doesNotMatch(downloadFn, /viewerEmail|viewer_email/)
-  assert.match(downloadFn, /resolveLink/)
-  const resolveFn = route.slice(dlEnd, route.indexOf("function handleLinkEvent"))
-  assert.match(resolveFn, /papermark_link_id = \$\{linkId\}/)
+test("download handler prefers link ids over the viewer email", () => {
+  // The email is passed to the resolver but is only its last resort, after
+  // four link tables, and only for a shared or open document.
+  const resolver = read("src/lib/view-attribution.ts")
+  const emailAt = resolver.indexOf("lower(s.email)")
+  for (const table of [
+    "papermark_subscriber_document_links",
+    "papermark_dataroom_links",
+    "complimentary_review_items",
+    "publication_access",
+  ]) {
+    assert.ok(resolver.indexOf(table) < emailAt, `${table} must be tried before the email`)
+  }
+  assert.match(resolver, /is_shared_copy = true or d\.visibility = 'OPEN'/)
 })
 
-test("download handler returns early on unknown link (no subscriber, no briefing)", () => {
+test("download handler retains an unattributable download", () => {
+  // Phase 6 keeps the row rather than returning early, so an unmatched
+  // download is visible in the diagnostics instead of silently lost.
   const route = read("src/app/api/papermark/webhook/route.ts")
-  const resolveFn = route.slice(route.indexOf("async function resolveLink"))
-  assert.match(resolveFn, /return null/)
+  assert.doesNotMatch(route, /if \(!resolved\) return/)
+  const resolver = read("src/lib/view-attribution.ts")
+  assert.match(resolver, /reader_type\b/)
+  assert.match(resolver, /'unknown'/)
+})
+
+// ---------------------------------------------------------------------------
+// 10. Security: no secrets in client code
+// ---------------------------------------------------------------------------
+
+test("engagement pages do not expose credentials", () => {
+  for (const path of [
+    "src/app/admin/engagement/page.tsx",
+    "src/app/admin/engagement/[id]/page.tsx",
+    "src/components/AdminSidebar.tsx",
+  ]) {
+    const source = read(path)
+    assert.doesNotMatch(source, /PAPERMARK_API_TOKEN|PAPERMARK_WEBHOOK_SECRET|RESEND_API_KEY|CRON_SECRET/)
+  }
+})
+
+test("notification service is server-only", () => {
+  const service = read("src/lib/dataroom-notifications.ts")
+  assert.match(service, /^import "server-only"/m)
+})
+
+// ---------------------------------------------------------------------------
+// 11. Download webhook: link.downloaded event handling
+// ---------------------------------------------------------------------------
+
+test("webhook handler dispatches link.downloaded events", () => {
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /link\.downloaded/i)
+  assert.match(route, /handleDownloadEvent/)
+})
+
+test("download handler resolves links through the canonical resolver", () => {
+  // Phase 6 moved resolution out of the route so the webhook and the poll
+  // cannot disagree. The resolver covers four link tables, adding the
+  // Complimentary Review slot link the route never checked.
+  const route = read("src/app/api/papermark/webhook/route.ts")
+  assert.match(route, /attribute/)
+  assert.match(route, /from '@\/lib\/view-attribution'/)
+  assert.doesNotMatch(route, /async function resolveLink/)
+
+  const resolver = read("src/lib/view-attribution.ts")
+  const order = [
+    "papermark_subscriber_document_links",
+    "papermark_dataroom_links",
+    "complimentary_review_items",
+    "publication_access",
+  ]
+  let last = -1
+  for (const table of order) {
+    const at = resolver.indexOf(table)
+    assert.ok(at > last, `${table} must be checked in order`)
+    last = at
+  }
 })
 
 test("webhook signature verification uses timingSafeEqual", () => {

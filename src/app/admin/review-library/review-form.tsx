@@ -20,6 +20,7 @@ import {
   saveReviewItemDetails,
 } from "@/app/actions/review-library"
 import type { FormState } from "@/lib/definitions"
+import { PublicationTitleEditor } from "./recipients-form"
 
 const field =
   "w-full border border-border bg-background p-3 text-sm focus:outline-none focus:border-accent"
@@ -65,6 +66,8 @@ type ReviewSlot = {
   pubTitle: string
   series: string
   slug: string
+  /** The Chancellor-approved title, where one has been set for this slot. */
+  approvedTitle: string | null
 }
 
 type Candidate = {
@@ -596,6 +599,14 @@ function SlotCard({
             {SLOT_LABELS[slot.slotKey] ?? slot.slotKey}
           </h3>
           <p className="text-sm text-foreground/70 mt-1">{slot.pubTitle}</p>
+          <div className="mt-1">
+            <PublicationTitleEditor
+              slotKey={slot.slotKey}
+              currentTitle={slot.pubTitle}
+              approvedTitle={slot.approvedTitle}
+              slug={slot.slug}
+            />
+          </div>
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             <span className="text-xs text-muted-foreground">
               Slot: <span className="font-medium">{slot.slotKey}</span>

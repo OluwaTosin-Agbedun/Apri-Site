@@ -192,6 +192,7 @@ export type ReviewCard = {
   frequency: string
   audience: string
   secureUrl: string
+  slotKey: 'MIN' | 'AIU' | 'PLM'
 }
 
 export type ReviewLibrary = {
@@ -240,6 +241,7 @@ export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
         frequency: r.frequency,
         audience: r.audience,
         secureUrl: r.secure_link_url,
+        slotKey: r.slot_key as 'MIN' | 'AIU' | 'PLM',
       })),
     }
   } catch {

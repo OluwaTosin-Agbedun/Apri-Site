@@ -144,7 +144,9 @@ export const TIER_DESCRIPTIONS: Record<string, string> = {
   'Professional Team Access':
     'The same core access for a small team of individually named readers.',
   'Political Monitor':
-    'Organisational access to continuing political and regulatory monitoring, including the Monthly Intelligence Note, Political Landscape Monitor, Quarterly Outlook, Election Watch and relevant intelligence updates.',
+    // The apostrophe is escaped rather than written as a curly quote: this file
+    // is on the straight-quotes-only list, and a bare ' would close the string.
+    'Organisational access to continuing political and regulatory monitoring, including the Monthly Intelligence Note, the Athena Election Observatory\'s Political Landscape Monitor, Quarterly Outlook, Election Watch and relevant intelligence updates.',
   'Executive Intelligence':
     'Full APRI intelligence plus the executive layer, scheduled executive briefings and priority sector-specific intelligence access.',
   'Board Briefing':

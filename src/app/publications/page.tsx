@@ -3,6 +3,7 @@ import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge } from '@/components/PublicationAccess'
 import { getPublishedPublications, getReviewLibrary } from '@/lib/publications'
+import TrackedAccessLink from '@/components/TrackedAccessLink'
 
 export const revalidate = 300
 
@@ -26,8 +27,8 @@ export default async function PublicationsPage() {
             Publications
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            APRI intelligence products for subscribers and authorised readers.
-            Subscriber-only publications are accessible through your subscription.
+            Publications and analytical products available to APRI subscribers
+            and authorised readers.
           </p>
         </header>
 
@@ -42,11 +43,9 @@ export default async function PublicationsPage() {
                 APRI Complimentary Review Copy
               </h2>
               <p className="text-sm sm:text-base text-foreground/70 leading-relaxed max-w-4xl">
-                This complimentary review page provides selected sample publications
-                from Athena Political &amp; Regulatory Intelligence. It is intended
-                to help prospective subscribers understand the structure, quality and
-                range of APRI outputs. Access is restricted to authorised recipients
-                and requires verified email access.
+                This complimentary review provides prospective subscribers with
+                selected examples of publications and analytical products
+                available through APRI.
               </p>
               <div className="mt-4">
                 <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium tracking-wide bg-accent/10 text-accent">
@@ -88,14 +87,15 @@ export default async function PublicationsPage() {
                       Verified email access is required. Documents are confidential
                       and not for redistribution.
                     </p>
-                    <a
+                    <TrackedAccessLink
                       href={card.secureUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                      eventType="review_access_clicked"
+                      slotKey={card.slotKey}
+                      newTab
                       className="inline-flex items-center bg-foreground text-background px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
                     >
                       Access review copy
-                    </a>
+                    </TrackedAccessLink>
                   </div>
                 </article>
               ))}
@@ -112,9 +112,12 @@ export default async function PublicationsPage() {
             </p>
           ) : null}
           {publications.map((doc) => (
-            <Link
+            <TrackedAccessLink
               key={doc.id}
               href={`/publications/${doc.slug}`}
+              eventType="publication_details_clicked"
+              publicationId={doc.id}
+              internal
               className="group panel-interactive block p-8 sm:p-10 lg:p-12"
             >
               <div className="flex items-start justify-between gap-4 mb-3">
@@ -147,7 +150,7 @@ export default async function PublicationsPage() {
               <span className="inline-flex items-center text-sm font-medium text-accent mt-6 group-hover:translate-x-1 transition-transform">
                 View details &rarr;
               </span>
-            </Link>
+            </TrackedAccessLink>
           ))}
         </div>
 
