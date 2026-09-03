@@ -7,6 +7,7 @@ import {
   saveReviewDataRoom,
   fetchAvailableReviewDataRooms,
   syncReviewLibrary,
+  repairMissingMappings,
   ensureFixedSlots,
   updateSlotSecureLink,
   createSlotSecureLink,
@@ -109,7 +110,7 @@ export default function ReviewLibraryForm({
         <CandidatesSection candidates={candidates} slots={slots} />
       )}
       {slots.map((slot) => (
-        <SlotCard key={slot.slotKey} slot={slot} />
+        <SlotCard key={slot.slotKey} slot={slot} candidates={candidates} />
       ))}
     </div>
   )
@@ -302,6 +303,8 @@ function SyncSection({
 }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState("")
+  const [repairBusy, setRepairBusy] = useState(false)
+  const [repairMsg, setRepairMsg] = useState("")
   const router = useRouter()
 
   async function handleSync() {
@@ -311,6 +314,15 @@ function SyncSection({
     setMsg(result?.message ?? "")
     setBusy(false)
     if (result?.ok) router.refresh()
+  }
+
+  async function handleRepair() {
+    setRepairBusy(true)
+    setRepairMsg("")
+    const result = await repairMissingMappings()
+    setRepairMsg(result?.message ?? "")
+    setRepairBusy(false)
+    router.refresh()
   }
 
   return (
@@ -337,13 +349,31 @@ function SyncSection({
         >
           {busy ? "Syncing..." : "Sync"}
         </button>
+        <button
+          type="button"
+          onClick={handleRepair}
+          disabled={repairBusy}
+          className={btnSecondary}
+        >
+          {repairBusy ? "Repairing..." : "Repair missing mappings"}
+        </button>
         {!dataroomId && (
           <span className="text-xs text-amber-600">Select a Data Room first.</span>
         )}
       </div>
+      <p className="text-xs text-muted-foreground mt-2">
+        Sync already reattaches any slot whose Papermark document is missing when
+        exactly one recognised document matches. Use Repair on its own after
+        renaming a file or removing a duplicate.
+      </p>
       {msg && (
         <p className={`text-sm mt-3 ${msg.startsWith("Synced") ? "text-accent" : "text-red-600"}`}>
           {msg}
+        </p>
+      )}
+      {repairMsg && (
+        <p className={`text-sm mt-2 ${repairMsg.startsWith("Repair") || repairMsg.startsWith("All three") ? "text-accent" : "text-red-600"}`}>
+          {repairMsg}
         </p>
       )}
     </div>
@@ -446,7 +476,13 @@ function CandidatesSection({
 // Slot Card
 // ---------------------------------------------------------------------------
 
-function SlotCard({ slot }: { slot: ReviewSlot }) {
+function SlotCard({
+  slot,
+  candidates,
+}: {
+  slot: ReviewSlot
+  candidates: Candidate[]
+}) {
   const action = saveReviewItemDetails.bind(null, slot.id)
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, {})
   const [editMode, setEditMode] = useState(false)
@@ -519,6 +555,20 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
   const hasPending = !!slot.pendingDocumentId
   const hasDoc = !!slot.papermarkDocumentId
 
+  // The slot stores only the Papermark document id; the filename, page count
+  // and folder live on the sync candidate, which is the single record of what
+  // is actually in the Data Room. Reading them from there rather than copying
+  // them onto the slot keeps one source of truth.
+  const mappedCandidate = candidates.find(
+    (c) => c.papermarkDocumentId === slot.papermarkDocumentId,
+  )
+
+  // Recognised, still-present documents for this series -- what a repair would
+  // choose between.
+  const slotOptions = candidates.filter(
+    (c) => c.detectedSeries === slot.slotKey && c.isPresent && c.syncStatus !== 'ignored',
+  )
+
   // Ready means the API confirmed this exact link targets the document the slot
   // is mapped to. A URL alone is not ready: it may point at a stale edition, or
   // at the whole Data Room.
@@ -552,9 +602,18 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
             </span>
             {slot.papermarkDocumentId && (
               <span className="text-xs text-muted-foreground">
-                Papermark PDF: <span className="font-medium">{slot.pubTitle}</span>
+                Papermark PDF:{' '}
+                <span className="font-medium">
+                  {mappedCandidate?.rawFilename ?? mappedCandidate?.cleanTitle ?? slot.pubTitle}
+                </span>
+                {typeof mappedCandidate?.numPages === 'number' && (
+                  <> &middot; {mappedCandidate.numPages} pages</>
+                )}
               </span>
             )}
+            <span className="text-xs text-muted-foreground">
+              Mapping: <span className="font-medium">{hasDoc ? 'Mapped' : 'Not mapped'}</span>
+            </span>
             {slot.lastSyncedAt && (
               <span className="text-xs text-muted-foreground">
                 Last synced: {new Date(slot.lastSyncedAt).toLocaleString()}
@@ -672,10 +731,51 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
         </p>
 
         {!hasDoc && (
-          <p className="text-xs text-amber-700 mb-3">
-            No Papermark document is mapped to this slot yet. Sync the Data Room and
-            map a document before creating a link.
-          </p>
+          <div className="border border-amber-200 bg-amber-50 p-3 mb-3">
+            {slotOptions.length === 0 ? (
+              <p className="text-xs text-amber-800">
+                No recognised {slot.slotKey} document was found in the Complimentary
+                Review Data Room. Check that a {slot.slotKey} PDF is present and that
+                its filename or folder identifies the series, then run Sync again.
+              </p>
+            ) : slotOptions.length === 1 ? (
+              <>
+                <p className="text-xs text-amber-800 mb-2">
+                  One recognised {slot.slotKey} document is available. Running Sync or
+                  Repair missing mappings will attach it automatically.
+                </p>
+                <UseThisDocumentButton
+                  candidateId={slotOptions[0]!.id}
+                  slotKey={slot.slotKey}
+                  filename={slotOptions[0]!.rawFilename || slotOptions[0]!.cleanTitle}
+                />
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-amber-800 mb-2">
+                  {slotOptions.length} recognised {slot.slotKey} documents were found, so
+                  the mapping is ambiguous and was <strong>not</strong> chosen
+                  automatically. Pick the correct one:
+                </p>
+                <ul className="space-y-2">
+                  {slotOptions.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-3 flex-wrap">
+                      <span className="text-xs text-amber-900">
+                        {c.rawFilename || c.cleanTitle}
+                        {typeof c.numPages === 'number' && <> &middot; {c.numPages} pages</>}
+                        {c.detectedEditionDate && <> &middot; {c.detectedEditionDate}</>}
+                      </span>
+                      <UseThisDocumentButton
+                        candidateId={c.id}
+                        slotKey={slot.slotKey}
+                        filename={c.rawFilename || c.cleanTitle}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
         )}
 
         {hasSecureLink && (
@@ -845,5 +945,49 @@ function SlotCard({ slot }: { slot: ReviewSlot }) {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Attaches one specific candidate to a fixed slot.
+ *
+ * Shown when a repair found several recognised documents for a series and
+ * therefore refused to guess, so the choice is made explicitly here.
+ */
+function UseThisDocumentButton({
+  candidateId,
+  slotKey,
+  filename,
+}: {
+  candidateId: string
+  slotKey: string
+  filename: string
+}) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState("")
+  const router = useRouter()
+
+  async function handleUse() {
+    if (!window.confirm(`Map "${filename}" to ${slotKey}?`)) return
+    setBusy(true)
+    setMsg("")
+    const result = await mapCandidateToCard(candidateId, slotKey)
+    setMsg(result?.message ?? "")
+    setBusy(false)
+    if (result?.ok) router.refresh()
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        onClick={handleUse}
+        disabled={busy}
+        className="text-xs font-medium text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
+      >
+        {busy ? "Mapping..." : "Use this document"}
+      </button>
+      {msg && !busy && <span className="text-xs text-muted-foreground">{msg}</span>}
+    </span>
   )
 }

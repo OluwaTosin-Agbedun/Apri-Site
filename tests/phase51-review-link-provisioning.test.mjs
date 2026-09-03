@@ -703,7 +703,12 @@ describe('admin UI', () => {
   })
 
   it('shows the mapped Papermark filename and document ID', () => {
-    assert.match(form, /Papermark PDF: <span className="font-medium">\{slot\.pubTitle\}<\/span>/)
+    // The filename is read from the matching sync candidate, which is the one
+    // record of what is actually in the Data Room, and falls back to the
+    // publication title only if that row is absent.
+    assert.match(form, /Papermark PDF:/)
+    assert.match(form, /mappedCandidate\?\.rawFilename/)
+    assert.match(form, /slot\.pubTitle/)
     assert.match(form, /Document ID: \{slot\.papermarkDocumentId\}/)
   })
 

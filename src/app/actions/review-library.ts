@@ -12,6 +12,12 @@ import {
   type ReviewSeries,
 } from "@/lib/review-classify"
 import { documentVersionKey } from "@/lib/papermark-dataroom-contract"
+import {
+  decideSlotRepair,
+  summariseRepair,
+  type RepairCandidate,
+  type RepairDecision,
+} from "@/lib/review-repair"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -682,8 +688,16 @@ export async function syncReviewLibrary(): Promise<FormState> {
     `
   }
 
+  // Self-repair. A slot can hold its publication and slot_key while its
+  // papermark_document_id is null -- the candidates were already present, so
+  // every file above took the "unchanged" branch and attached nothing. Without
+  // this the slot stays unmapped through any number of syncs.
+  const repair = await repairFixedSlotMappings(sql)
+  const repairNote = summariseRepair(repair)
+
   const now = new Date().toISOString()
-  const summary = `${docs.length} documents (${added} new, ${updated} updated, ${unchanged} unchanged)`
+  const base = `${docs.length} documents (${added} new, ${updated} updated, ${unchanged} unchanged)`
+  const summary = repairNote ? `${base}; ${repairNote}` : base
   await sql`
     insert into app_settings (key, value)
     values ('review_library_last_sync_at', ${now})
@@ -697,6 +711,151 @@ export async function syncReviewLibrary(): Promise<FormState> {
 
   refresh()
   return { ok: true, message: `Synced: ${summary}.` }
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-slot mapping repair
+// ---------------------------------------------------------------------------
+
+/**
+ * What a repair pass concluded about one fixed slot.
+ *
+ * `ambiguous` carries the competing documents so the admin can offer an
+ * explicit choice rather than the sync guessing.
+ */
+/**
+ * Attaches recognised sync candidates to fixed slots that have none.
+ *
+ * The rule itself lives in `@/lib/review-repair` so it can be tested without a
+ * database; this function only reads the slot and its candidates, applies what
+ * was decided, and reports back.
+ *
+ * Deliberately conservative:
+ *
+ *  - A slot that already has a current document is never touched, so a repair
+ *    pass can never silently swap a live edition.
+ *  - Only an unambiguous single match is applied. Several candidates for one
+ *    series is a question for the owner, not something to guess at.
+ *  - It maps only. No publication is created, no secure link is minted, and
+ *    nothing outside `complimentary_review_items` and the chosen candidate's
+ *    own status is written -- subscriber links and paid Data Rooms are
+ *    untouched.
+ *
+ * Idempotent: once a slot is mapped it takes the `already-mapped` branch, so
+ * running sync repeatedly changes nothing and creates no duplicates.
+ */
+export async function repairFixedSlotMappings(
+  sql: ReturnType<typeof getSql>,
+): Promise<RepairDecision[]> {
+  const decisions: RepairDecision[] = []
+
+  for (const slotKey of FIXED_SLOTS) {
+    const slot = (await sql`
+      select id, papermark_document_id
+      from complimentary_review_items
+      where slot_key = ${slotKey}
+      limit 1
+    `) as { id: string; papermark_document_id: string | null }[]
+
+    const rows = (await sql`
+      select id, papermark_document_id, papermark_dataroom_id,
+             clean_title, raw_filename, version_key, folder_path,
+             num_pages, is_present, sync_status
+      from review_sync_candidates
+      where detected_series = ${slotKey}
+      order by papermark_updated_at desc nulls last, first_seen_at desc
+    `) as {
+      id: string
+      papermark_document_id: string
+      papermark_dataroom_id: string
+      clean_title: string
+      raw_filename: string
+      version_key: string
+      folder_path: string | null
+      num_pages: number | null
+      is_present: boolean
+      sync_status: string
+    }[]
+
+    const candidates: RepairCandidate[] = rows.map((r) => ({
+      id: r.id,
+      documentId: r.papermark_document_id,
+      dataroomId: r.papermark_dataroom_id,
+      cleanTitle: r.clean_title,
+      rawFilename: r.raw_filename,
+      versionKey: r.version_key,
+      folderPath: r.folder_path,
+      numPages: r.num_pages,
+      isPresent: r.is_present,
+      syncStatus: r.sync_status,
+    }))
+
+    const decision = decideSlotRepair({
+      slotKey,
+      slotExists: !!slot[0],
+      currentDocumentId: slot[0]?.papermark_document_id ?? null,
+      candidates,
+    })
+
+    decisions.push(decision)
+
+    if (decision.status !== 'repaired' || !decision.candidate) continue
+
+    const only = decision.candidate
+
+    await sql`
+      update complimentary_review_items set
+        papermark_document_id = ${only.documentId},
+        papermark_dataroom_id = ${only.dataroomId},
+        last_synced_at = now(),
+        updated_at = now()
+      where id = ${slot[0]!.id}::uuid
+    `
+
+    // The candidate now backs a live slot, so it is no longer merely pending.
+    await sql`
+      update review_sync_candidates set sync_status = 'approved', updated_at = now()
+      where id = ${only.id}::uuid
+    `
+
+    // If this document was also sitting in the pending columns, it is now the
+    // current edition and must not be offered as a new one as well.
+    await sql`
+      update complimentary_review_items set
+        pending_papermark_document_id = null,
+        pending_clean_title = null,
+        pending_version_key = null,
+        pending_detected_at = null,
+        updated_at = now()
+      where id = ${slot[0]!.id}::uuid
+        and pending_papermark_document_id = ${only.documentId}
+    `
+  }
+
+  return decisions
+}
+
+/**
+ * Owner-only explicit repair, as a fallback when sync has already run.
+ *
+ * Sync performs the same safe unique-match repair automatically; this button
+ * exists so the owner can retry after fixing a filename or removing a
+ * duplicate, without waiting for another full sync.
+ */
+export async function repairMissingMappings(): Promise<FormState> {
+  await requireOwner()
+  const sql = getSql()
+
+  const outcomes = await repairFixedSlotMappings(sql)
+  const summary = summariseRepair(outcomes)
+
+  refresh()
+
+  if (!summary) {
+    return { ok: true, message: "All three slots already have a mapped document. Nothing to repair." }
+  }
+  const repairedAny = outcomes.some((o) => o.status === 'repaired')
+  return { ok: repairedAny, message: `Repair: ${summary}.` }
 }
 
 async function detectPendingVersion(
@@ -715,6 +874,13 @@ async function detectPendingVersion(
 
   if (!slot[0]) return
   if (slot[0].papermark_document_id === papermarkDocId) return
+
+  // A slot with no current document has nothing to supersede. Parking the
+  // document in the pending columns would leave the slot permanently
+  // unmapped and its buttons disabled, which is the production fault this
+  // guard exists to prevent -- repairFixedSlotMappings makes it current
+  // instead.
+  if (!slot[0].papermark_document_id) return
 
   await sql`
     update complimentary_review_items set
