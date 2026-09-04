@@ -9,13 +9,23 @@ export const metadata = {
     'The terms on which APRI publications and briefings are provided.',
 }
 
+/** Shown at the top so a reader can tell whether they have seen this version. */
+const LAST_UPDATED = 'September 2026'
+
 /**
  * Terms of use.
  *
- * Kept to what actually governs the relationship: access is personal, documents
- * are view-only and identified, and the analysis is not advice. Written in plain
- * sentences rather than legal register -- a term a board member cannot follow is
- * a term they will breach without meaning to.
+ * Kept to what actually governs the relationship: access is personal, each copy
+ * is identified, the analysis is not advice. Written in plain sentences rather
+ * than legal register -- a term a board member cannot follow is a term they will
+ * breach without meaning to.
+ *
+ * Keep this page in step with the code. Two terms here were wrong for a time
+ * because the implementation moved and the page did not: it forbade downloading
+ * after downloading was enabled, and described freely shareable "open
+ * publications" after those were replaced by a Complimentary Review restricted
+ * to approved addresses. A prohibition nobody can comply with, or a permission
+ * we did not mean to give, are both worse than silence.
  */
 export default function TermsPage() {
   return (
@@ -29,7 +39,7 @@ export default function TermsPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             The terms on which APRI publications and briefings are provided, by Athena
-            Centre.
+            Centre. Last updated {LAST_UPDATED}.
           </p>
         </header>
 
@@ -46,17 +56,23 @@ export default function TermsPage() {
             </P>
           </Section>
 
-          <Section title="Documents are view-only and identified">
+          <Section title="Every copy is identified to you">
             <P>
-              Publications are provided to read on screen. This service provides no
-              download, and documents must not be copied, printed to file, re-hosted or
-              forwarded.
+              Publications may be read on screen and downloaded for your own use. What is
+              not permitted is passing a copy on: documents must not be re-hosted,
+              forwarded, or given to anyone who does not hold their own access &mdash;
+              including colleagues at your own organisation who are not named seats.
             </P>
             <P>
-              Every copy carries the name of the person it was issued to on each page, and
-              every time a document is opened is recorded. A copy found outside the person
-              it was issued to can therefore be traced. We mention this not as a threat but
-              so that nobody forwards a document assuming it is anonymous.
+              Every copy carries the email address it was issued to on each page, together
+              with the date and time it was opened. Every opening and every download is
+              recorded against you. A copy found outside the person it was issued to can
+              therefore be traced. We mention this not as a threat but so that nobody
+              forwards a document assuming it is anonymous.
+            </P>
+            <P>
+              A downloaded file keeps that watermark. Removing, obscuring or editing it is a
+              breach of these terms.
             </P>
           </Section>
 
@@ -117,12 +133,19 @@ export default function TermsPage() {
             </P>
           </Section>
 
-          <Section title="Open publications">
+          <Section title="Complimentary Review copies">
             <P>
-              Some publications are published openly and require only that you verify an
-              email address. They may be read and shared freely unless the document itself
-              says otherwise. The restrictions above apply to subscription publications, not
-              to these.
+              We make a small number of sample publications available to prospective
+              subscribers as Complimentary Review copies. Access is limited to email
+              addresses approved in advance, and the address is verified before the document
+              opens.
+            </P>
+            <P>
+              A review copy is provided for your own assessment of whether to subscribe. It
+              is confidential and not for redistribution: it carries the same watermark and
+              the same restrictions as a subscription copy, and it is not open or public
+              material. Being sent one does not make you a subscriber and grants no access
+              to the subscription library.
             </P>
           </Section>
 
