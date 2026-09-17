@@ -1,14 +1,16 @@
-import Link from 'next/link'
-import SiteHeader from '@/components/SiteHeader'
-import SiteFooter from '@/components/SiteFooter'
-import { AccessBadge } from '@/components/PublicationAccess'
-import { getPublishedPublications, getReviewLibrary } from '@/lib/publications'
-import TrackedAccessLink from '@/components/TrackedAccessLink'
+import Link from "next/link"
+import SiteHeader from "@/components/SiteHeader"
+import SiteFooter from "@/components/SiteFooter"
+import { AccessBadge } from "@/components/PublicationAccess"
+import { getPublishedPublications, getReviewLibrary } from "@/lib/publications"
+import TrackedAccessLink from "@/components/TrackedAccessLink"
 
 export const revalidate = 300
 
 export const metadata = {
-  title: 'Publications · APRI',
+  title: "Publications | Athena Political & Regulatory Intelligence (APRI)",
+  description:
+    "Explore APRI publications and analytical products for subscribers, authorised readers and prospective subscribers using the complimentary review library.",
 }
 
 export default async function PublicationsPage() {
@@ -34,10 +36,7 @@ export default async function PublicationsPage() {
 
         {/* Complimentary Review section */}
         {library && (
-          <section
-            id="complimentary-review"
-            className="mb-20 scroll-mt-28"
-          >
+          <section id="complimentary-review" className="mb-20 scroll-mt-28">
             <div className="mb-10">
               <h2 className="font-serif text-2xl sm:text-3xl text-foreground mb-6 tracking-tight">
                 APRI Complimentary Review Copy
@@ -84,8 +83,8 @@ export default async function PublicationsPage() {
 
                   <div className="mt-6 pt-5 border-t border-border/50">
                     <p className="text-[0.7rem] text-muted-foreground leading-relaxed mb-4">
-                      Verified email access is required. Documents are confidential
-                      and not for redistribution.
+                      Verified email access is required. Documents are
+                      confidential and not for redistribution.
                     </p>
                     <TrackedAccessLink
                       href={card.secureUrl}
@@ -107,8 +106,15 @@ export default async function PublicationsPage() {
         <div className="space-y-8">
           {publications.length === 0 && !library ? (
             <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl">
-              Publications will be listed here once available. For enquiries, contact us
-              or use <a href="/access" className="text-accent hover:text-accent-hover transition-colors">Request Access</a>.
+              Publications will be listed here once available. For enquiries,
+              contact us or use{" "}
+              <a
+                href="/access"
+                className="text-accent hover:text-accent-hover transition-colors"
+              >
+                Request Access
+              </a>
+              .
             </p>
           ) : null}
           {publications.map((doc) => (

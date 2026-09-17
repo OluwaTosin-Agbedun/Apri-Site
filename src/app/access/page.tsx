@@ -1,11 +1,14 @@
-import SiteHeader from '@/components/SiteHeader'
-import SiteFooter from '@/components/SiteFooter'
-import AccessForm from '@/app/access-form'
-import { accessNotice, BRIEFINGS_SEPARATE_NOTICE } from '@/lib/delivery'
-import { TIER_DESCRIPTIONS, tierDisplayName } from '@/lib/entitlements'
+import SiteHeader from "@/components/SiteHeader"
+import SiteFooter from "@/components/SiteFooter"
+import AccessForm from "@/app/access-form"
+import { accessNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
+import { TIER_DESCRIPTIONS, tierDisplayName } from "@/lib/entitlements"
 
 export const metadata = {
-  title: 'Subscription Access · APRI',
+  title:
+    "Subscription Access | Athena Political & Regulatory Intelligence (APRI)",
+  description:
+    "Subscription levels for APRI political, regulatory and political-economy intelligence, including the quarterly Subscriber Intelligence Briefing.",
 }
 
 /**
@@ -21,11 +24,11 @@ export const metadata = {
  * buyer who read that would have expected one login to pass around.
  */
 const SUBSCRIPTION_LEVELS = [
-  'Individual Access',
-  'Professional Team Access',
-  'Political Monitor',
-  'Executive Intelligence',
-  'Board Briefing',
+  "Individual Access",
+  "Professional Team Access",
+  "Political Monitor",
+  "Executive Intelligence",
+  "Board Briefing",
 ] as const
 
 /**
@@ -39,16 +42,19 @@ const SUBSCRIPTION_LEVELS = [
  */
 export default async function AccessPage({
   searchParams,
-}: {
   // Next 16: searchParams is a promise.
+}: {
   searchParams: Promise<{ level?: string | string[] }>
 }) {
   const params = await searchParams
   const requested = Array.isArray(params.level) ? params.level[0] : params.level
   const defaultLevel =
-    requested && SUBSCRIPTION_LEVELS.some((l) => tierDisplayName(l) === requested || l === requested)
+    requested &&
+    SUBSCRIPTION_LEVELS.some(
+      (l) => tierDisplayName(l) === requested || l === requested,
+    )
       ? requested
-      : ''
+      : ""
 
   return (
     <div className="min-h-screen bg-background">
@@ -60,14 +66,16 @@ export default async function AccessPage({
             Subscription Access
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            Access to APRI intelligence products is available through tiered subscriptions
-            designed for individuals, teams and organisations that require regular political
-            and regulatory intelligence on Nigeria.
+            Access to APRI intelligence products is available through tiered
+            subscriptions designed for individuals, teams and organisations that
+            require regular political and regulatory intelligence on Nigeria.
           </p>
         </header>
 
         <section className="mb-16">
-          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-10 tracking-tight">Subscription Levels</h2>
+          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-10 tracking-tight">
+            Subscription Levels
+          </h2>
 
           {/*
             Each block is the call to action for its own level. Someone who has
@@ -86,14 +94,14 @@ export default async function AccessPage({
                 >
                   <div className="flex items-baseline gap-4 mb-3">
                     <span className="text-xs text-accent tabular-nums">
-                      {String(index + 1).padStart(2, '0')}
+                      {String(index + 1).padStart(2, "0")}
                     </span>
                     <h3 className="font-serif text-xl text-foreground group-hover:text-accent transition-colors">
                       {displayName}
                     </h3>
                   </div>
                   <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl ml-8">
-                    {TIER_DESCRIPTIONS[storedName] ?? ''}
+                    {TIER_DESCRIPTIONS[storedName] ?? ""}
                   </p>
                   <span className="inline-flex items-center text-sm font-medium text-accent mt-6 ml-8 group-hover:translate-x-1 transition-transform">
                     Request Access &rarr;
@@ -104,18 +112,36 @@ export default async function AccessPage({
           </div>
         </section>
 
-        <section id="subscribe" className="mb-16 pt-16 border-t border-border scroll-mt-24">
-          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-8 tracking-tight">Request Access</h2>
+        <section className="mb-16 border border-border bg-card/30 p-8 sm:p-10 lg:p-12">
+          <p className="eyebrow mb-4">Included for subscribers</p>
+          <h2 className="font-serif text-2xl sm:text-3xl text-foreground mb-6 tracking-tight">
+            Quarterly Subscriber Intelligence Briefing
+          </h2>
+          <p className="text-base text-foreground/70 leading-relaxed max-w-4xl">
+            APRI subscribers are invited to a quarterly virtual briefing on the
+            political and regulatory outlook, with an opportunity to engage the
+            intelligence team in Q&amp;A. Private or bespoke institutional
+            briefings may be arranged separately.
+          </p>
+        </section>
+
+        <section
+          id="subscribe"
+          className="mb-16 pt-16 border-t border-border scroll-mt-24"
+        >
+          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-8 tracking-tight">
+            Request Access
+          </h2>
           <p className="text-base text-foreground/70 leading-relaxed mb-10 max-w-4xl">
-            Send us your details below. If we can help, we will reply within one business day
-            to agree terms and issue your access.
+            Send us your details below. If we can help, we will reply within one
+            business day to agree terms and issue your access.
           </p>
 
           <AccessForm defaultLevel={defaultLevel} />
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-4xl">
-              <span className="font-medium text-foreground">Access note:</span>{' '}
+              <span className="font-medium text-foreground">Access note:</span>{" "}
               {accessNotice()}
             </p>
             <p className="mt-3 text-sm text-muted-foreground leading-relaxed max-w-4xl">

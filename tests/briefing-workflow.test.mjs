@@ -56,6 +56,23 @@ test("public briefing form offers Virtual, In person, and Hybrid modes", () => {
   assert.doesNotMatch(form, /Either/)
 })
 
+test("diplomatic briefing is shared by the service catalogue and request form", () => {
+  const services = read("src/data/services.ts")
+  const form = read("src/app/request-briefing/briefing-form.tsx")
+
+  assert.match(services, /title: ["']Diplomatic & Institutional Briefing["']/)
+  assert.match(
+    services,
+    /briefingType: ["']Diplomatic & Institutional Briefing["']/,
+  )
+  assert.match(services, /["']Not sure \/ request guidance["']/)
+  assert.match(
+    form,
+    /import \{ BRIEFING_TYPES, SECTOR_OPTIONS \} from ["']@\/data\/services["']/,
+  )
+  assert.doesNotMatch(form, /const BRIEFING_TYPES/)
+})
+
 test("public briefing submission does not create subscriber or portal access", () => {
   const action = read("src/app/actions/public.ts")
   const briefingSection = action.slice(
@@ -76,18 +93,27 @@ test("the sign-in flow does not issue tokens to briefing requesters", () => {
 test("magic-link sign-in rejects briefing tokens", () => {
   const magic = read("src/lib/magic-link.ts")
   assert.doesNotMatch(magic, /issueBriefingToken/)
-  assert.doesNotMatch(magic, /createSubscriberSession\(principal\.id, "briefing"\)/)
+  assert.doesNotMatch(
+    magic,
+    /createSubscriberSession\(principal\.id, "briefing"\)/,
+  )
   assert.match(magic, /principal\.type !== "subscriber"/)
   assert.match(magic, /createSubscriberSession\(subscriber\.id, "subscriber"\)/)
 })
 
 test("portal session rejects briefing principals", () => {
   assert.equal(
-    portalPrincipalFromClaims({ principalId: "briefing-a", principalType: "briefing" }),
+    portalPrincipalFromClaims({
+      principalId: "briefing-a",
+      principalType: "briefing",
+    }),
     null,
   )
   assert.deepEqual(
-    portalPrincipalFromClaims({ principalId: "sub-a", principalType: "subscriber" }),
+    portalPrincipalFromClaims({
+      principalId: "sub-a",
+      principalType: "subscriber",
+    }),
     { principalId: "sub-a", principalType: "subscriber" },
   )
 })
@@ -120,7 +146,10 @@ test("subscriber portal is preserved and has no briefing path", () => {
 test("subscriber DAL only returns subscribers, not briefing clients", () => {
   const dal = read("src/lib/subscriber-dal.ts")
   assert.doesNotMatch(dal, /CurrentBriefingClient/)
-  assert.match(dal, /export async function requirePortalPrincipal\(\): Promise<CurrentSubscriber>/)
+  assert.match(
+    dal,
+    /export async function requirePortalPrincipal\(\): Promise<CurrentSubscriber>/,
+  )
 })
 
 test("Board Intelligence display name is applied", () => {

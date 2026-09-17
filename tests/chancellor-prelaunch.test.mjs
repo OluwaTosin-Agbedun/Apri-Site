@@ -31,7 +31,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('S1: masthead renders APRI on its own line with full name beneath', () => {
   const header = read('src/components/SiteHeader.tsx')
-  assert.match(header, /font-serif.*APRI/)
+  assert.match(header.replace(/\s+/g, ' '), /font-serif[^<]*> APRI </)
   assert.match(header, /Athena Political &amp; Regulatory Intelligence/)
   assert.doesNotMatch(header, /\|/, 'the single-line separator pipe is gone')
 })
@@ -101,9 +101,10 @@ test('S5: What APRI Tracks lists exactly the 8 approved items', () => {
 
 test('S6: "Built for consequential decisions." section with approved copy', () => {
   const page = read('src/app/page.tsx')
+  const flat = page.replace(/\s+/g, ' ')
   assert.match(page, /Built for consequential decisions\./)
-  assert.match(page, /boards and executives responsible for strategy/)
-  assert.match(page, /government relations and regulated operations in Nigeria/)
+  assert.match(flat, /boards, executives, diplomatic missions and institutional decision-makers/)
+  assert.match(flat, /government relations and regulated operations in Nigeria/)
 })
 
 // ---------------------------------------------------------------------------
@@ -276,8 +277,9 @@ test('S11: emailNotice ends with correct redistribution clause', () => {
 
 test('S11: briefings separate notice uses approved wording', () => {
   const delivery = read('src/lib/delivery.ts')
-  assert.match(delivery, /Briefing entitlements vary by subscription level/)
-  assert.match(delivery, /Additional bespoke and in-person briefings may be commissioned separately/)
+  assert.match(delivery, /Subscriptions include the quarterly virtual Subscriber Intelligence Briefing/)
+  assert.match(delivery, /Additional briefing entitlements vary by subscription level/)
+  assert.match(delivery, /Private, bespoke and in-person briefings may be arranged separately/)
 })
 
 test('S11: link verification says downloads are enabled, not view-only', () => {
@@ -306,7 +308,7 @@ test('S12: hero "Access Subscriber Library" links to /portal', () => {
 
 test('S12: header nav includes "Subscription Access" linking to /access', () => {
   const header = read('src/components/SiteHeader.tsx')
-  assert.match(header, /label: 'Subscription Access', href: '\/access'/)
+  assert.match(header, /label: ["']Subscription Access["'], href: ["']\/access["']/)
 })
 
 test('S12: header nav has no sign-in or library link in NAV_ITEMS', () => {

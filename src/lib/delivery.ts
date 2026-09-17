@@ -1,4 +1,4 @@
-import 'server-only'
+import "server-only"
 
 /**
  * How documents are delivered, and the one place that decides what we claim
@@ -25,7 +25,7 @@ import 'server-only'
  * To turn on: set WATERMARKING_ENABLED="true" and redeploy. Nothing else needs
  * editing; the wording and the link-minting call both follow this value.
  */
-export const WATERMARKING_ENABLED = process.env.WATERMARKING_ENABLED === 'true'
+export const WATERMARKING_ENABLED = process.env.WATERMARKING_ENABLED === "true"
 
 /**
  * Whether readers may download rather than only view.
@@ -45,53 +45,53 @@ export const DOWNLOADS_ENABLED = false
  */
 export function accessNotice(): string {
   return (
-    'Access is restricted to named individuals. Email verification is required ' +
-    'before a document opens, every copy is individually identified to the ' +
-    'person it was issued to, and every view is logged. APRI intelligence is ' +
-    'issued for the exclusive use of authorised readers and may not be redistributed.'
+    "Access is restricted to named individuals. Email verification is required " +
+    "before a document opens, every copy is individually identified to the " +
+    "person it was issued to, and every view is logged. APRI intelligence is " +
+    "issued for the exclusive use of authorised readers and may not be redistributed."
   )
 }
 
 /**
- * Says plainly that a briefing is not part of a subscription.
+ * Explains the common quarterly briefing and the additional entitlements.
  *
- * Shown on both the subscription page and inside the portal, because the two
- * things are bought separately and a subscriber who assumes briefings are
- * included discovers otherwise at the worst moment.
+ * Shown on both the subscription page and inside the portal. The quarterly
+ * session is included for subscribers; private commissioned
+ * engagements remain separate and other entitlements depend on level.
  */
 export const BRIEFINGS_SEPARATE_NOTICE =
-  'Briefing entitlements vary by subscription level. Additional bespoke and in-person briefings may be commissioned separately.'
+  "Subscriptions include the quarterly virtual Subscriber Intelligence Briefing. Additional briefing entitlements vary by subscription level. Private, bespoke and in-person briefings may be arranged separately."
 
 /** The note at the foot of a subscriber's own library. */
 export function portalNotice(): string {
   const watermark = WATERMARKING_ENABLED
-    ? 'Documents issued to you carry your name. '
-    : ''
+    ? "Documents issued to you carry your name. "
+    : ""
 
   return (
     watermark +
-    'Your access is personal to you, verified by your email address, and every ' +
-    'view is logged. APRI intelligence is issued for the exclusive use of ' +
-    'authorised readers and may not be redistributed.'
+    "Your access is personal to you, verified by your email address, and every " +
+    "view is logged. APRI intelligence is issued for the exclusive use of " +
+    "authorised readers and may not be redistributed."
   )
 }
 
 /** The one-line note in a subscriber email. */
 export function emailNotice(): string {
   return WATERMARKING_ENABLED
-    ? 'Issued to you as part of your APRI subscription and marked with your name. ' +
-        'APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed.'
-    : 'Issued to you as part of your APRI subscription. ' +
-        'APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed.'
+    ? "Issued to you as part of your APRI subscription and marked with your name. " +
+        "APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed."
+    : "Issued to you as part of your APRI subscription. " +
+        "APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed."
 }
 
 /** A short label for the admin's delivery panel. */
 export function deliverySummary(): {
-  watermarking: 'on' | 'off'
-  downloads: 'enabled' | 'disabled'
+  watermarking: "on" | "off"
+  downloads: "enabled" | "disabled"
 } {
   return {
-    watermarking: WATERMARKING_ENABLED ? 'on' : 'off',
-    downloads: DOWNLOADS_ENABLED ? 'enabled' : 'disabled',
+    watermarking: WATERMARKING_ENABLED ? "on" : "off",
+    downloads: DOWNLOADS_ENABLED ? "enabled" : "disabled",
   }
 }

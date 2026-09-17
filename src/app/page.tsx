@@ -1,16 +1,17 @@
-import Link from 'next/link'
-import { CONTACT_EMAIL } from '@/config'
-import SiteHeader from '@/components/SiteHeader'
-import SiteFooter from '@/components/SiteFooter'
-import { AccessBadge, AccessActionInline } from '@/components/PublicationAccess'
-import { accessNotice } from '@/lib/delivery'
-import AccessForm from './access-form'
+import Link from "next/link"
+import type { Metadata } from "next"
+import { CONTACT_EMAIL } from "@/config"
+import SiteHeader from "@/components/SiteHeader"
+import SiteFooter from "@/components/SiteFooter"
+import { AccessBadge, AccessActionInline } from "@/components/PublicationAccess"
+import { accessNotice } from "@/lib/delivery"
+import AccessForm from "./access-form"
 import {
   PUBLICATION_SECTIONS,
   getPublishedPublications,
   getReviewLibrary,
   type Publication,
-} from '@/lib/publications'
+} from "@/lib/publications"
 
 /**
  * Cached, then revalidated -- not rendered for every visitor.
@@ -23,6 +24,12 @@ import {
  */
 export const revalidate = 300
 
+export const metadata: Metadata = {
+  title: "Athena Political & Regulatory Intelligence (APRI)",
+  description:
+    "Independent political, regulatory and political-economy intelligence for organisations operating, investing and making strategic decisions in Nigeria.",
+}
+
 function PublicationCard({ doc }: { doc: Publication }) {
   return (
     <article className="group panel-interactive p-8 sm:p-10 lg:p-12">
@@ -34,7 +41,10 @@ function PublicationCard({ doc }: { doc: Publication }) {
       </div>
 
       <h3 className="font-serif text-xl text-foreground">
-        <Link href={`/publications/${doc.slug}`} className="hover:text-accent transition-colors">
+        <Link
+          href={`/publications/${doc.slug}`}
+          className="hover:text-accent transition-colors"
+        >
           {doc.title}
         </Link>
       </h3>
@@ -57,14 +67,21 @@ function PublicationCard({ doc }: { doc: Publication }) {
       </Link>
 
       <dl className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-x-6 gap-y-2 mb-8 text-xs leading-relaxed">
-        <dt className="uppercase tracking-wider text-muted-foreground">Frequency</dt>
+        <dt className="uppercase tracking-wider text-muted-foreground">
+          Frequency
+        </dt>
         <dd className="text-foreground/70">{doc.frequency}</dd>
-        <dt className="uppercase tracking-wider text-muted-foreground">Audience</dt>
+        <dt className="uppercase tracking-wider text-muted-foreground">
+          Audience
+        </dt>
         <dd className="text-foreground/70">{doc.audience}</dd>
       </dl>
 
       {/* Shared gate. Never renders papermark_link -- see PublicationAccess. */}
-      <AccessActionInline visibility={doc.visibility} openLinkUrl={doc.openLinkUrl} />
+      <AccessActionInline
+        visibility={doc.visibility}
+        openLinkUrl={doc.openLinkUrl}
+      />
 
       {doc.attribution && (
         <p className="text-xs text-muted-foreground mt-8 pt-6 border-t border-border/60 max-w-xl leading-relaxed">
@@ -101,8 +118,9 @@ export default async function HomePage() {
           </h1>
 
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed mb-12 max-w-4xl">
-            Independent political, regulatory and political-economy intelligence for
-            organisations operating, investing and making strategic decisions in Nigeria.
+            Independent political, regulatory and political-economy intelligence
+            for organisations operating, investing and making strategic
+            decisions in Nigeria.
           </p>
 
           <div className="flex flex-col sm:flex-row items-start gap-4">
@@ -114,16 +132,10 @@ export default async function HomePage() {
               else with the same neutral message. So this is safe to offer
               publicly: it grants nothing on its own.
             */}
-            <Link
-              href="/portal"
-              className="btn-primary"
-            >
+            <Link href="/portal" className="btn-primary">
               Access Subscriber Library
             </Link>
-            <Link
-              href="/services"
-              className="btn-secondary"
-            >
+            <Link href="/services" className="btn-secondary">
               Request a Briefing
             </Link>
           </div>
@@ -178,9 +190,9 @@ export default async function HomePage() {
               place and hyphenated in the other.
             */}
             <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-8">
-              APRI publishes written intelligence on Nigeria&rsquo;s political, regulatory
-              and political-economy environment, issued to subscribers and authorised
-              readers.
+              APRI publishes written intelligence on Nigeria&rsquo;s political,
+              regulatory and political-economy environment, issued to
+              subscribers and authorised readers.
             </p>
           </div>
 
@@ -216,14 +228,14 @@ export default async function HomePage() {
             </h2>
             <ul className="space-y-4 text-sm text-foreground/80">
               {[
-                'Political Power & Coalition Dynamics',
-                'Executive & Legislative Watch',
-                'Government & Regulatory Intelligence',
-                'Policy Implementation & Institutional Behaviour',
-                'Sector Exposure & Operating Risk',
-                'State-Level Political Risk',
-                'Election & Transition Risk',
-                'Political Economy Outlook',
+                "Political Power & Coalition Dynamics",
+                "Executive & Legislative Watch",
+                "Government & Regulatory Intelligence",
+                "Policy Implementation & Institutional Behaviour",
+                "Sector Exposure & Operating Risk",
+                "State-Level Political Risk",
+                "Election & Transition Risk",
+                "Political Economy Outlook",
               ].map((item) => (
                 <li key={item} className="flex gap-3">
                   <span className="text-accent">&mdash;</span>
@@ -238,14 +250,17 @@ export default async function HomePage() {
               Built for consequential decisions.
             </h2>
             <p className="text-sm text-foreground/80 leading-relaxed mb-8">
-              For boards and executives responsible for strategy, risk, investment,
-              government relations and regulated operations in Nigeria.
+              For boards, executives, diplomatic missions and institutional
+              decision-makers responsible for strategy, risk, investment,
+              policy, country assessment, government relations and regulated
+              operations in Nigeria.
             </p>
             <Link
               href="/services"
               className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors"
             >
-              Services &amp; Briefings <span className="ml-2 opacity-70">&rarr;</span>
+              Services &amp; Briefings{" "}
+              <span className="ml-2 opacity-70">&rarr;</span>
             </Link>
           </section>
         </div>
@@ -259,30 +274,50 @@ export default async function HomePage() {
             Signal. Interpretation. Implication.
           </p>
           <p className="text-sm text-foreground/80 leading-relaxed mb-10 max-w-4xl">
-            APRI distinguishes political noise from developments that can materially
-            affect regulation, capital allocation, market access and corporate strategy.
-            Our analysis combines political intelligence, regulatory monitoring,
-            institutional analysis and sector-specific assessment.
+            APRI distinguishes political noise from developments that can
+            materially affect regulation, capital allocation, market access and
+            corporate strategy. Our analysis combines political intelligence,
+            regulatory monitoring, institutional analysis and sector-specific
+            assessment.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
             <div>
-              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">What changed</h3>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">
+                What changed
+              </h3>
             </div>
             <div>
-              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">Why it matters</h3>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">
+                Why it matters
+              </h3>
             </div>
             <div>
-              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">What to watch</h3>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">
+                What to watch
+              </h3>
             </div>
           </div>
+          <Link
+            href="/team#analytical-approach"
+            className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mt-10"
+          >
+            Meet our team and read our analytical approach{" "}
+            <span className="ml-2 opacity-70">&rarr;</span>
+          </Link>
         </section>
 
         {/* Subscription Access */}
-        <section id="access" className="mb-24 pt-16 border-t border-border scroll-mt-28">
-          <h2 className="font-serif text-2xl text-foreground mb-4">Subscription Access</h2>
+        <section
+          id="access"
+          className="mb-24 pt-16 border-t border-border scroll-mt-28"
+        >
+          <h2 className="font-serif text-2xl text-foreground mb-4">
+            Subscription Access
+          </h2>
           <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-4xl">
-            Access to the APRI subscriber library is granted to authorised recipients.
-            Submit your details below and a secure access link will be issued if approved.
+            Access to the APRI subscriber library is granted to authorised
+            recipients. Submit your details below and a secure access link will
+            be issued if approved.
           </p>
 
           <AccessForm />
@@ -292,29 +327,67 @@ export default async function HomePage() {
               href="/access"
               className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors"
             >
-              View all subscription levels <span className="ml-2 opacity-70">&rarr;</span>
+              View all subscription levels{" "}
+              <span className="ml-2 opacity-70">&rarr;</span>
             </Link>
           </div>
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-4xl">
-              <span className="font-medium text-foreground">Access note:</span>{' '}
+              <span className="font-medium text-foreground">Access note:</span>{" "}
               {accessNotice()}
             </p>
           </div>
         </section>
 
         {/* Contact */}
-        <section id="contact" className="mb-24 pt-16 border-t border-border scroll-mt-28">
+        <section
+          id="contact"
+          className="mb-24 pt-16 border-t border-border scroll-mt-28"
+        >
           <h2 className="font-serif text-xl text-foreground mb-6">
             About Athena Political &amp; Regulatory Intelligence
           </h2>
           <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-4xl">
-            Athena Political &amp; Regulatory Intelligence helps business leaders understand
-            how shifts in political power, public policy, regulation and institutional
-            behaviour may affect their operating environment, investment decisions and
+            Athena Political &amp; Regulatory Intelligence helps business
+            leaders, boards, diplomatic missions and institutional
+            decision-makers understand how shifts in political power, public
+            policy, regulation and institutional behaviour may affect their
+            operating environment, investment decisions, country assessment and
             strategic outlook.
           </p>
+
+          <p className="text-sm text-foreground/80 leading-relaxed mb-5 max-w-4xl">
+            Athena Political &amp; Regulatory Intelligence is a service of the
+            Athena Centre for Policy and Leadership.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-7 text-sm mb-8">
+            <p>
+              <span className="text-muted-foreground mr-2">APRI:</span>
+              <a
+                href="https://apri.athenacentre.org/"
+                className="text-accent hover:text-accent-hover transition-colors"
+              >
+                apri.athenacentre.org
+              </a>
+            </p>
+            <p>
+              <span className="text-muted-foreground mr-2">Athena Centre:</span>
+              <a
+                href="https://www.athenacentre.org/"
+                className="text-accent hover:text-accent-hover transition-colors"
+              >
+                www.athenacentre.org
+              </a>
+            </p>
+          </div>
+          <Link
+            href="/team"
+            className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mb-8"
+          >
+            Meet our intelligence team{" "}
+            <span className="ml-2 opacity-70">&rarr;</span>
+          </Link>
 
           <div className="text-sm">
             <span className="text-muted-foreground mr-2">Contact:</span>

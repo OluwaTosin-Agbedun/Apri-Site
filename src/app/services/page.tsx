@@ -1,13 +1,14 @@
-import Link from 'next/link'
-import { SERVICES, type ServiceItem } from '@/data/services'
-import { BRIEFING_FORM_URL } from '@/config'
-import SiteHeader from '@/components/SiteHeader'
-import SiteFooter from '@/components/SiteFooter'
+import Link from "next/link"
+import { SERVICES, type ServiceItem } from "@/data/services"
+import { BRIEFING_FORM_URL } from "@/config"
+import SiteHeader from "@/components/SiteHeader"
+import SiteFooter from "@/components/SiteFooter"
 
 export const metadata = {
-  title: 'Services & Briefings · APRI',
+  title:
+    "Services & Briefings | Athena Political & Regulatory Intelligence (APRI)",
   description:
-    'Private political and regulatory intelligence briefings for boards, executives and strategy teams.',
+    "Private political and regulatory intelligence briefings for boards, executives, diplomatic missions and institutional decision-makers.",
 }
 
 /**
@@ -22,12 +23,12 @@ function RequestLink({
 }: {
   type?: string
   label: string
-  variant: 'primary' | 'quiet'
+  variant: "primary" | "quiet"
 }) {
   const className =
-    variant === 'primary'
-      ? 'inline-flex items-center bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors'
-      : 'inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors'
+    variant === "primary"
+      ? "inline-flex items-center bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
+      : "inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors"
 
   const arrow = (
     <span className="ml-2 opacity-70 group-hover:translate-x-1 transition-transform">
@@ -74,9 +75,11 @@ function ServiceCard({ service, index }: { service: ServiceItem; index: number }
         {service.designedFor}
       </p>
 
-      <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-2xl">
-        {service.body}
-      </p>
+      {service.body && (
+        <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-2xl">
+          {service.body}
+        </p>
+      )}
 
       <div className="mb-8">
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-4">
@@ -93,13 +96,21 @@ function ServiceCard({ service, index }: { service: ServiceItem; index: number }
       </div>
 
       <dl className="grid grid-cols-1 sm:grid-cols-[6rem_1fr] gap-x-6 gap-y-2 mb-8 text-xs leading-relaxed">
-        <dt className="uppercase tracking-wider text-muted-foreground">Format</dt>
+        <dt className="uppercase tracking-wider text-muted-foreground">
+          Format
+        </dt>
         <dd className="text-foreground/70">{service.format}</dd>
-        <dt className="uppercase tracking-wider text-muted-foreground">Delivery</dt>
+        <dt className="uppercase tracking-wider text-muted-foreground">
+          Delivery
+        </dt>
         <dd className="text-foreground/70">{service.delivery}</dd>
       </dl>
 
-      <RequestLink type={service.briefingType} label={service.ctaLabel} variant="quiet" />
+      <RequestLink
+        type={service.briefingType}
+        label={service.ctaLabel}
+        variant="quiet"
+      />
     </article>
   )
 }
@@ -115,27 +126,29 @@ export default function ServicesPage() {
             Services &amp; Briefings
           </h1>
           <p className="text-lg text-foreground/80 leading-relaxed mb-10 max-w-2xl">
-            Private political and regulatory intelligence briefings for boards, executives
-            and strategy teams.
+            Private political and regulatory intelligence briefings for boards,
+            executives, diplomatic missions and institutional decision-makers.
           </p>
 
           <p className="text-sm text-foreground/70 leading-relaxed mb-6 max-w-2xl">
-            APRI provides private briefings for organisations that need to interpret
-            Nigeria&rsquo;s political, regulatory and political-economy environment in
-            relation to strategy, enterprise risk, investment decisions, sector exposure or
-            board oversight.
+            APRI provides private briefings for organisations that need to
+            interpret Nigeria&rsquo;s political, regulatory and
+            political-economy environment in relation to strategy, enterprise
+            risk, investment decisions, sector exposure, board oversight,
+            policy, institutional priorities or country assessment.
           </p>
           <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-2xl">
-            Briefings may be delivered virtually or in person, subject to scope, audience,
-            location and availability.
+            Briefings may be delivered virtually or in person, subject to scope,
+            audience, location and availability.
           </p>
 
           <RequestLink label="Request a Briefing" variant="primary" />
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-              APRI briefings are independent analytical sessions. They are not lobbying,
-              political access brokerage, legal advice or investment advice.
+              APRI briefings are independent analytical sessions. They are not
+              lobbying, political access brokerage, legal advice or investment
+              advice.
             </p>
           </div>
         </header>
@@ -149,10 +162,12 @@ export default function ServicesPage() {
         </section>
 
         <section className="mb-24 pt-16 border-t border-border">
-          <h2 className="font-serif text-xl text-foreground mb-6">Request a Briefing</h2>
+          <h2 className="font-serif text-xl text-foreground mb-6">
+            Request a Briefing
+          </h2>
           <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-2xl">
-            Tell us the type of briefing you require, your preferred format and timeline,
-            and we will respond to discuss scope and availability.
+            Tell us the type of briefing you require, your preferred format and
+            timeline, and we will respond to discuss scope and availability.
           </p>
           <RequestLink label="Request a Briefing" variant="primary" />
         </section>

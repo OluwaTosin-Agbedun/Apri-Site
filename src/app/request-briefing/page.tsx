@@ -1,18 +1,19 @@
-import Link from 'next/link'
-import SiteHeader from '@/components/SiteHeader'
-import SiteFooter from '@/components/SiteFooter'
-import BriefingForm from './briefing-form'
+import Link from "next/link"
+import SiteHeader from "@/components/SiteHeader"
+import SiteFooter from "@/components/SiteFooter"
+import BriefingForm from "./briefing-form"
 
 export const metadata = {
-  title: 'Request a Briefing · APRI',
+  title:
+    "Request a Briefing | Athena Political & Regulatory Intelligence (APRI)",
   description:
-    'Request a private political and regulatory intelligence briefing from APRI.',
+    "Request a private political and regulatory intelligence briefing from APRI.",
 }
 
 export default async function RequestBriefingPage({
   searchParams,
-}: {
   // In Next 16 searchParams is a promise and must be awaited.
+}: {
   searchParams: Promise<{ type?: string }>
 }) {
   const { type } = await searchParams
@@ -27,8 +28,8 @@ export default async function RequestBriefingPage({
             Request a Briefing
           </h1>
           <p className="text-lg text-foreground/80 leading-relaxed mb-4 max-w-2xl">
-            Tell us the type of briefing you require, your preferred format and timeline,
-            and we will respond to discuss scope and availability.
+            Tell us the type of briefing you require, your preferred format and
+            timeline, and we will respond to discuss scope and availability.
           </p>
           {/*
             Said plainly, because the two forms ask for similar details and a
@@ -36,17 +37,22 @@ export default async function RequestBriefingPage({
             they did not want.
           */}
           <p className="text-sm text-foreground/70 leading-relaxed mb-8 max-w-2xl">
-            This is a <strong>briefing request</strong> &mdash; a commissioned engagement
-            for your organisation, not a subscription. It does not include the
-            intelligence library. For ongoing access to published editions, use{' '}
-            <Link href="/access" className="text-accent hover:text-accent-hover transition-colors">
+            This is a <strong>briefing request</strong> &mdash; a commissioned
+            engagement for your organisation, not a subscription. It does not
+            include the intelligence library. For ongoing access to published
+            editions, use{" "}
+            <Link
+              href="/access"
+              className="text-accent hover:text-accent-hover transition-colors"
+            >
               Subscription Access
             </Link>
             .
           </p>
           <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-            APRI briefings are independent analytical sessions. They are not lobbying,
-            political access brokerage, legal advice or investment advice.
+            APRI briefings are independent analytical sessions. They are not
+            lobbying, political access brokerage, legal advice or investment
+            advice.
           </p>
         </header>
 
