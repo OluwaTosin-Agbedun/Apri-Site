@@ -132,7 +132,7 @@ describe('link security settings', () => {
     assert.equal(s.enable_watermark, true)
   })
 
-  it('allow_list stays empty so any verified address may read', () => {
+  it('an omitted allow list is empty so provisioning callers can fail closed', () => {
     assert.deepEqual(s.allow_list, [])
   })
 
@@ -140,8 +140,8 @@ describe('link security settings', () => {
     assert.equal(s.enable_screenshot_protection, true)
   })
 
-  it('download policy matches the existing Complimentary Review policy', () => {
-    assert.equal(s.allow_download, true)
+  it('downloads are disabled for Complimentary Review links', () => {
+    assert.equal(s.allow_download, false)
   })
 
   it('watermark text is exactly the approved wording', () => {
@@ -238,7 +238,7 @@ describe('isDocumentTargetedLink', () => {
     assert.match(r.reason, /doc_1/)
   })
 
-  it('create and verify both run the check before returning', () => {
+  it('create, verify and update all enforce the review policy before returning', () => {
     const src = read(SERVICE)
     for (const name of [
       'createReviewDocumentLink',
@@ -246,7 +246,7 @@ describe('isDocumentTargetedLink', () => {
       'updateReviewDocumentLink',
     ]) {
       const fn = src.slice(src.indexOf(`export async function ${name}`))
-      assert.match(fn.slice(0, 2500), /isDocumentTargetedLink/, `${name} must validate the target`)
+      assert.match(fn.slice(0, 4000), /isDocumentTargetedLink|reviewPolicyProblem/, `${name} must validate the target and policy`)
     }
   })
 })
@@ -504,9 +504,10 @@ describe('public library gating', () => {
     assert.match(fn, /items\.length !== 3/)
   })
 
-  it('the public page renders one direct link per card', () => {
-    assert.match(page, /card\.secureUrl/)
-    assert.match(page, /Access review copy/)
+  it('the public page routes to the request funnel without secure links', () => {
+    assert.doesNotMatch(page, /card\.secureUrl/)
+    assert.match(page, /href="\/review"/)
+    assert.match(page, /Request Complimentary Review Access/)
   })
 
   it('the enable gate refuses an unverified or mismatched link', () => {

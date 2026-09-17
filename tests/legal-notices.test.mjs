@@ -67,9 +67,9 @@ describe('downloads', () => {
     assert.equal(s.allow_download, true)
   })
 
-  it('are in fact enabled on review links', () => {
+  it('are disabled on review links', () => {
     const s = reviewLinkSettings({ documentId: 'd', slotKey: 'MIN', allowList: ['a@x.com'] })
-    assert.equal(s.allow_download, true)
+    assert.equal(s.allow_download, false)
   })
 
   it('a download route exists', () => {

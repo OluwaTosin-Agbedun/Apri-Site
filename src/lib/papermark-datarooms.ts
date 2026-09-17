@@ -11,6 +11,7 @@ import {
   reviewLinkSettings,
   isDocumentTargetedLink,
   subscriberWatermarkConfig,
+  PROSPECT_WATERMARK_TEXT,
   type DataRoomLinkSettings,
   type DocumentLinkSettings,
   type ReviewLinkSettings,
@@ -73,6 +74,7 @@ export type DataRoomLink = {
   allow_download?: boolean
   enable_watermark?: boolean
   enable_screenshot_protection?: boolean
+  watermark_config?: { text?: string; opacity?: number; font_size?: number }
   allow_list?: string[]
   updated_at?: string
 }
@@ -436,6 +438,30 @@ export type ReviewLink = {
   settings: ReviewLinkSettings
 }
 
+const REVIEW_POLICY_MANUAL_STEP =
+  'One-time Papermark step: open this existing Complimentary Review link, disable downloads, enable verified-email authentication and screenshot protection, apply the approved-recipient allow list, and set the exact APRI Complimentary Review watermark at opacity 0.15 and font size 18; then run Preview and Apply again.'
+
+function reviewPolicyProblem(
+  link: DataRoomLink,
+  expectedDocumentId: string,
+  expectedAllowList: readonly string[],
+): string | null {
+  const target = isDocumentTargetedLink(link, expectedDocumentId)
+  if (!target.ok) return target.reason
+  const actual = new Set((link.allow_list ?? []).map((email) => email.trim().toLowerCase()))
+  const expected = new Set(expectedAllowList.map((email) => email.trim().toLowerCase()))
+  if (expected.size === 0 || actual.size !== expected.size || [...expected].some((email) => !actual.has(email))) return 'The approved-recipient allow list is missing or does not match.'
+  if (link.email_protected !== true) return 'Verified-email protection is disabled.'
+  if (link.email_authenticated !== true) return 'Email authentication is disabled.'
+  if (link.allow_download !== false) return 'Downloads are not disabled.'
+  if (link.enable_watermark !== true) return 'The personalised watermark is disabled.'
+  if (link.enable_screenshot_protection !== true) return 'Screenshot protection is disabled.'
+  const watermark = link.watermark_config
+  if (watermark?.text !== PROSPECT_WATERMARK_TEXT || watermark.opacity !== 0.15 || watermark.font_size !== 18) return 'The Complimentary Review watermark does not match the approved text, opacity and font size.'
+  if (watermark.text.includes('{{ip}}')) return 'The watermark exposes an IP address.'
+  return null
+}
+
 /**
  * The verified custom domain to mint review links on, if one is configured.
  *
@@ -508,6 +534,18 @@ export async function createReviewDocumentLink(args: {
       )
     }
 
+    const policyProblem = reviewPolicyProblem(link, documentId, args.allowList)
+    if (policyProblem) {
+      try {
+        await papermarkRequest<void>(`/v1/links/${encodeURIComponent(link.id)}`, {
+          method: 'DELETE',
+        })
+      } catch {
+        throw new PapermarkError(`${policyProblem} The non-compliant link ${link.id} could not be revoked and must be removed manually. ${REVIEW_POLICY_MANUAL_STEP}`)
+      }
+      throw new PapermarkError(`${policyProblem} The non-compliant new link was revoked. ${REVIEW_POLICY_MANUAL_STEP}`)
+    }
+
     const url = link.url
     if (!url || !url.startsWith('https://')) {
       throw new PapermarkError(
@@ -529,6 +567,7 @@ export async function createReviewDocumentLink(args: {
 export async function verifyReviewDocumentLink(args: {
   linkId: string
   expectedDocumentId: string
+  expectedAllowList?: readonly string[]
 }): Promise<ServiceResult<{ url: string; documentId: string }>> {
   const linkId = args.linkId.trim()
   if (!linkId) {
@@ -542,6 +581,10 @@ export async function verifyReviewDocumentLink(args: {
 
     const target = isDocumentTargetedLink(link, args.expectedDocumentId)
     if (!target.ok) throw new PapermarkError(target.reason)
+    if (args.expectedAllowList) {
+      const problem = reviewPolicyProblem(link, args.expectedDocumentId, args.expectedAllowList)
+      if (problem) throw new PapermarkError(`${problem} ${REVIEW_POLICY_MANUAL_STEP}`)
+    }
 
     const url = link.url
     if (!url || !url.startsWith('https://')) {
@@ -589,7 +632,7 @@ export async function updateReviewDocumentLink(args: {
   })
 
   return attempt(async () => {
-    const link = await papermarkRequest<DataRoomLink>(
+    await papermarkRequest<DataRoomLink>(
       `/v1/links/${encodeURIComponent(linkId)}`,
       {
         method: 'PATCH',
@@ -605,8 +648,9 @@ export async function updateReviewDocumentLink(args: {
       },
     )
 
-    const target = isDocumentTargetedLink(link, args.documentId)
-    if (!target.ok) throw new PapermarkError(target.reason)
+    const link = await papermarkRequest<DataRoomLink>(`/v1/links/${encodeURIComponent(linkId)}`)
+    const problem = reviewPolicyProblem(link, args.documentId, args.allowList)
+    if (problem) throw new PapermarkError(`${problem} ${REVIEW_POLICY_MANUAL_STEP}`)
 
     const url = link.url
     if (!url || !url.startsWith('https://')) {
@@ -706,6 +750,12 @@ export async function getReviewLinkSettings(
   emailAuthenticated: boolean
   allowDownload: boolean
   watermarkEnabled: boolean
+  screenshotProtection: boolean
+  watermarkText: string | null
+  watermarkOpacity: number | null
+  watermarkFontSize: number | null
+  policyCompliant: boolean
+  policyProblem: string | null
   documentId: string | null
 }>> {
   const id = linkId.trim()
@@ -713,12 +763,19 @@ export async function getReviewLinkSettings(
 
   return attempt(async () => {
     const link = await papermarkRequest<DataRoomLink>(`/v1/links/${encodeURIComponent(id)}`)
+    const policyProblem = reviewPolicyProblem(link, link.document_id ?? '', link.allow_list ?? [])
     return {
       allowList: link.allow_list ?? [],
       emailProtected: link.email_protected === true,
       emailAuthenticated: link.email_authenticated === true,
       allowDownload: link.allow_download === true,
       watermarkEnabled: link.enable_watermark === true,
+      screenshotProtection: link.enable_screenshot_protection === true,
+      watermarkText: link.watermark_config?.text ?? null,
+      watermarkOpacity: link.watermark_config?.opacity ?? null,
+      watermarkFontSize: link.watermark_config?.font_size ?? null,
+      policyCompliant: policyProblem === null,
+      policyProblem,
       documentId: link.document_id ?? null,
     }
   }, 'Reading the review link settings')

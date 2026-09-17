@@ -218,7 +218,7 @@ test('getPublicationBySlug: does not filter by OPEN only', () => {
 test('publications.ts has toPublicPublication sanitizer', () => {
   const src = read('src/lib/publications.ts')
   assert.match(src, /function toPublicPublication/)
-  assert.match(src, /papermarkLink: ''/)
+  assert.match(src, /papermarkLink: ["']/)
   assert.match(src, /openLinkUrl: null/)
 })
 

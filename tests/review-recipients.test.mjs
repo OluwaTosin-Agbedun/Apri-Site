@@ -755,14 +755,14 @@ describe('email restrictions: preview then apply', () => {
   it('apply refuses BEFORE touching any link', () => {
     const fn = fnBody(src, 'applyEmailRestrictions')
     const guard = fn.indexOf('canProvisionLinks(approved)')
-    const call = fn.indexOf('setReviewLinkAllowList')
+    const call = fn.indexOf('updateReviewDocumentLink')
     assert.ok(guard < call, 'the guard must precede the first link write')
   })
 
   it('apply updates the three existing links, not new ones', () => {
     const fn = fnBody(src, 'applyEmailRestrictions')
     assert.match(fn, /slot_key in \('MIN', 'AIU', 'PLM'\)/)
-    assert.match(fn, /setReviewLinkAllowList/)
+    assert.match(fn, /updateReviewDocumentLink/)
     assert.doesNotMatch(fn, /createReviewDocumentLink/)
   })
 
@@ -852,7 +852,7 @@ describe('all provisioning paths use the approved list', () => {
   })
 })
 
-describe('restrictions leave protected settings alone', () => {
+describe('restrictions enforce protected settings', () => {
   it('verified-email access is still required', () => {
     const s = reviewLinkSettings({ documentId: 'd', slotKey: 'MIN', allowList: ['a@x.com'] })
     assert.equal(s.email_protected, true)
@@ -867,9 +867,9 @@ describe('restrictions leave protected settings alone', () => {
     assert.match(s.watermark_config.text, /APRI Complimentary Review Copy/)
   })
 
-  it('the download setting is unchanged', () => {
+  it('the download setting is disabled', () => {
     const s = reviewLinkSettings({ documentId: 'd', slotKey: 'MIN', allowList: ['a@x.com'] })
-    assert.equal(s.allow_download, true)
+    assert.equal(s.allow_download, false)
   })
 
   it('the document target is unchanged and no dataroom_id appears', () => {

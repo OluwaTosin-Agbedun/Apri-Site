@@ -1,6 +1,6 @@
-import 'server-only'
-import { getSql } from './db'
-import { isVisibility, type Visibility } from './entitlements'
+import "server-only"
+import { getSql } from "./db"
+import { isVisibility, type Visibility } from "./entitlements"
 
 export { PUBLICATION_SECTIONS, type PublicationSection } from "./sections"
 
@@ -17,7 +17,7 @@ export type Publication = {
   audience: string
   attribution: string
   ctaLabel: string
-  ctaMode: 'link' | 'request'
+  ctaMode: "link" | "request"
   papermarkLink: string
   coverageAreas: string
   visibility: Visibility
@@ -43,7 +43,7 @@ type Row = {
   audience: string
   attribution: string
   cta_label: string
-  cta_mode: 'link' | 'request'
+  cta_mode: "link" | "request"
   papermark_link: string
   coverage_areas: string
   visibility: string
@@ -75,7 +75,7 @@ function toPublication(row: Row): Publication {
     coverageAreas: row.coverage_areas,
     // An unrecognised value falls back to the most restrictive setting. A
     // publication must never become public because its visibility was mangled.
-    visibility: isVisibility(row.visibility) ? row.visibility : 'L4',
+    visibility: isVisibility(row.visibility) ? row.visibility : "L4",
     openLinkUrl: row.open_link_url,
     series: row.series,
     code: row.code,
@@ -95,8 +95,8 @@ function toPublication(row: Row): Publication {
  * by accident — public queries always call this.
  */
 function toPublicPublication(pub: Publication): Publication {
-  if (pub.visibility === 'OPEN') return pub
-  return { ...pub, papermarkLink: '', openLinkUrl: null }
+  if (pub.visibility === "OPEN") return pub
+  return { ...pub, papermarkLink: "", openLinkUrl: null }
 }
 
 const SELECT_COLUMNS = `
@@ -122,7 +122,7 @@ const SELECT_COLUMNS = `
  */
 async function publicRead(
   run: () => Promise<Row[]>,
-  context: string
+  context: string,
 ): Promise<Row[]> {
   try {
     return await run()
@@ -131,7 +131,7 @@ async function publicRead(
     // or connection string is included.
     console.warn(
       `[publications] ${context} failed; rendering an empty list. ` +
-        `The page will retry on the next revalidation.`
+        `The page will retry on the next revalidation.`,
     )
     return []
   }
@@ -145,9 +145,9 @@ export async function getPublishedPublications(): Promise<Publication[]> {
       `select ${SELECT_COLUMNS} from documents
        where is_published = true and status = 'published'
          and visibility <> 'OPEN'
-       order by sort_order asc, created_at desc`
+       order by sort_order asc, created_at desc`,
     )) as Row[]
-  }, 'published list')
+  }, "published list")
 
   return rows.map(toPublication).map(toPublicPublication)
 }
@@ -159,24 +159,26 @@ export async function getOpenPublications(): Promise<Publication[]> {
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
        where is_published = true and visibility = 'OPEN'
-       order by sort_order asc, created_at desc`
+       order by sort_order asc, created_at desc`,
     )) as Row[]
-  }, 'open publications list')
+  }, "open publications list")
 
   return rows.map(toPublication)
 }
 
 /** Single publication by slug, for detail pages. OPEN and subscriber-only. */
-export async function getPublicationBySlug(slug: string): Promise<Publication | null> {
+export async function getPublicationBySlug(
+  slug: string,
+): Promise<Publication | null> {
   const rows = await publicRead(async () => {
     const sql = getSql()
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
        where slug = $1 and is_published = true and status = 'published'
        limit 1`,
-      [slug]
+      [slug],
     )) as Row[]
-  }, 'lookup by slug')
+  }, "lookup by slug")
 
   return rows[0] ? toPublicPublication(toPublication(rows[0])) : null
 }
@@ -191,15 +193,17 @@ export type ReviewCard = {
   description: string
   frequency: string
   audience: string
-  secureUrl: string
-  slotKey: 'MIN' | 'AIU' | 'PLM'
+  slotKey: "MIN" | "AIU" | "PLM"
 }
+
+export type SecureReviewCard = ReviewCard & { secureUrl: string }
 
 export type ReviewLibrary = {
   items: ReviewCard[]
 }
 
-export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
+/** Public metadata only. This query deliberately never selects a secure URL. */
+export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
   try {
     const sql = getSql()
 
@@ -207,19 +211,15 @@ export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
       select value from app_settings where key = 'review_library_enabled' limit 1
     `) as { value: string }[]
 
-    if (enabledRow[0]?.value !== 'true') return null
+    if (enabledRow[0]?.value !== "true") return null
 
     const items = (await sql`
       select d.title as pub_title,
-             ri.publication_type, ri.description, ri.frequency, ri.audience,
-             ri.secure_link_url, ri.slot_key
+             ri.publication_type, ri.description, ri.frequency, ri.audience, ri.slot_key
       from complimentary_review_items ri
       join documents d on d.id = ri.publication_id
       where ri.is_active = true
         and ri.slot_key in ('MIN', 'AIU', 'PLM')
-        and ri.secure_link_url <> ''
-        and ri.secure_link_verified_at is not null
-        and ri.secure_link_document_id = ri.papermark_document_id
       order by ri.display_order, ri.created_at
     `) as {
       pub_title: string
@@ -227,7 +227,6 @@ export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
       description: string
       frequency: string
       audience: string
-      secure_link_url: string
       slot_key: string
     }[]
 
@@ -240,12 +239,52 @@ export async function getReviewLibrary(): Promise<ReviewLibrary | null> {
         description: r.description,
         frequency: r.frequency,
         audience: r.audience,
-        secureUrl: r.secure_link_url,
-        slotKey: r.slot_key as 'MIN' | 'AIU' | 'PLM',
+        slotKey: r.slot_key as "MIN" | "AIU" | "PLM",
       })),
     }
   } catch {
     return null
+  }
+}
+
+/** Authorised query for the protected Review Library only. */
+export async function getReviewLibrary(): Promise<{
+  items: SecureReviewCard[]
+} | null> {
+  const sql = getSql()
+  const enabled =
+    (await sql`select value from app_settings where key='review_library_enabled'`) as {
+      value: string
+    }[]
+  if (enabled[0]?.value !== "true") return null
+  const items = (await sql`
+    select d.title as pub_title, ri.publication_type, ri.description,
+      ri.frequency, ri.audience, ri.slot_key, ri.secure_link_url
+    from complimentary_review_items ri join documents d on d.id=ri.publication_id
+    where ri.is_active = true and ri.slot_key in ('MIN', 'AIU', 'PLM')
+      and ri.secure_link_url <> '' and ri.secure_link_verified_at is not null
+      and ri.secure_link_document_id = ri.papermark_document_id
+    order by ri.display_order, ri.created_at
+  `) as {
+    pub_title: string
+    publication_type: string
+    description: string
+    frequency: string
+    audience: string
+    slot_key: string
+    secure_link_url: string
+  }[]
+  if (items.length !== 3) return null
+  return {
+    items: items.map((r) => ({
+      pubTitle: r.pub_title,
+      publicationType: r.publication_type,
+      description: r.description,
+      frequency: r.frequency,
+      audience: r.audience,
+      slotKey: r.slot_key as ReviewCard["slotKey"],
+      secureUrl: r.secure_link_url,
+    })),
   }
 }
 
@@ -260,9 +299,9 @@ export async function getAllPublications(): Promise<Publication[]> {
     const sql = getSql()
     return (await sql.query(
       `select ${SELECT_COLUMNS} from documents
-       order by sort_order asc, created_at desc`
+       order by sort_order asc, created_at desc`,
     )) as Row[]
-  }, 'full list')
+  }, "full list")
 
   return rows.map(toPublication)
 }

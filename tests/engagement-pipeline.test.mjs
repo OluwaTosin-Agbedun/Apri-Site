@@ -553,12 +553,13 @@ describe('instrumented surfaces', () => {
   it('Complimentary Review Access review copy is tracked', () => {
     const src = read('src/app/publications/page.tsx')
     assert.match(src, /eventType="review_access_clicked"/)
-    assert.match(src, /Access review copy/)
+    assert.match(src, /Request Complimentary Review Access/)
   })
 
-  it('the review link still points at the same secure URL', () => {
-    // The public URL must not change.
-    assert.match(read('src/app/publications/page.tsx'), /href=\{card\.secureUrl\}/)
+  it('the public review link enters the controlled funnel without exposing credentials', () => {
+    const page = read('src/app/publications/page.tsx')
+    assert.match(page, /href="\/review"/)
+    assert.doesNotMatch(page, /card\.secureUrl/)
   })
 
   it('subscriber View details is tracked', () => {
@@ -1059,10 +1060,11 @@ describe('safeguards', () => {
     assert.match(fn, /email_authenticated: true/)
   })
 
-  it('download permissions are unchanged', () => {
+  it('Complimentary Review downloads are disabled without changing subscriber policy', () => {
     const src = read('src/lib/papermark-dataroom-contract.ts')
     const fn = src.slice(src.indexOf('export function reviewLinkSettings'), src.indexOf('export function isDocumentTargetedLink'))
-    assert.match(fn, /allow_download: true/)
+    assert.match(fn, /allow_download: false/)
+    assert.match(src, /allow_download: args\.allowDownload !== false/)
   })
 
   it('PAPERMARK_CUSTOM_DOMAIN handling is unchanged', () => {

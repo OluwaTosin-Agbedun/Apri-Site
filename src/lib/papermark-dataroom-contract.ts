@@ -281,7 +281,9 @@ export function reviewLinkSettings(args: {
     enable_watermark: true,
     watermark_config: prospectWatermarkConfig(),
     enable_screenshot_protection: true,
-    allow_download: true,
+    // Complimentary Review links are view-only. Subscriber links retain their
+    // separate, existing download policy.
+    allow_download: false,
     enable_agreement: false,
     show_banner: false,
   }

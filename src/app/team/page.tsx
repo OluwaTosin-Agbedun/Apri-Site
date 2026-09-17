@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import SiteFooter from "@/components/SiteFooter"
 import SiteHeader from "@/components/SiteHeader"
 import { TEAM_MEMBERS } from "@/data/team"
+import { getTeamImages } from "@/lib/team-images"
 
 export const metadata: Metadata = {
   title:
@@ -10,7 +11,8 @@ export const metadata: Metadata = {
     "Meet the people behind APRI and learn how our independent political, regulatory and political-economy intelligence is produced and reviewed.",
 }
 
-export default function TeamPage() {
+export default async function TeamPage() {
+  const images = await getTeamImages()
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
@@ -42,24 +44,54 @@ export default function TeamPage() {
             Intelligence team members
           </h2>
           <div className="divide-y divide-border border-y border-border">
-            {TEAM_MEMBERS.map((member) => (
-              <article key={member.name} className="py-10 sm:py-14 max-w-4xl">
-                <h3 className="font-serif text-2xl sm:text-3xl text-foreground mb-5 break-words">
-                  {member.name}
-                </h3>
-                <p className="text-sm font-medium text-accent leading-relaxed mb-1">
-                  {member.apriRole}
-                </p>
-                <p className="text-sm text-muted-foreground leading-relaxed mb-7">
-                  {member.athenaRole}
-                </p>
-                <div className="space-y-4 text-sm sm:text-base text-foreground/80 leading-relaxed">
-                  {member.biography.map((paragraph) => (
-                    <p key={paragraph}>{paragraph}</p>
-                  ))}
-                </div>
-              </article>
-            ))}
+            {TEAM_MEMBERS.map((member) => {
+              const image = images.get(member.key)
+              const initials = member.name
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((part) => part[0])
+                .join("")
+              return (
+                <article
+                  key={member.key}
+                  className="py-10 sm:py-14 grid sm:grid-cols-[180px_1fr] lg:grid-cols-[220px_1fr] gap-8 sm:gap-10"
+                >
+                  {image ? (
+                    <img
+                      src={image.imageUrl}
+                      alt={image.altText}
+                      width="440"
+                      height="550"
+                      loading="lazy"
+                      className="aspect-[4/5] w-full object-cover bg-foreground/5"
+                    />
+                  ) : (
+                    <div
+                      className="aspect-[4/5] w-full bg-foreground/5 border border-border grid place-items-center font-serif text-3xl text-foreground/50"
+                      aria-label={`No portrait supplied for ${member.name}`}
+                    >
+                      <span aria-hidden>{initials}</span>
+                    </div>
+                  )}
+                  <div>
+                    <h3 className="font-serif text-2xl sm:text-3xl text-foreground mb-5 break-words">
+                      {member.name}
+                    </h3>
+                    <p className="text-sm font-medium text-accent leading-relaxed mb-1">
+                      {member.apriRole}
+                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-7">
+                      {member.athenaRole}
+                    </p>
+                    <div className="space-y-4 text-sm sm:text-base text-foreground/80 leading-relaxed">
+                      {member.biography.map((paragraph) => (
+                        <p key={paragraph}>{paragraph}</p>
+                      ))}
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         </section>
 

@@ -457,8 +457,8 @@ export async function previewEmailRestrictions(): Promise<RestrictionPreview> {
       linkId,
       documentId: slot.papermark_document_id,
       currentAllowList: current.value.allowList,
-      willChange: existing.join('|') !== target.join('|'),
-      problem: null,
+      willChange: existing.join('|') !== target.join('|') || !current.value.policyCompliant,
+      problem: current.value.policyProblem,
     })
   }
 
@@ -476,8 +476,8 @@ export async function previewEmailRestrictions(): Promise<RestrictionPreview> {
 /**
  * Applies the approved list to the three existing links.
  *
- * A narrow PATCH per link: nothing is recreated, so each URL, link id, target
- * document, watermark, download permission and verification setting survives.
+ * Repairs the complete Complimentary Review policy on each existing link in
+ * place. No document, link id or URL is recreated.
  * Failures are reported per slot rather than aborting the run, so one bad link
  * does not prevent the other two being restricted.
  */
@@ -505,17 +505,20 @@ export async function applyEmailRestrictions(): Promise<{
   }
 
   const slots = (await sql`
-    select slot_key, secure_link_id, papermark_document_id
-    from complimentary_review_items
-    where slot_key in ('MIN', 'AIU', 'PLM')
-    order by display_order, created_at
+    select ri.slot_key, ri.secure_link_id, ri.papermark_document_id,
+           coalesce(d.title, ri.slot_key) as document_title
+    from complimentary_review_items ri
+    left join documents d on d.id = ri.publication_id
+    where ri.slot_key in ('MIN', 'AIU', 'PLM')
+    order by ri.display_order, ri.created_at
   `) as {
     slot_key: string
     secure_link_id: string | null
     papermark_document_id: string | null
+    document_title: string
   }[]
 
-  const { setReviewLinkAllowList } = await import("@/lib/papermark-datarooms")
+  const { updateReviewDocumentLink } = await import("@/lib/papermark-datarooms")
 
   let updated = 0
   const failures: { slotKey: string; reason: string }[] = []
@@ -532,9 +535,11 @@ export async function applyEmailRestrictions(): Promise<{
       continue
     }
 
-    const result = await setReviewLinkAllowList({
+    const result = await updateReviewDocumentLink({
       linkId,
       documentId: docId,
+      slotKey: slot.slot_key,
+      documentTitle: slot.document_title,
       allowList: approved,
     })
 
@@ -562,7 +567,7 @@ export async function applyEmailRestrictions(): Promise<{
       `Applied to ${updated} of ${slots.length} links.` +
       (failures.length > 0
         ? ` ${failures.length} failed: ${failures.map((f) => `${f.slotKey} (${f.reason})`).join('; ')}`
-        : ' Every URL, link id, document, watermark and download setting is unchanged.'),
+        : ' Every existing link was repaired in place; no document, link id or URL was recreated.'),
   }
 }
 

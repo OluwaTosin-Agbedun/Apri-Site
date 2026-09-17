@@ -2,7 +2,10 @@ import Link from "next/link"
 import SiteHeader from "@/components/SiteHeader"
 import SiteFooter from "@/components/SiteFooter"
 import { AccessBadge } from "@/components/PublicationAccess"
-import { getPublishedPublications, getReviewLibrary } from "@/lib/publications"
+import {
+  getPublishedPublications,
+  getPublicReviewLibrary,
+} from "@/lib/publications"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 
 export const revalidate = 300
@@ -16,7 +19,7 @@ export const metadata = {
 export default async function PublicationsPage() {
   const [publications, library] = await Promise.all([
     getPublishedPublications(),
-    getReviewLibrary(),
+    getPublicReviewLibrary(),
   ])
 
   return (
@@ -87,13 +90,13 @@ export default async function PublicationsPage() {
                       confidential and not for redistribution.
                     </p>
                     <TrackedAccessLink
-                      href={card.secureUrl}
+                      href="/review"
                       eventType="review_access_clicked"
                       slotKey={card.slotKey}
-                      newTab
+                      internal
                       className="inline-flex items-center bg-foreground text-background px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
                     >
-                      Access review copy
+                      Request Complimentary Review Access
                     </TrackedAccessLink>
                   </div>
                 </article>

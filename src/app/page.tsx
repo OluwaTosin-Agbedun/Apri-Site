@@ -9,7 +9,7 @@ import AccessForm from "./access-form"
 import {
   PUBLICATION_SECTIONS,
   getPublishedPublications,
-  getReviewLibrary,
+  getPublicReviewLibrary,
   type Publication,
 } from "@/lib/publications"
 
@@ -95,7 +95,7 @@ function PublicationCard({ doc }: { doc: Publication }) {
 export default async function HomePage() {
   const [documents, reviewLibrary] = await Promise.all([
     getPublishedPublications(),
-    getReviewLibrary(),
+    getPublicReviewLibrary(),
   ])
 
   return (
@@ -157,7 +157,7 @@ export default async function HomePage() {
               {reviewLibrary.items.map((card, i) => (
                 <Link
                   key={i}
-                  href="/publications#complimentary-review"
+                  href="/review"
                   className="group panel-interactive block p-6 sm:p-8"
                 >
                   <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-2">
@@ -170,7 +170,7 @@ export default async function HomePage() {
                     {card.description}
                   </p>
                   <span className="inline-flex items-center text-sm font-medium text-accent mt-4 group-hover:translate-x-1 transition-transform">
-                    View review library &rarr;
+                    Request Complimentary Review Access &rarr;
                   </span>
                 </Link>
               ))}

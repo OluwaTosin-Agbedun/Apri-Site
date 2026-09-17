@@ -555,9 +555,10 @@ test('publications page: still has #complimentary-review anchor', () => {
   assert.match(src, /id="complimentary-review"/)
 })
 
-test('publications page: per-card secure URL (no global papermarkUrl)', () => {
+test('publications page: controlled review URL (no secure Papermark URL)', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /card\.secureUrl/)
+  assert.doesNotMatch(src, /card\.secureUrl/)
+  assert.match(src, /href="\/review"/)
   assert.doesNotMatch(src, /library\.papermarkUrl/)
 })
 

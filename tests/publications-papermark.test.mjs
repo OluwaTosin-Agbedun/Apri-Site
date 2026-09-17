@@ -31,8 +31,8 @@ test("public list and detail queries require published state and strip non-OPEN 
   // Non-OPEN items have their share links stripped by toPublicPublication
   // so they appear as teasers on the public site.
   assert.match(publications, /toPublicPublication/)
-  assert.match(publications, /if \(pub\.visibility === 'OPEN'\) return pub/)
-  assert.match(publications, /papermarkLink: ''/)
+  assert.match(publications, /if \(pub\.visibility === ["']OPEN["']\) return pub/)
+  assert.match(publications, /papermarkLink: ["']/)
 
   const listPage = read("src/app/publications/page.tsx")
   const detailPage = read("src/app/publications/[slug]/page.tsx")

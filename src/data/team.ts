@@ -1,4 +1,5 @@
 export type TeamMember = {
+  key: string
   name: string
   apriRole: string
   athenaRole: string
@@ -7,6 +8,7 @@ export type TeamMember = {
 
 export const TEAM_MEMBERS: TeamMember[] = [
   {
+    key: "osita-chidoka",
     name: "Osita Chidoka, OFR, NPoM",
     apriRole:
       "Director & Editor-in-Chief, Athena Political & Regulatory Intelligence",
@@ -17,6 +19,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     ],
   },
   {
+    key: "temitayo-shenkoya",
     name: "Professor Temitayo Shenkoya",
     apriRole: "Senior Adviser, Public Policy & Institutional Analysis, APRI",
     athenaRole:
@@ -27,6 +30,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     ],
   },
   {
+    key: "danjuma-iyaji",
     name: "Dr Danjuma Iyaji",
     apriRole: "Senior Adviser, Political Economy & Social Policy, APRI",
     athenaRole:
@@ -37,6 +41,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     ],
   },
   {
+    key: "izuchukwu-anyanwu",
     name: "Dr Izuchukwu C. Anyanwu",
     apriRole: "Senior Analyst, Governance & Public Policy, APRI",
     athenaRole:
@@ -48,6 +53,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     ],
   },
   {
+    key: "sarah-eke",
     name: "Sarah Eke",
     apriRole: "Lead, Elections & Political Data, APRI",
     athenaRole: "Head, Athena Election Observatory",
@@ -58,6 +64,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     ],
   },
   {
+    key: "ijeoma-achebe",
     name: "Ijeoma Achebe",
     apriRole: "Research Analyst, Regulatory Intelligence, APRI",
     athenaRole:
@@ -68,6 +75,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     ],
   },
   {
+    key: "nonso-momah",
     name: "Nonso Momah",
     apriRole: "Research & Intelligence Communications Analyst, APRI",
     athenaRole: "Research Assistant, Athena Centre for Policy and Leadership",
