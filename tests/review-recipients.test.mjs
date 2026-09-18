@@ -667,15 +667,21 @@ describe('no new table was added', () => {
 })
 
 describe('the list is never exposed publicly', () => {
-  it('no public page reads it', () => {
+  it('no public page renders it', () => {
     for (const f of [
       'src/app/publications/page.tsx',
       'src/app/page.tsx',
-      'src/lib/publications.ts',
     ]) {
       assert.doesNotMatch(read(f), /review_approved_recipients/, f)
       assert.doesNotMatch(read(f), /ApprovedRecipients/, f)
     }
+  })
+
+  it('the server-side public library gate checks only that the list is non-empty', () => {
+    const src = read('src/lib/publications.ts')
+    assert.match(src, /deserialiseRecipients/)
+    assert.match(src, /canProvisionLinks/)
+    assert.doesNotMatch(src, /\.map\([^)]*email|emails:/)
   })
 
   it('the click endpoint does not read it', () => {

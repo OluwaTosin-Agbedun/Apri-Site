@@ -6,10 +6,11 @@ import SiteFooter from "@/components/SiteFooter"
 import { AccessBadge, AccessActionInline } from "@/components/PublicationAccess"
 import { accessNotice } from "@/lib/delivery"
 import AccessForm from "./access-form"
+import TrackedAccessLink from "@/components/TrackedAccessLink"
 import {
   PUBLICATION_SECTIONS,
   getPublishedPublications,
-  getPublicReviewLibrary,
+  getReviewLibrary,
   type Publication,
 } from "@/lib/publications"
 
@@ -95,7 +96,7 @@ function PublicationCard({ doc }: { doc: Publication }) {
 export default async function HomePage() {
   const [documents, reviewLibrary] = await Promise.all([
     getPublishedPublications(),
-    getPublicReviewLibrary(),
+    getReviewLibrary(),
   ])
 
   return (
@@ -154,10 +155,13 @@ export default async function HomePage() {
               </p>
             </div>
             <div className="space-y-4">
-              {reviewLibrary.items.map((card, i) => (
-                <Link
-                  key={i}
-                  href="/review"
+              {reviewLibrary.items.map((card) => (
+                <TrackedAccessLink
+                  key={card.slotKey}
+                  href={card.secureUrl}
+                  eventType="review_access_clicked"
+                  slotKey={card.slotKey}
+                  newTab
                   className="group panel-interactive block p-6 sm:p-8"
                 >
                   <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-2">
@@ -170,10 +174,15 @@ export default async function HomePage() {
                     {card.description}
                   </p>
                   <span className="inline-flex items-center text-sm font-medium text-accent mt-4 group-hover:translate-x-1 transition-transform">
-                    Request Complimentary Review Access &rarr;
+                    Access review copy &rarr;
                   </span>
-                </Link>
+                </TrackedAccessLink>
               ))}
+            </div>
+            <div className="mt-8">
+              <Link href="/review" className="btn-secondary">
+                Request Complimentary Review Access
+              </Link>
             </div>
           </section>
         )}

@@ -1,6 +1,7 @@
 import "server-only"
 import { getSql } from "./db"
 import { isVisibility, type Visibility } from "./entitlements"
+import { canProvisionLinks, deserialiseRecipients } from "./review-recipients"
 
 export { PUBLICATION_SECTIONS, type PublicationSection } from "./sections"
 
@@ -251,13 +252,22 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
 export async function getReviewLibrary(): Promise<{
   items: SecureReviewCard[]
 } | null> {
-  const sql = getSql()
-  const enabled =
-    (await sql`select value from app_settings where key='review_library_enabled'`) as {
-      value: string
-    }[]
-  if (enabled[0]?.value !== "true") return null
-  const items = (await sql`
+  try {
+    const sql = getSql()
+    const settings = (await sql`
+      select key, value from app_settings
+      where key in ('review_library_enabled', 'review_approved_recipients')
+    `) as { key: string; value: string }[]
+    const setting = (key: string) => settings.find((row) => row.key === key)?.value
+    if (setting("review_library_enabled") !== "true") return null
+    if (
+      !canProvisionLinks(
+        deserialiseRecipients(setting("review_approved_recipients")),
+      )
+    )
+      return null
+
+    const items = (await sql`
     select d.title as pub_title, ri.publication_type, ri.description,
       ri.frequency, ri.audience, ri.slot_key, ri.secure_link_url
     from complimentary_review_items ri join documents d on d.id=ri.publication_id
@@ -265,26 +275,35 @@ export async function getReviewLibrary(): Promise<{
       and ri.secure_link_url <> '' and ri.secure_link_verified_at is not null
       and ri.secure_link_document_id = ri.papermark_document_id
     order by ri.display_order, ri.created_at
-  `) as {
-    pub_title: string
-    publication_type: string
-    description: string
-    frequency: string
-    audience: string
-    slot_key: string
-    secure_link_url: string
-  }[]
-  if (items.length !== 3) return null
-  return {
-    items: items.map((r) => ({
-      pubTitle: r.pub_title,
-      publicationType: r.publication_type,
-      description: r.description,
-      frequency: r.frequency,
-      audience: r.audience,
-      slotKey: r.slot_key as ReviewCard["slotKey"],
-      secureUrl: r.secure_link_url,
-    })),
+    `) as {
+      pub_title: string
+      publication_type: string
+      description: string
+      frequency: string
+      audience: string
+      slot_key: string
+      secure_link_url: string
+    }[]
+    const requiredSlots = new Set(["MIN", "AIU", "PLM"])
+    if (
+      items.length !== 3 ||
+      new Set(items.map((item) => item.slot_key)).size !== 3 ||
+      items.some((item) => !requiredSlots.has(item.slot_key))
+    )
+      return null
+    return {
+      items: items.map((r) => ({
+        pubTitle: r.pub_title,
+        publicationType: r.publication_type,
+        description: r.description,
+        frequency: r.frequency,
+        audience: r.audience,
+        slotKey: r.slot_key as ReviewCard["slotKey"],
+        secureUrl: r.secure_link_url,
+      })),
+    }
+  } catch {
+    return null
   }
 }
 

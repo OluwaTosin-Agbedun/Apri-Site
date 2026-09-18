@@ -76,9 +76,10 @@ describe('approved display content', () => {
 describe('per-card secure document links', () => {
   const pubPage = read('src/app/publications/page.tsx')
 
-  it('public cards route to the controlled review request', () => {
-    assert.doesNotMatch(pubPage, /card\.secureUrl/)
-    assert.match(pubPage, /href="\/review"/)
+  it('public cards use their stored secure document links', () => {
+    assert.match(pubPage, /href=\{card\.secureUrl\}/)
+    assert.doesNotMatch(pubPage, /href="\/review"/)
+    assert.match(pubPage, /newTab/)
   })
 
   it('no "Enter Secure Review Library" button exists', () => {
@@ -89,8 +90,8 @@ describe('per-card secure document links', () => {
     assert.doesNotMatch(pubPage, /library\.papermarkUrl/)
   })
 
-  it('publications page has per-card request button', () => {
-    assert.match(pubPage, /Request Complimentary Review Access/)
+  it('publications page has the approved per-card CTA', () => {
+    assert.match(pubPage, /Access review copy/)
   })
 
   it('getReviewLibrary returns secureUrl per card', () => {

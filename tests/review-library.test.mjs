@@ -150,7 +150,7 @@ test('getReviewLibrary: queries complimentary_review_items with slot_key filter'
 test('getReviewLibrary: returns null unless exactly 3 items', () => {
   const src = read('src/lib/publications.ts')
   const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /items\.length !== 3.*return null/)
+  assert.match(fn, /items\.length !== 3[\s\S]*?return null/)
 })
 
 // ---------------------------------------------------------------------------
@@ -193,37 +193,41 @@ test('publications page: cards display all required fields', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 10. Homepage actions lead to /publications#complimentary-review
+// 10. Homepage direct access and separate prospect action
 // ---------------------------------------------------------------------------
 
-test('homepage: review cards link to /review', () => {
+test('homepage: review cards link to their corresponding secure URLs', () => {
   const src = read('src/app/page.tsx')
-  assert.match(src, /href="\/review"/)
+  assert.match(src, /href=\{card\.secureUrl\}/)
+  assert.match(src, /slotKey=\{card\.slotKey\}/)
+  assert.match(src, /Access review copy &rarr;/)
+  assert.match(src, /newTab/)
 })
 
-test('homepage: does not link review cards directly to Papermark', () => {
+test('homepage: keeps /review as a separate prospect CTA', () => {
   const src = read('src/app/page.tsx')
   const reviewSection = src.slice(
     src.indexOf('Complimentary Review preview'),
-    src.indexOf('Publications'),
+    src.indexOf('{/* Publications */}'),
   )
-  assert.doesNotMatch(reviewSection, /papermarkUrl/)
-  assert.doesNotMatch(reviewSection, /papermark\.com/)
+  assert.match(reviewSection, /href="\/review"/)
+  assert.match(reviewSection, /Request Complimentary Review Access/)
 })
 
 // ---------------------------------------------------------------------------
 // 11. Single secure Papermark access button on publications page
 // ---------------------------------------------------------------------------
 
-test('publications page: has per-card review request button', () => {
+test('publications page: has per-card review access button', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /Request Complimentary Review Access/)
+  assert.match(src, /Access review copy/)
 })
 
-test('publications page: does not serialize secure URLs', () => {
+test('publications page: uses separate secure URLs and never routes cards to /review', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.doesNotMatch(src, /card\.secureUrl/)
-  assert.match(src, /href="\/review"/)
+  assert.match(src, /href=\{card\.secureUrl\}/)
+  assert.match(src, /key=\{card\.slotKey\}/)
+  assert.doesNotMatch(src, /href="\/review"/)
   assert.doesNotMatch(src, /library\.papermarkUrl/)
 })
 

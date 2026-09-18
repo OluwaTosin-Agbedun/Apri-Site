@@ -4,7 +4,7 @@ import SiteFooter from "@/components/SiteFooter"
 import { AccessBadge } from "@/components/PublicationAccess"
 import {
   getPublishedPublications,
-  getPublicReviewLibrary,
+  getReviewLibrary,
 } from "@/lib/publications"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 
@@ -19,7 +19,7 @@ export const metadata = {
 export default async function PublicationsPage() {
   const [publications, library] = await Promise.all([
     getPublishedPublications(),
-    getPublicReviewLibrary(),
+    getReviewLibrary(),
   ])
 
   return (
@@ -57,9 +57,9 @@ export default async function PublicationsPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {library.items.map((card, i) => (
+              {library.items.map((card) => (
                 <article
-                  key={i}
+                  key={card.slotKey}
                   className="border border-border bg-card/30 p-6 sm:p-8 flex flex-col"
                 >
                   <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-3">
@@ -90,13 +90,13 @@ export default async function PublicationsPage() {
                       confidential and not for redistribution.
                     </p>
                     <TrackedAccessLink
-                      href="/review"
+                      href={card.secureUrl}
                       eventType="review_access_clicked"
                       slotKey={card.slotKey}
-                      internal
+                      newTab
                       className="inline-flex items-center bg-foreground text-background px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
                     >
-                      Request Complimentary Review Access
+                      Access review copy
                     </TrackedAccessLink>
                   </div>
                 </article>

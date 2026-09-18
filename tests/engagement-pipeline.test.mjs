@@ -553,13 +553,15 @@ describe('instrumented surfaces', () => {
   it('Complimentary Review Access review copy is tracked', () => {
     const src = read('src/app/publications/page.tsx')
     assert.match(src, /eventType="review_access_clicked"/)
-    assert.match(src, /Request Complimentary Review Access/)
+    assert.match(src, /Access review copy/)
   })
 
-  it('the public review link enters the controlled funnel without exposing credentials', () => {
+  it('the public review link uses the stored URL and preserves its slot key', () => {
     const page = read('src/app/publications/page.tsx')
-    assert.match(page, /href="\/review"/)
-    assert.doesNotMatch(page, /card\.secureUrl/)
+    assert.match(page, /href=\{card\.secureUrl\}/)
+    assert.match(page, /slotKey=\{card\.slotKey\}/)
+    assert.match(page, /newTab/)
+    assert.doesNotMatch(page, /href="\/review"/)
   })
 
   it('subscriber View details is tracked', () => {

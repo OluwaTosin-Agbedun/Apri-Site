@@ -504,10 +504,11 @@ describe('public library gating', () => {
     assert.match(fn, /items\.length !== 3/)
   })
 
-  it('the public page routes to the request funnel without secure links', () => {
-    assert.doesNotMatch(page, /card\.secureUrl/)
-    assert.match(page, /href="\/review"/)
-    assert.match(page, /Request Complimentary Review Access/)
+  it('the public page uses verified secure links directly', () => {
+    assert.match(page, /href=\{card\.secureUrl\}/)
+    assert.doesNotMatch(page, /href="\/review"/)
+    assert.match(page, /Access review copy/)
+    assert.match(page, /newTab/)
   })
 
   it('the enable gate refuses an unverified or mismatched link', () => {
