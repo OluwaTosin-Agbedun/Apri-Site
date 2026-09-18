@@ -4,9 +4,11 @@ import { useActionState } from "react"
 import { useFormStatus } from "react-dom"
 import {
   initialTeamImageState,
+  type TeamImageActionState,
+} from "@/lib/team-image-action-state"
+import {
   removeTeamImage,
   saveTeamImage,
-  type TeamImageActionState,
 } from "@/app/actions/team-images"
 
 function SubmitButton({

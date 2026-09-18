@@ -21,6 +21,13 @@ test("headshot uploads use the official public Vercel Blob API", () => {
   )
 })
 
+test("team image Server Actions export only async functions", () => {
+  assert.doesNotMatch(
+    actions,
+    /^export (?!async function\b)(?:function|const|let|var|class)\b/m,
+  )
+})
+
 test("JPEG, PNG and WebP are signature checked with a 4 MB limit", () => {
   assert.match(library, /MAX_HEADSHOT_BYTES = 4 \* 1024 \* 1024/)
   for (const type of ["image/jpeg", "image/png", "image/webp"])

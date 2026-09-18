@@ -9,18 +9,7 @@ import {
   uploadHeadshot,
   validTeamKey,
 } from "@/lib/team-images"
-
-export type TeamImageActionState =
-  | { status: "idle"; message: "" }
-  | {
-      status: "success" | "error"
-      message: string
-    }
-
-export const initialTeamImageState: TeamImageActionState = {
-  status: "idle",
-  message: "",
-}
+import type { TeamImageActionState } from "@/lib/team-image-action-state"
 
 function actionError(error: unknown): TeamImageActionState {
   if (error instanceof TeamImageUploadError)
