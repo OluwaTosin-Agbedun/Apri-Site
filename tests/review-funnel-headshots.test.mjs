@@ -45,7 +45,7 @@ test("headshots enforce owner, mime, signature, size and safe URL", () => {
   const a = read("src/app/actions/team-images.ts"),
     l = read("src/lib/team-images.ts")
   assert.match(a, /requireOwner\(\)/)
-  assert.match(l, /5\s*\*\s*1024\s*\*\s*1024/)
+  assert.match(l, /4\s*\*\s*1024\s*\*\s*1024/)
   assert.match(l, /image\/jpeg/)
   assert.match(l, /file contents do not match/)
   assert.match(l, /Private network URLs are not allowed/)

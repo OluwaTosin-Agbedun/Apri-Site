@@ -1,17 +1,22 @@
 import "server-only"
 import { lookup } from "node:dns/promises"
 import { isIP } from "node:net"
+import { del, put } from "@vercel/blob"
 import { getSql } from "./db"
 import { TEAM_MEMBERS } from "@/data/team"
 import { safeHttpsUrl } from "./review-security"
 
-export const MAX_HEADSHOT_BYTES = 5 * 1024 * 1024
+export const MAX_HEADSHOT_BYTES = 4 * 1024 * 1024
 const types = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
 } as const
-export type TeamImage = { memberKey: string; imageUrl: string; altText: string }
+export type TeamImage = {
+  memberKey: string
+  imageUrl: string
+  altText: string
+}
 
 function detectedType(bytes: Uint8Array): keyof typeof types | null {
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
@@ -51,43 +56,65 @@ async function assertPublicHost(host: string) {
     throw new Error("Private network URLs are not allowed")
 }
 
+export class TeamImageUploadError extends Error {
+  constructor() {
+    super(
+      "The image could not be uploaded. Verify the APRI Blob store connection or use a public HTTPS image URL.",
+    )
+    this.name = "TeamImageUploadError"
+  }
+}
+
+function safeProviderError(error: unknown) {
+  const value = error as {
+    name?: unknown
+    status?: unknown
+    statusCode?: unknown
+  }
+  return {
+    name: typeof value?.name === "string" ? value.name : "UnknownError",
+    status:
+      typeof value?.status === "number"
+        ? value.status
+        : typeof value?.statusCode === "number"
+          ? value.statusCode
+          : undefined,
+  }
+}
+
 async function putBlob(
-  bytes: Uint8Array,
+  file: File,
   contentType: keyof typeof types,
   key: string,
 ) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN
-  if (!token) throw new Error("Blob upload is unavailable")
-  const response = await fetch(
-    `https://blob.vercel-storage.com/team/${encodeURIComponent(key)}-${Date.now()}.${types[contentType]}`,
-    {
-      method: "PUT",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "x-api-version": "7",
-        "x-content-type": contentType,
-        "x-add-random-suffix": "1",
-      },
-      body: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: contentType }),
-    },
-  )
-  if (!response.ok) throw new Error("Blob upload failed")
-  const body = (await response.json()) as { url?: string }
-  if (!body.url) throw new Error("Blob did not return an image URL")
-  return body.url
+  try {
+    const blob = await put(`team/${key}.${types[contentType]}`, file, {
+      access: "public",
+      addRandomSuffix: true,
+      contentType,
+    })
+    return blob.url
+  } catch (error) {
+    console.error("[team-images] Blob upload failed", safeProviderError(error))
+    throw new TeamImageUploadError()
+  }
 }
 export async function uploadHeadshot(file: File, key: string) {
   if (file.size > MAX_HEADSHOT_BYTES)
-    throw new Error("Headshots must be 5 MB or smaller")
+    throw new Error("Headshots must be 4 MB or smaller")
   if (!(file.type in types))
     throw new Error("Only JPEG, PNG and WebP images are accepted")
   const bytes = new Uint8Array(await file.arrayBuffer())
   const actual = detectedType(bytes)
   if (!actual || actual !== file.type)
     throw new Error("The file contents do not match its image type")
-  return { url: await putBlob(bytes, actual, key), contentType: actual }
+  return {
+    url: await putBlob(file, actual, key),
+    contentType: actual,
+    blob: true,
+  }
 }
-export async function importHeadshot(value: string, key: string) {
+export async function importHeadshot(value: string, _key: string) {
   const url = safeHttpsUrl(value)
   if (!url) throw new Error("Enter a safe HTTPS image URL")
   await assertPublicHost(url.hostname)
@@ -99,20 +126,22 @@ export async function importHeadshot(value: string, key: string) {
   if (!response.ok) throw new Error("The image URL could not be fetched")
   const length = Number(response.headers.get("content-length") || 0)
   if (length > MAX_HEADSHOT_BYTES)
-    throw new Error("Headshots must be 5 MB or smaller")
+    throw new Error("Headshots must be 4 MB or smaller")
   const bytes = new Uint8Array(await response.arrayBuffer())
   if (bytes.length > MAX_HEADSHOT_BYTES)
-    throw new Error("Headshots must be 5 MB or smaller")
+    throw new Error("Headshots must be 4 MB or smaller")
   const actual = detectedType(bytes)
   if (!actual)
     throw new Error("The URL did not return a valid JPEG, PNG or WebP image")
-  if (process.env.BLOB_READ_WRITE_TOKEN)
-    return {
-      url: await putBlob(bytes, actual, key),
-      contentType: actual,
-      blob: true,
-    }
   return { url: url.toString(), contentType: actual, blob: false }
+}
+
+export async function deleteHeadshotBlob(url: string) {
+  try {
+    await del(url)
+  } catch (error) {
+    console.error("[team-images] Blob cleanup failed", safeProviderError(error))
+  }
 }
 export async function getTeamImages(): Promise<Map<string, TeamImage>> {
   try {

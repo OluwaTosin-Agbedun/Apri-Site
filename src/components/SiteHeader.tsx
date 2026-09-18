@@ -21,6 +21,7 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Publications", href: "/publications" },
+  { label: "Complimentary Review", href: "/review" },
   { label: "Services & Briefings", href: "/services" },
   { label: "Our Intelligence Team", href: "/team" },
   { label: "Subscription Access", href: "/access" },
@@ -33,6 +34,7 @@ export default function SiteHeader() {
 
   const isCurrent = (href: string) => {
     if (href === "/publications") return pathname.startsWith("/publications")
+    if (href === "/review") return pathname.startsWith("/review")
     if (href === "/team") return pathname.startsWith("/team")
     return pathname === href
   }
