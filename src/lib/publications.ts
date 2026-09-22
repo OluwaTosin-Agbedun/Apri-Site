@@ -197,6 +197,7 @@ export type ReviewCard = {
   audience: string
   slotKey: "MIN" | "AIU" | "PLM"
   editionDate: string | null
+  editionLabel: string
   papermarkDocumentId: string
   isLatest: boolean
 }
@@ -221,7 +222,7 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
     const items = (await sql`
       select distinct on (e.series)
              e.id, e.title as pub_title, e.publication_type, e.description,
-             e.frequency, e.audience, e.series as slot_key, e.edition_date,
+             e.frequency, e.audience, e.series as slot_key, e.edition_date, e.edition_label,
              e.papermark_document_id, e.is_latest
       from review_publication_editions e
       where e.publication_state = 'published'
@@ -236,11 +237,16 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
       slot_key: string
       id: string
       edition_date: string | null
+      edition_label: string
       papermark_document_id: string
       is_latest: boolean
     }[]
 
-    if (items.length !== 3 || new Set(items.map((item) => item.slot_key)).size !== 3) return null
+    if (
+      items.length !== 3 ||
+      new Set(items.map((item) => item.slot_key)).size !== 3
+    )
+      return null
 
     return {
       items: items.map((r) => ({
@@ -252,6 +258,7 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
         audience: r.audience,
         slotKey: r.slot_key as "MIN" | "AIU" | "PLM",
         editionDate: r.edition_date,
+        editionLabel: r.edition_label,
         papermarkDocumentId: r.papermark_document_id,
         isLatest: r.is_latest,
       })),
@@ -271,7 +278,8 @@ export async function getReviewLibrary(): Promise<{
       select key, value from app_settings
       where key in ('review_library_enabled', 'review_approved_recipients')
     `) as { key: string; value: string }[]
-    const setting = (key: string) => settings.find((row) => row.key === key)?.value
+    const setting = (key: string) =>
+      settings.find((row) => row.key === key)?.value
     if (setting("review_library_enabled") !== "true") return null
     if (
       !canProvisionLinks(
@@ -284,7 +292,7 @@ export async function getReviewLibrary(): Promise<{
     select distinct on (e.series)
       e.id, e.title as pub_title, e.publication_type, e.description,
       e.frequency, e.audience, e.series as slot_key, e.secure_link_url,
-      e.edition_date, e.papermark_document_id, e.is_latest
+      e.edition_date, e.edition_label, e.papermark_document_id, e.is_latest
     from review_publication_editions e
     where e.publication_state = 'published'
       and e.secure_link_url <> '' and e.secure_link_verified_at is not null
@@ -301,6 +309,7 @@ export async function getReviewLibrary(): Promise<{
       secure_link_url: string
       id: string
       edition_date: string | null
+      edition_label: string
       papermark_document_id: string
       is_latest: boolean
     }[]
@@ -322,6 +331,7 @@ export async function getReviewLibrary(): Promise<{
         slotKey: r.slot_key as ReviewCard["slotKey"],
         secureUrl: r.secure_link_url,
         editionDate: r.edition_date,
+        editionLabel: r.edition_label,
         papermarkDocumentId: r.papermark_document_id,
         isLatest: r.is_latest,
       })),
@@ -339,32 +349,53 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
       select key, value from app_settings
       where key in ('review_library_enabled', 'review_approved_recipients')
     `) as { key: string; value: string }[]
-    const setting = (key: string) => settings.find((row) => row.key === key)?.value
-    if (setting("review_library_enabled") !== "true" ||
-        !canProvisionLinks(deserialiseRecipients(setting("review_approved_recipients")))) return []
+    const setting = (key: string) =>
+      settings.find((row) => row.key === key)?.value
+    if (
+      setting("review_library_enabled") !== "true" ||
+      !canProvisionLinks(
+        deserialiseRecipients(setting("review_approved_recipients")),
+      )
+    )
+      return []
 
     const rows = (await sql`
       select id, title as pub_title, publication_type, description, frequency,
-             audience, series as slot_key, secure_link_url, edition_date,
+             audience, series as slot_key, secure_link_url, edition_date, edition_label,
              papermark_document_id, is_latest
       from review_publication_editions
       where publication_state = 'published'
         and secure_link_url <> '' and secure_link_verified_at is not null
         and secure_link_document_id = papermark_document_id
       order by case series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
-               edition_date desc nulls last, edition_order desc,
+               is_latest desc, edition_sort_key desc, edition_date desc nulls last, edition_order desc,
                created_at desc, id desc
     `) as Array<{
-      id: string; pub_title: string; publication_type: string; description: string
-      frequency: string; audience: string; slot_key: ReviewCard["slotKey"]
-      secure_link_url: string; edition_date: string | null
-      papermark_document_id: string; is_latest: boolean
+      id: string
+      pub_title: string
+      publication_type: string
+      description: string
+      frequency: string
+      audience: string
+      slot_key: ReviewCard["slotKey"]
+      secure_link_url: string
+      edition_date: string | null
+      edition_label: string
+      papermark_document_id: string
+      is_latest: boolean
     }>
     return rows.map((r) => ({
-      id: r.id, pubTitle: r.pub_title, publicationType: r.publication_type,
-      description: r.description, frequency: r.frequency, audience: r.audience,
-      slotKey: r.slot_key, secureUrl: r.secure_link_url,
-      editionDate: r.edition_date, papermarkDocumentId: r.papermark_document_id,
+      id: r.id,
+      pubTitle: r.pub_title,
+      publicationType: r.publication_type,
+      description: r.description,
+      frequency: r.frequency,
+      audience: r.audience,
+      slotKey: r.slot_key,
+      secureUrl: r.secure_link_url,
+      editionDate: r.edition_date,
+      editionLabel: r.edition_label,
+      papermarkDocumentId: r.papermark_document_id,
       isLatest: r.is_latest,
     }))
   } catch {

@@ -45,7 +45,8 @@ export default async function PublicationsPage() {
                 Review Publication Archive
               </h2>
               <p className="text-sm sm:text-base text-foreground/70 leading-relaxed max-w-4xl">
-                Current and earlier editions for authorised Review Library readers.
+                Current and earlier editions for authorised Review Library
+                readers.
               </p>
               <div className="mt-4">
                 <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium tracking-wide bg-accent/10 text-accent">
@@ -55,11 +56,18 @@ export default async function PublicationsPage() {
             </div>
 
             {(["MIN", "AIU", "PLM"] as const).map((series) => {
-              const labels = { MIN: "Monthly Intelligence Notes", AIU: "Athena Intelligence Updates", PLM: "Political Landscape Monitors" }
+              const labels = {
+                MIN: "Monthly Intelligence Notes",
+                AIU: "Athena Intelligence Updates",
+                PLM: "Political Landscape Monitors",
+              }
               const cards = archive.filter((item) => item.slotKey === series)
               if (!cards.length) return null
-              return <div key={series} className="mb-12">
-                <h3 className="eyebrow mb-5 pb-3 border-b border-hairline block">{labels[series]}</h3>
+              return (
+                <div key={series} className="mb-12">
+                  <h3 className="eyebrow mb-5 pb-3 border-b border-hairline block">
+                    {labels[series]}
+                  </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {cards.map((card) => (
                 <article
@@ -73,7 +81,11 @@ export default async function PublicationsPage() {
                   <h3 className="font-serif text-lg text-foreground">
                     {card.pubTitle}
                   </h3>
-                  {card.editionDate && <p className="text-xs text-muted-foreground mt-2">{card.editionDate}</p>}
+                        {(card.editionLabel || card.editionDate) && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {card.editionLabel || card.editionDate}
+                          </p>
+                        )}
 
                   <p className="text-sm text-foreground/70 leading-relaxed mt-4 flex-1">
                     {card.description}
@@ -110,16 +122,22 @@ export default async function PublicationsPage() {
               ))}
                 </div>
               </div>
+              )
             })}
           </section>
         )}
 
         <aside className="mb-20 border-l-4 border-accent bg-card/30 p-8 sm:p-10">
-          <h2 className="font-serif text-2xl text-foreground">Complimentary Review</h2>
+          <h2 className="font-serif text-2xl text-foreground">
+            Complimentary Review
+          </h2>
           <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
-            New prospective readers may request access to a confidential selection of APRI publications.
+            New prospective readers may request access to a confidential
+            selection of APRI publications.
           </p>
-          <Link href="/review" className="btn-secondary">Request Complimentary Review Access</Link>
+          <Link href="/review" className="btn-secondary">
+            Request Complimentary Review Access
+          </Link>
         </aside>
 
         {/* Subscriber publications */}

@@ -2,7 +2,6 @@ import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
 import { ApprovedRecipientsSection } from "./recipients-form"
-import { approvedTitleForSlot } from "@/lib/review-prefill"
 import ReviewLibraryForm from "./review-form"
 
 export const dynamic = "force-dynamic"
@@ -37,35 +36,38 @@ export default async function ReviewLibraryPage() {
   const recipientsRow = (await sql`
     select value from app_settings where key = 'review_approved_recipients' limit 1
   `) as { value: string }[]
-  const approvedRecipients = (recipientsRow[0]?.value ?? '')
+  const approvedRecipients = (recipientsRow[0]?.value ?? "")
     .split(/[\n\r,;\t]+/)
     .map((e) => e.trim().toLowerCase())
     .filter((e) => e.length > 0)
   const lastSyncAt = lastSyncRow[0]?.value ?? ""
   const lastSyncResult = lastSyncResultRow[0]?.value ?? ""
 
-  const slots = (await sql`
-    select ri.id, ri.publication_id, ri.slot_key, ri.display_order, ri.is_active,
-           ri.publication_type, ri.description, ri.frequency, ri.audience,
-           ri.secure_link_url, ri.secure_link_id,
-           ri.secure_link_document_id, ri.secure_link_verified_at,
-           ri.papermark_document_id, ri.papermark_dataroom_id,
-           ri.last_synced_at, ri.owner_edited_fields,
-           ri.pending_papermark_document_id, ri.pending_clean_title,
-           ri.pending_version_key, ri.pending_detected_at,
-           ri.pending_secure_link_id, ri.pending_secure_link_url,
-           ri.pending_secure_link_document_id, ri.pending_secure_link_verified_at,
-           d.title as pub_title, d.series, d.slug
-    from complimentary_review_items ri
-    join documents d on d.id = ri.publication_id
-    where ri.slot_key in ('MIN', 'AIU', 'PLM')
-    order by ri.display_order, ri.created_at
-  `) as {
+  const editions = (await sql`
+    select e.id, e.series, e.title, e.edition_label, e.edition_sort_key,
+           e.papermark_filename, e.num_pages, e.papermark_document_id,
+           e.papermark_dataroom_id, e.last_synced_at, e.publication_type,
+           e.description, e.frequency, e.audience, e.secure_link_url,
+           e.secure_link_id, e.secure_link_document_id,
+           e.secure_link_verified_at, e.publication_state, e.is_latest,
+           e.owner_edited_fields,
+           case when c.id is null then 'Imported' else c.sync_status end as mapping_status
+    from review_publication_editions e
+    left join review_sync_candidates c on c.id = e.sync_candidate_id
+       or (e.sync_candidate_id is null and c.papermark_document_id = e.papermark_document_id)
+    order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+             e.is_latest desc, e.edition_sort_key desc, e.created_at desc, e.id desc
+  `) as Array<{
     id: string
-    publication_id: string
-    slot_key: string
-    display_order: number
-    is_active: boolean
+    series: string | null
+    title: string
+    edition_label: string
+    edition_sort_key: string
+    papermark_filename: string
+    num_pages: number | null
+    papermark_document_id: string
+    papermark_dataroom_id: string | null
+    last_synced_at: string | null
     publication_type: string
     description: string
     frequency: string
@@ -74,56 +76,10 @@ export default async function ReviewLibraryPage() {
     secure_link_id: string | null
     secure_link_document_id: string | null
     secure_link_verified_at: string | null
-    papermark_document_id: string | null
-    papermark_dataroom_id: string | null
-    last_synced_at: string | null
+    publication_state: string
+    is_latest: boolean
     owner_edited_fields: string[]
-    pending_papermark_document_id: string | null
-    pending_clean_title: string | null
-    pending_version_key: string | null
-    pending_detected_at: string | null
-    pending_secure_link_id: string | null
-    pending_secure_link_url: string | null
-    pending_secure_link_document_id: string | null
-    pending_secure_link_verified_at: string | null
-    pub_title: string
-    series: string
-    slug: string
-  }[]
-
-  const candidates = (await sql`
-    select id, papermark_document_id, raw_filename, clean_title,
-           detected_series, detected_edition_date, sync_status,
-           num_pages, first_seen_at, last_seen_at, is_present
-    from review_sync_candidates
-    where sync_status in ('pending', 'approved')
-    order by detected_series, first_seen_at desc
-  `) as {
-    id: string
-    papermark_document_id: string
-    raw_filename: string
-    clean_title: string
-    detected_series: string
-    detected_edition_date: string | null
-    sync_status: string
-    num_pages: number | null
-    first_seen_at: string
-    last_seen_at: string
-    is_present: boolean
-  }[]
-
-  const editions = (await sql`
-    select id, series, title, description, edition_date, papermark_document_id,
-           secure_link_url, secure_link_id, secure_link_document_id,
-           secure_link_verified_at, publication_state, is_latest
-    from review_publication_editions
-    order by case series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
-             edition_date desc nulls last, edition_order desc, created_at desc, id desc
-  `) as Array<{
-    id: string; series: string; title: string; description: string; edition_date: string | null
-    papermark_document_id: string; secure_link_url: string; secure_link_id: string | null
-    secure_link_document_id: string | null; secure_link_verified_at: string | null
-    publication_state: string; is_latest: boolean
+    mapping_status: string
   }>
 
   return (
@@ -145,63 +101,29 @@ export default async function ReviewLibraryPage() {
         dataroomId={dataroomId}
         lastSyncAt={lastSyncAt}
         lastSyncResult={lastSyncResult}
-        slots={slots.map((r) => ({
-          id: r.id,
-          publicationId: r.publication_id,
-          slotKey: r.slot_key,
-          displayOrder: r.display_order,
-          isActive: r.is_active,
-          publicationType: r.publication_type,
-          description: r.description,
-          frequency: r.frequency,
-          audience: r.audience,
-          secureLinkUrl: r.secure_link_url,
-          secureLinkId: r.secure_link_id,
-          secureLinkDocumentId: r.secure_link_document_id,
-          secureLinkVerifiedAt: r.secure_link_verified_at,
-          papermarkDocumentId: r.papermark_document_id,
-          papermarkDataroomId: r.papermark_dataroom_id,
-          lastSyncedAt: r.last_synced_at,
-          ownerEditedFields: r.owner_edited_fields ?? [],
-          pendingDocumentId: r.pending_papermark_document_id,
-          pendingCleanTitle: r.pending_clean_title,
-          pendingVersionKey: r.pending_version_key,
-          pendingDetectedAt: r.pending_detected_at,
-          pendingSecureLinkId: r.pending_secure_link_id,
-          pendingSecureLinkUrl: r.pending_secure_link_url,
-          pendingSecureLinkDocumentId: r.pending_secure_link_document_id,
-          pendingSecureLinkVerifiedAt: r.pending_secure_link_verified_at,
-          pubTitle: r.pub_title,
-          series: r.series,
-          slug: r.slug,
-          approvedTitle: approvedTitleForSlot(r.slot_key),
-        }))}
-        candidates={candidates.map((c) => ({
-          id: c.id,
-          papermarkDocumentId: c.papermark_document_id,
-          rawFilename: c.raw_filename,
-          cleanTitle: c.clean_title,
-          detectedSeries: c.detected_series,
-          detectedEditionDate: c.detected_edition_date,
-          syncStatus: c.sync_status,
-          numPages: c.num_pages,
-          firstSeenAt: c.first_seen_at,
-          lastSeenAt: c.last_seen_at,
-          isPresent: c.is_present,
-        }))}
         editions={editions.map((e) => ({
           id: e.id,
           series: e.series,
           title: e.title,
-          description: e.description,
-          editionDate: e.edition_date,
+          editionLabel: e.edition_label,
+          editionSortKey: e.edition_sort_key,
+          papermarkFilename: e.papermark_filename,
+          numPages: e.num_pages,
           papermarkDocumentId: e.papermark_document_id,
+          papermarkDataroomId: e.papermark_dataroom_id,
+          lastSyncedAt: e.last_synced_at,
+          publicationType: e.publication_type,
+          description: e.description,
+          frequency: e.frequency,
+          audience: e.audience,
           secureLinkUrl: e.secure_link_url,
           secureLinkId: e.secure_link_id,
           secureLinkDocumentId: e.secure_link_document_id,
           secureLinkVerifiedAt: e.secure_link_verified_at,
           publicationState: e.publication_state,
           isLatest: e.is_latest,
+          ownerEditedFields: e.owner_edited_fields ?? [],
+          mappingStatus: e.mapping_status,
         }))}
       />
     </AdminShell>
