@@ -112,17 +112,31 @@ export default async function ReviewLibraryPage() {
     is_present: boolean
   }[]
 
+  const editions = (await sql`
+    select id, series, title, description, edition_date, papermark_document_id,
+           secure_link_url, secure_link_id, secure_link_document_id,
+           secure_link_verified_at, publication_state, is_latest
+    from review_publication_editions
+    order by case series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
+             edition_date desc nulls last, edition_order desc, created_at desc, id desc
+  `) as Array<{
+    id: string; series: string; title: string; description: string; edition_date: string | null
+    papermark_document_id: string; secure_link_url: string; secure_link_id: string | null
+    secure_link_document_id: string | null; secure_link_verified_at: string | null
+    publication_state: string; is_latest: boolean
+  }>
+
   return (
     <AdminShell
       admin={admin}
       current="/admin/review-library"
       title="Complimentary Review Library"
-      description="Manage the three fixed review publications shown to prospective subscribers."
+      description="Manage current and historical editions in the versioned Review Library."
     >
       <div className="mb-8">
         <ApprovedRecipientsSection
           emails={approvedRecipients}
-          slotsWithLinks={slots.filter((r) => r.secure_link_id).length}
+          slotsWithLinks={editions.filter((r) => r.secure_link_id).length}
         />
       </div>
 
@@ -174,6 +188,20 @@ export default async function ReviewLibraryPage() {
           firstSeenAt: c.first_seen_at,
           lastSeenAt: c.last_seen_at,
           isPresent: c.is_present,
+        }))}
+        editions={editions.map((e) => ({
+          id: e.id,
+          series: e.series,
+          title: e.title,
+          description: e.description,
+          editionDate: e.edition_date,
+          papermarkDocumentId: e.papermark_document_id,
+          secureLinkUrl: e.secure_link_url,
+          secureLinkId: e.secure_link_id,
+          secureLinkDocumentId: e.secure_link_document_id,
+          secureLinkVerifiedAt: e.secure_link_verified_at,
+          publicationState: e.publication_state,
+          isLatest: e.is_latest,
         }))}
       />
     </AdminShell>

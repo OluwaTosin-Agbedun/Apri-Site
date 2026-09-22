@@ -775,3 +775,42 @@ create unique index if not exists complimentary_review_items_publication_key
 
 create index if not exists complimentary_review_items_order_idx
   on complimentary_review_items (display_order, created_at);
+
+-- Versioned Complimentary Review editions. The legacy fixed-slot table is
+-- retained during rollout and is backfilled by the versioned migration.
+create table if not exists review_publication_editions (
+  id uuid primary key default gen_random_uuid(),
+  series text not null check (series in ('MIN', 'AIU', 'PLM')),
+  title text not null default '',
+  edition_date date,
+  edition_order text not null default '',
+  papermark_document_id text not null,
+  papermark_dataroom_id text,
+  secure_link_id text,
+  secure_link_url text not null default '',
+  secure_link_document_id text,
+  secure_link_verified_at timestamptz,
+  publication_type text not null default '',
+  description text not null default '',
+  frequency text not null default '',
+  audience text not null default '',
+  publication_state text not null default 'draft'
+    check (publication_state in ('draft', 'published')),
+  is_latest boolean not null default false,
+  sync_candidate_id uuid,
+  sync_version_key text not null default '',
+  first_seen_at timestamptz,
+  last_synced_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (not is_latest or publication_state = 'published')
+);
+
+create unique index if not exists review_publication_editions_document_key
+  on review_publication_editions (papermark_document_id);
+create unique index if not exists review_publication_editions_latest_series_key
+  on review_publication_editions (series) where is_latest;
+create index if not exists review_publication_editions_archive_order_idx
+  on review_publication_editions
+  (series, edition_date desc nulls last, edition_order desc, created_at desc, id desc)
+  where publication_state = 'published';

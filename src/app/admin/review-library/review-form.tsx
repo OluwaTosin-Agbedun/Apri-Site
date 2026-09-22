@@ -18,6 +18,11 @@ import {
   mapCandidateToCard,
   ignoreCandidate,
   saveReviewItemDetails,
+  prepareEditionSecureLink,
+  publishEditionAsLatest,
+  publishHistoricalEdition,
+  updateEditionDetails,
+  recoverAugustMinEdition,
 } from "@/app/actions/review-library"
 import type { FormState } from "@/lib/definitions"
 import { PublicationTitleEditor } from "./recipients-form"
@@ -84,6 +89,21 @@ type Candidate = {
   isPresent: boolean
 }
 
+type Edition = {
+  id: string
+  series: string
+  title: string
+  description: string
+  editionDate: string | null
+  papermarkDocumentId: string
+  secureLinkUrl: string
+  secureLinkId: string | null
+  secureLinkDocumentId: string | null
+  secureLinkVerifiedAt: string | null
+  publicationState: string
+  isLatest: boolean
+}
+
 export default function ReviewLibraryForm({
   enabled,
   dataroomId,
@@ -91,6 +111,7 @@ export default function ReviewLibraryForm({
   lastSyncResult,
   slots,
   candidates,
+  editions,
 }: {
   enabled: boolean
   dataroomId: string
@@ -98,6 +119,7 @@ export default function ReviewLibraryForm({
   lastSyncResult: string
   slots: ReviewSlot[]
   candidates: Candidate[]
+  editions: Edition[]
 }) {
   return (
     <div className="space-y-8">
@@ -110,8 +132,9 @@ export default function ReviewLibraryForm({
         lastSyncResult={lastSyncResult}
       />
       {candidates.length > 0 && (
-        <CandidatesSection candidates={candidates} slots={slots} />
+        <CandidatesSection candidates={candidates} />
       )}
+      <EditionsSection editions={editions} />
       {slots.map((slot) => (
         <SlotCard key={slot.slotKey} slot={slot} candidates={candidates} />
       ))}
@@ -389,10 +412,8 @@ function SyncSection({
 
 function CandidatesSection({
   candidates,
-  slots,
 }: {
   candidates: Candidate[]
-  slots: ReviewSlot[]
 }) {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
@@ -419,8 +440,6 @@ function CandidatesSection({
   }
 
   if (pendingCandidates.length === 0) return null
-
-  const unmappedSlots = slots.filter((s) => !s.papermarkDocumentId)
 
   return (
     <div className="border border-border bg-card/30 p-6">
@@ -449,16 +468,13 @@ function CandidatesSection({
               </span>
             </div>
             <div className="mt-3 flex items-center gap-3 flex-wrap">
-              {c.detectedSeries && unmappedSlots.find((s) => s.slotKey === c.detectedSeries) && (
-                <button
-                  type="button"
-                  onClick={() => handleMap(c.id, c.detectedSeries)}
-                  disabled={busy === c.id}
-                  className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  Map to {SLOT_LABELS[c.detectedSeries] ?? c.detectedSeries}
+              {Object.keys(SLOT_LABELS).map((series) => (
+                <button key={series} type="button"
+                  onClick={() => handleMap(c.id, series)} disabled={busy === c.id}
+                  className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer">
+                  Assign to {series}
                 </button>
-              )}
+              ))}
               <button
                 type="button"
                 onClick={() => handleIgnore(c.id)}
@@ -472,6 +488,81 @@ function CandidatesSection({
         ))}
       </div>
     </div>
+  )
+}
+
+function EditionsSection({ editions }: { editions: Edition[] }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState<string | null>(null)
+  const [message, setMessage] = useState("")
+  async function run(id: string, action: (id: string) => Promise<FormState>) {
+    setBusy(id); setMessage("")
+    const result = await action(id)
+    setMessage(result?.message ?? ""); setBusy(null)
+    if (result?.ok) router.refresh()
+  }
+  async function edit(id: string, title: string, description: string) {
+    setBusy(id); setMessage("")
+    const result = await updateEditionDetails(id, title, description)
+    setMessage(result?.message ?? ""); setBusy(null)
+    if (result?.ok) router.refresh()
+  }
+  return (
+    <section className="border border-border bg-card/30 p-6">
+      <h3 className="font-serif text-lg text-foreground">Publication editions</h3>
+      <p className="text-xs text-muted-foreground mt-2 mb-4">
+        Drafts remain private. Publishing changes only the latest flag; older published links stay active.
+      </p>
+      {message && <p className="text-sm mb-4 text-foreground/70">{message}</p>}
+      <div className="space-y-3">
+        {editions.map((edition) => {
+          const exact = !!edition.secureLinkId && !!edition.secureLinkUrl &&
+            !!edition.secureLinkVerifiedAt &&
+            edition.secureLinkDocumentId === edition.papermarkDocumentId
+          const status = edition.isLatest ? "Latest" : edition.publicationState === "published"
+            ? "Published" : exact ? "Ready" : edition.secureLinkUrl ? "Draft" : "Link Required"
+          return <article key={edition.id} className="border border-border/50 bg-background p-4">
+            <div className="flex justify-between gap-4">
+              <div><p className="text-xs font-medium text-accent">{edition.series}</p>
+                <p className="text-sm font-medium">{edition.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">{edition.editionDate ?? "No edition date"}</p></div>
+              <span className="text-xs font-medium">{status}</span>
+            </div>
+            <p className="text-xs font-mono text-muted-foreground mt-2 break-all">{edition.papermarkDocumentId}</p>
+            <form className="grid gap-2 mt-3" onSubmit={(event) => {
+              event.preventDefault()
+              const data = new FormData(event.currentTarget)
+              void edit(edition.id, String(data.get("title") ?? ""), String(data.get("description") ?? ""))
+            }}>
+              <input name="title" defaultValue={edition.title} aria-label="Edition title" className={field} />
+              <textarea name="description" defaultValue={edition.description} aria-label="Card description" placeholder="Card description" className={field} />
+              <button type="submit" disabled={busy === edition.id} className={btnSecondary}>Save title &amp; card details</button>
+            </form>
+            {edition.publicationState !== "published" && <div className="flex gap-4 mt-3">
+              {edition.series === "MIN" && edition.editionDate === "2026-08-01" && (
+                <button type="button" disabled={busy === edition.id}
+                  onClick={() => run(edition.id, async () => recoverAugustMinEdition())}
+                  className={btnPrimary}>
+                  Recover existing August PDF
+                </button>
+              )}
+              <button type="button" disabled={busy === edition.id || exact}
+                onClick={() => run(edition.id, prepareEditionSecureLink)} className={btnSecondary}>
+                {exact ? "Link verified" : "Prepare secure link"}
+              </button>
+              <button type="button" disabled={busy === edition.id || !exact}
+                onClick={() => run(edition.id, publishEditionAsLatest)} className={btnPrimary}>
+                Publish &amp; make latest
+              </button>
+              <button type="button" disabled={busy === edition.id || !exact}
+                onClick={() => run(edition.id, publishHistoricalEdition)} className={btnSecondary}>
+                Publish as older edition
+              </button>
+            </div>}
+          </article>
+        })}
+      </div>
+    </section>
   )
 }
 

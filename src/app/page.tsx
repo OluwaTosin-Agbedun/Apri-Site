@@ -142,16 +142,16 @@ export default async function HomePage() {
           </div>
         </header>
 
-        {/* Complimentary Review preview */}
+        {/* Exactly one latest edition from each Review publication series. */}
         {reviewLibrary && (
           <section className="mb-24 scroll-mt-28">
             <div className="mb-10">
               <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-6 tracking-tight">
-                Complimentary Review
+                Publications &amp; Briefings
               </h2>
               <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-4">
-                Selected sample publications for prospective subscribers.
-                Verified email access is required.
+                The latest Monthly Intelligence Note, Athena Intelligence Update
+                and Political Landscape Monitor for authorised Review readers.
               </p>
             </div>
             <div className="space-y-4">
@@ -161,6 +161,8 @@ export default async function HomePage() {
                   href={card.secureUrl}
                   eventType="review_access_clicked"
                   slotKey={card.slotKey}
+                  publicationId={card.id}
+                  papermarkDocumentId={card.papermarkDocumentId}
                   newTab
                   className="group panel-interactive block p-6 sm:p-8"
                 >
@@ -180,12 +182,20 @@ export default async function HomePage() {
               ))}
             </div>
             <div className="mt-8">
-              <Link href="/review" className="btn-secondary">
-                Request Complimentary Review Access
+              <Link href="/publications" className="btn-secondary">
+                View all editions
               </Link>
             </div>
           </section>
         )}
+
+        <aside className="mb-24 border-l-4 border-accent bg-card/30 p-8 sm:p-10">
+          <h2 className="font-serif text-2xl text-foreground">Complimentary Review</h2>
+          <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
+            New prospective readers may request verified access to a confidential selection of APRI publications.
+          </p>
+          <Link href="/review" className="btn-secondary">Request Complimentary Review Access</Link>
+        </aside>
 
         {/* Publications */}
         <section id="publications" className="mb-24 scroll-mt-28">

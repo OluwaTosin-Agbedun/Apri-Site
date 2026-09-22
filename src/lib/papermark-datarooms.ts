@@ -664,9 +664,10 @@ export async function updateReviewDocumentLink(args: {
 /**
  * Revokes one review link.
  *
- * Called to clean up an orphan created when the API succeeded but the database
- * write did not, and to retire a superseded edition's link after a new one goes
- * live. Never used on a subscriber link.
+ * Called only to clean up a newly-created orphan when the API succeeded but
+ * verification or the database write failed. Published edition links are
+ * never retired when another edition becomes latest. Never used on a
+ * subscriber link.
  */
 export async function revokeReviewDocumentLink(
   linkId: string,

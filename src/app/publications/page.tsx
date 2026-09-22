@@ -4,7 +4,7 @@ import SiteFooter from "@/components/SiteFooter"
 import { AccessBadge } from "@/components/PublicationAccess"
 import {
   getPublishedPublications,
-  getReviewLibrary,
+  getReviewPublicationArchive,
 } from "@/lib/publications"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 
@@ -17,9 +17,9 @@ export const metadata = {
 }
 
 export default async function PublicationsPage() {
-  const [publications, library] = await Promise.all([
+  const [publications, archive] = await Promise.all([
     getPublishedPublications(),
-    getReviewLibrary(),
+    getReviewPublicationArchive(),
   ])
 
   return (
@@ -37,29 +37,33 @@ export default async function PublicationsPage() {
           </p>
         </header>
 
-        {/* Complimentary Review section */}
-        {library && (
-          <section id="complimentary-review" className="mb-20 scroll-mt-28">
+        {/* Versioned publication archive. */}
+        {archive.length > 0 && (
+          <section id="review-publications" className="mb-20 scroll-mt-28">
             <div className="mb-10">
               <h2 className="font-serif text-2xl sm:text-3xl text-foreground mb-6 tracking-tight">
-                APRI Complimentary Review Copy
+                Review Publication Archive
               </h2>
               <p className="text-sm sm:text-base text-foreground/70 leading-relaxed max-w-4xl">
-                This complimentary review provides prospective subscribers with
-                selected examples of publications and analytical products
-                available through APRI.
+                Current and earlier editions for authorised Review Library readers.
               </p>
               <div className="mt-4">
                 <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium tracking-wide bg-accent/10 text-accent">
-                  Complimentary Review Copy — verified email required
+                  Verified email required · Confidential
                 </span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {library.items.map((card) => (
+            {(["MIN", "AIU", "PLM"] as const).map((series) => {
+              const labels = { MIN: "Monthly Intelligence Notes", AIU: "Athena Intelligence Updates", PLM: "Political Landscape Monitors" }
+              const cards = archive.filter((item) => item.slotKey === series)
+              if (!cards.length) return null
+              return <div key={series} className="mb-12">
+                <h3 className="eyebrow mb-5 pb-3 border-b border-hairline block">{labels[series]}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {cards.map((card) => (
                 <article
-                  key={card.slotKey}
+                  key={card.id}
                   className="border border-border bg-card/30 p-6 sm:p-8 flex flex-col"
                 >
                   <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-3">
@@ -69,6 +73,7 @@ export default async function PublicationsPage() {
                   <h3 className="font-serif text-lg text-foreground">
                     {card.pubTitle}
                   </h3>
+                  {card.editionDate && <p className="text-xs text-muted-foreground mt-2">{card.editionDate}</p>}
 
                   <p className="text-sm text-foreground/70 leading-relaxed mt-4 flex-1">
                     {card.description}
@@ -93,6 +98,8 @@ export default async function PublicationsPage() {
                       href={card.secureUrl}
                       eventType="review_access_clicked"
                       slotKey={card.slotKey}
+                      publicationId={card.id}
+                      papermarkDocumentId={card.papermarkDocumentId}
                       newTab
                       className="inline-flex items-center bg-foreground text-background px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
                     >
@@ -101,13 +108,23 @@ export default async function PublicationsPage() {
                   </div>
                 </article>
               ))}
-            </div>
+                </div>
+              </div>
+            })}
           </section>
         )}
 
+        <aside className="mb-20 border-l-4 border-accent bg-card/30 p-8 sm:p-10">
+          <h2 className="font-serif text-2xl text-foreground">Complimentary Review</h2>
+          <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
+            New prospective readers may request access to a confidential selection of APRI publications.
+          </p>
+          <Link href="/review" className="btn-secondary">Request Complimentary Review Access</Link>
+        </aside>
+
         {/* Subscriber publications */}
         <div className="space-y-8">
-          {publications.length === 0 && !library ? (
+          {publications.length === 0 && archive.length === 0 ? (
             <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl">
               Publications will be listed here once available. For enquiries,
               contact us or use{" "}
