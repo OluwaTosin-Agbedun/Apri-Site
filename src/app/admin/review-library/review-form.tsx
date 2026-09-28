@@ -15,6 +15,7 @@ import {
   setEditionReviewState,
 } from "@/app/actions/review-library"
 import type { FormState } from "@/lib/definitions"
+import { EditionAccessPanel, type EditionAccess } from "./edition-access-panel"
 
 const field =
   "w-full border border-border bg-background p-3 text-sm focus:outline-none focus:border-accent"
@@ -48,6 +49,7 @@ type Edition = {
   isLatest: boolean
   ownerEditedFields: string[]
   mappingStatus: string
+  access: EditionAccess
 }
 
 export default function ReviewLibraryForm(props: {
@@ -56,6 +58,7 @@ export default function ReviewLibraryForm(props: {
   lastSyncAt: string
   lastSyncResult: string
   editions: Edition[]
+  addressBook: string[]
 }) {
   return (
     <div className="space-y-8">
@@ -66,7 +69,7 @@ export default function ReviewLibraryForm(props: {
         lastSyncAt={props.lastSyncAt}
         lastSyncResult={props.lastSyncResult}
       />
-      <EditionsSection editions={props.editions} />
+      <EditionsSection editions={props.editions} addressBook={props.addressBook} />
     </div>
   )
 }
@@ -200,7 +203,13 @@ function SyncSection({
   )
 }
 
-function EditionsSection({ editions }: { editions: Edition[] }) {
+function EditionsSection({
+  editions,
+  addressBook,
+}: {
+  editions: Edition[]
+  addressBook: string[]
+}) {
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState("")
   const router = useRouter()
@@ -226,7 +235,13 @@ function EditionsSection({ editions }: { editions: Edition[] }) {
               )}
       <div className="space-y-6">
         {editions.map((e) => (
-          <EditionCard key={e.id} edition={e} busy={busy === e.id} run={run} />
+          <EditionCard
+            key={e.id}
+            edition={e}
+            busy={busy === e.id}
+            run={run}
+            addressBook={addressBook}
+          />
         ))}
       </div>
     </section>
@@ -237,16 +252,21 @@ function EditionCard({
   edition: e,
   busy,
   run,
+  addressBook,
 }: {
   edition: Edition
   busy: boolean
   run: (id: string, fn: () => Promise<FormState>) => Promise<void>
+  addressBook: string[]
 }) {
   const exact =
     !!e.secureLinkId &&
     !!e.secureLinkUrl &&
     !!e.secureLinkVerifiedAt &&
     e.secureLinkDocumentId === e.papermarkDocumentId
+  // The server refuses too; this only stops offering a button that cannot work.
+  const canPrepareLink =
+    e.access.mode === "edition" && e.access.recipients.length > 0 && !e.secureLinkId
   const status = e.isLatest
     ? "Latest"
     : e.publicationState === "published"
@@ -315,6 +335,14 @@ function EditionCard({
           }
         />
       </dl>
+      <EditionAccessPanel
+        editionId={e.id}
+        editionName={[e.series, e.editionLabel || e.title].filter(Boolean).join(" · ") || "this edition"}
+        published={e.publicationState === "published"}
+        hasLink={Boolean(e.secureLinkId)}
+        access={e.access}
+        addressBook={addressBook}
+      />
       <form
         className="grid md:grid-cols-2 gap-4"
         onSubmit={(ev) => {
@@ -392,7 +420,12 @@ function EditionCard({
         </button>
             <button
           className={secondary}
-          disabled={busy || !e.series || exact}
+          disabled={busy || !e.series || exact || !canPrepareLink}
+          title={
+            !exact && !canPrepareLink
+              ? "Choose and save at least one recipient for this edition first."
+              : undefined
+          }
           onClick={() => run(e.id, () => prepareEditionSecureLink(e.id))}
             >
           {exact ? "Exact link verified" : "Prepare & verify secure link"}

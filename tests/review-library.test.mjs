@@ -138,13 +138,23 @@ test('publications page: renders cards from library.items', () => {
   assert.match(src, /library\.items\.map/)
 })
 
-test('getReviewLibrary: queries complimentary_review_items with slot_key filter', () => {
+// The three tests below replace ones written for complimentary_review_items.
+// getReviewLibrary now reads the versioned edition library (and, since this
+// release, has a pre-migration form), so each asserts the same rule on it.
+const reviewLibraryFn = () => {
   const src = read('src/lib/publications.ts')
-  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /from complimentary_review_items ri/)
-  assert.match(fn, /ri\.is_active = true/)
-  assert.match(fn, /ri\.slot_key in \('MIN', 'AIU', 'PLM'\)/)
-  assert.match(fn, /ri\.secure_link_url <> ''/)
+  return src.slice(
+    src.indexOf('async function getReviewLibrary'),
+    src.indexOf('export async function getReviewPublicationArchive'),
+  )
+}
+
+test('getReviewLibrary: one published edition per series, from the versioned library', () => {
+  const fn = reviewLibraryFn()
+  assert.equal((fn.match(/select distinct on \(e\.series\)/g) ?? []).length, 2)
+  assert.equal((fn.match(/from review_publication_editions e\s+where e\.publication_state = 'published'/g) ?? []).length, 2)
+  assert.equal((fn.match(/e\.secure_link_url <> ''/g) ?? []).length, 2)
+  assert.doesNotMatch(fn, /complimentary_review_items/)
 })
 
 test('getReviewLibrary: returns null unless exactly 3 items', () => {
@@ -157,10 +167,9 @@ test('getReviewLibrary: returns null unless exactly 3 items', () => {
 // 7. Saved display order is respected
 // ---------------------------------------------------------------------------
 
-test('getReviewLibrary: orders by display_order', () => {
-  const src = read('src/lib/publications.ts')
-  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /order by ri\.display_order/)
+test('getReviewLibrary: each series shows its latest edition first', () => {
+  const fn = reviewLibraryFn()
+  assert.equal((fn.match(/order by e\.series, e\.is_latest desc, e\.edition_date desc nulls last/g) ?? []).length, 2)
 })
 
 test('admin page: slots ordered by display_order', () => {
@@ -172,11 +181,10 @@ test('admin page: slots ordered by display_order', () => {
 // 8. Inactive items not displayed
 // ---------------------------------------------------------------------------
 
-test('getReviewLibrary: filters by is_active and slot_key', () => {
-  const src = read('src/lib/publications.ts')
-  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /ri\.is_active = true/)
-  assert.match(fn, /ri\.slot_key in/)
+test('getReviewLibrary: all three series must be present and ready, with no older substitute', () => {
+  const fn = reviewLibraryFn()
+  assert.match(fn, /const requiredSlots = new Set\(\["MIN", "AIU", "PLM"\]\)/)
+  assert.match(fn, /items\.some\(\(item\) => item\.access_configured !== true\)/)
 })
 
 // ---------------------------------------------------------------------------

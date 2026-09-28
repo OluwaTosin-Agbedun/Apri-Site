@@ -74,10 +74,10 @@ test("manager destination is fixed and PII is not sent to analytics", () => {
   const all = read("src/app/actions/review-funnel.ts")
   assert.doesNotMatch(all, /@vercel\/analytics|track\(/)
 })
-test("Complimentary Review policy is view-only, personalised and repaired in place", () => {
+test("Complimentary Review policy is view-only, personalised and applied one edition at a time", () => {
   const contract = read("src/lib/papermark-dataroom-contract.ts")
   const service = read("src/lib/papermark-datarooms.ts")
-  const actions = read("src/app/actions/review-library.ts")
+  const access = read("src/app/actions/review-edition-access.ts")
   assert.match(contract, /allow_download: false/)
   assert.match(contract, /email_protected: true/)
   assert.match(contract, /email_authenticated: true/)
@@ -87,10 +87,12 @@ test("Complimentary Review policy is view-only, personalised and repaired in pla
   assert.match(contract, /font_size: 18/)
   assert.match(contract, /APRI Complimentary Review Copy · \{\{email\}\}/)
   assert.match(service, /args\.allowList\.length === 0/)
-  assert.match(actions, /updateReviewDocumentLink/)
-  const apply = actions.slice(actions.indexOf("async function applyEmailRestrictions"), actions.indexOf("async function updateSlotPublicationTitle"))
-  assert.doesNotMatch(apply, /createReviewDocumentLink/)
-  assert.doesNotMatch(apply, /method: ['"]POST/)
+  // Applying recipients changes the allow list only; the link is never recreated.
+  const apply = access.slice(access.indexOf("export async function applyEditionRecipients"))
+  const body = apply.slice(0, apply.indexOf("\n}") + 2)
+  assert.match(body, /setReviewLinkAllowList/)
+  assert.doesNotMatch(body, /createReviewDocumentLink|updateReviewDocumentLink/)
+  assert.doesNotMatch(body, /method: ['"]POST/)
 })
 test("verification cannot grant access, mutate Papermark or create subscribers", () => {
   const actions = read("src/app/actions/review-funnel.ts")
@@ -98,12 +100,19 @@ test("verification cannot grant access, mutate Papermark or create subscribers",
   assert.doesNotMatch(verify, /createReviewSession|papermark|insert into subscribers|status='active'/i)
   assert.match(read("src/app/review/verify/route.ts"), /NextResponse\.redirect/)
 })
-test("secure review access checks live Papermark policy and approved recipient", () => {
+test("secure review access checks live Papermark policy for each granted edition", () => {
   const actions = read("src/app/actions/review-funnel.ts")
-  const send = actions.slice(actions.indexOf("async function sendSecureReviewAccess"), actions.indexOf("async function approveProspectRecipient"))
-  assert.match(send, /review_approved_recipients/)
+  const send = actions.slice(
+    actions.indexOf("async function sendSecureReviewAccess"),
+    actions.indexOf("export async function sendSecureReviewAccessFromForm"),
+  )
+  assert.match(send, /grantedEditionsForProspect\(sql, p\.email\)/)
+  assert.match(send, /expectedRecipientsForEdition\(sql, edition\)/)
   assert.match(send, /verifyReviewDocumentLink/)
-  assert.match(send, /expectedAllowList: approved/)
+  assert.match(send, /expectedAllowList: expected/)
+  assert.match(send, /granted\.length === 0/)
+  // The pre-edition fixed-slot check is gone.
+  assert.doesNotMatch(send, /complimentary_review_items|links\.length !== 3/)
 })
 test("repeat review requests preserve first-touch attribution", () => {
   const actions = read("src/app/actions/review-funnel.ts")

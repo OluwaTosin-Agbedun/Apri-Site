@@ -49,6 +49,8 @@ export type DataRoomDocument = {
   editionDate: string | null
   series: string | null
   editorialPageCount: number | null
+  viewedBySubscriber: boolean
+  downloadedBySubscriber: boolean
 }
 
 export type SubscriberDataRoomContext = {
@@ -96,14 +98,18 @@ export async function getDataRoomDocumentsForSubscriber(
            dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
            d.title as ed_title, d.kicker as ed_kicker, d.summary as ed_summary,
            d.edition_date as ed_edition_date, d.page_count as ed_page_count,
-           d.series as ed_series
+           d.series as ed_series,
+           exists (select 1 from document_views v
+             where v.subscriber_id = ${subscriberId}::uuid
+               and (v.publication_id = d.id or (v.publication_id is null and v.papermark_document_id = dd.papermark_document_id))) as viewed_by_subscriber,
+           exists (select 1 from document_download_events de
+             where de.subscriber_id = ${subscriberId}::uuid
+               and (de.publication_id = d.id or (de.publication_id is null and de.papermark_document_id = dd.papermark_document_id))) as downloaded_by_subscriber
     from papermark_dataroom_documents dd
     left join documents d on d.id = dd.publication_id
     where dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
       and dd.is_present = true
-    order by dd.papermark_updated_at desc nulls last,
-             dd.papermark_created_at desc nulls last,
-             dd.title
+    order by d.edition_date desc nulls last, dd.id asc
   `) as {
     id: string
     papermark_document_id: string
@@ -122,6 +128,8 @@ export async function getDataRoomDocumentsForSubscriber(
     ed_edition_date: string | null
     ed_page_count: number | null
     ed_series: string | null
+    viewed_by_subscriber: boolean
+    downloaded_by_subscriber: boolean
   }[]
 
   const previousVisit = options.previousVisit ?? null
@@ -159,6 +167,8 @@ export async function getDataRoomDocumentsForSubscriber(
         ? new Date(row.ed_edition_date).toISOString().slice(0, 10) : null,
       series: row.ed_series || null,
       editorialPageCount: row.ed_page_count,
+      viewedBySubscriber: row.viewed_by_subscriber,
+      downloadedBySubscriber: row.downloaded_by_subscriber,
     }
   })
 
@@ -278,6 +288,8 @@ export async function getDataRoomDocumentForSubscriber(
         ? new Date(row.ed_edition_date).toISOString().slice(0, 10) : null,
       series: row.ed_series || null,
       editorialPageCount: row.ed_page_count,
+      viewedBySubscriber: false,
+      downloadedBySubscriber: false,
     },
     documentLinkUrl: docLink?.linkUrl ?? null,
     papermarkLinkId: docLink?.papermarkLinkId ?? null,

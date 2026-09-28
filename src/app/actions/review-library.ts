@@ -281,6 +281,18 @@ import {
   MAX_RECIPIENTS,
 } from "@/lib/review-recipients"
 import { approvedTitleForSlot } from "@/lib/review-prefill"
+import {
+  decideAddressBookChange,
+  decideLinkPreparation,
+  MIGRATION_PENDING_MESSAGE,
+  recipientListHash,
+} from "@/lib/edition-recipients"
+import {
+  expectedRecipientsForEdition,
+  loadActiveRecipients,
+  loadEditionForAccess,
+} from "@/lib/edition-recipients-dal"
+import { editionRecipientsReady } from "@/lib/edition-recipients-schema"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -554,6 +566,16 @@ async function readApprovedRecipients(
       "",
   )
 }
+/** Published editions still judged by the shared list, i.e. not yet adopted. */
+async function countLegacyPublishedEditions(
+  sql: ReturnType<typeof getSql>,
+): Promise<number> {
+  const rows = (await sql`
+    select count(*)::int as n from review_publication_editions
+    where recipient_mode = 'shared_legacy' and publication_state = 'published'
+  `) as { n: number }[]
+  return rows[0]?.n ?? 0
+}
 export async function getApprovedRecipients(): Promise<{
   emails: string[]
   count: number
@@ -593,11 +615,40 @@ export async function saveApprovedRecipients(
   }
 
   const sql = getSql()
-  await sql`
+  // Until the migration has run, every published edition is still judged by
+  // this list, exactly as when it is locked below.
+  if (!(await editionRecipientsReady(sql, { fresh: true }))) {
+    return { message: MIGRATION_PENDING_MESSAGE }
+  }
+  const change = decideAddressBookChange({
+    current: await readApprovedRecipients(sql),
+    proposed: parsed.emails,
+    legacyPublishedEditions: await countLegacyPublishedEditions(sql),
+  })
+  if (!change.ok) return { message: change.message }
+  if (!change.changed) {
+    return { ok: true, message: "No change: the address book already holds exactly these addresses." }
+  }
+
+  // The lock is re-checked inside the write, so an edition that has not been
+  // adopted can never find its list changed underneath it.
+  const written = (await sql`
     insert into app_settings (key, value)
-    values (${RECIPIENTS_KEY}, ${serialiseRecipients(parsed.emails)})
+    select ${RECIPIENTS_KEY}, ${serialiseRecipients(parsed.emails)}
+    where not exists (
+      select 1 from review_publication_editions
+      where recipient_mode = 'shared_legacy' and publication_state = 'published'
+    )
     on conflict (key) do update set value = excluded.value
-  `
+    returning key
+  `) as { key: string }[]
+  if (!written[0]) {
+    return {
+      message:
+        "Not saved: a published edition is still checked against this list. Adopt every " +
+        "published edition in Review Library first; after that this list is an address book only.",
+    }
+  }
 
   revalidatePath("/admin/review-library")
 
@@ -645,216 +696,20 @@ export async function saveApprovedRecipients(
     )
   }
   notes.push(
-    "The links themselves are unchanged until you press Apply email restrictions.",
+    "Saving this list grants no access by itself: choose each edition's recipients in its own panel.",
   )
 
   return { ok: true, message: notes.join(" ") }
 }
 
-export type RestrictionRow = {
-  slotKey: string
-  linkId: string | null
-  documentId: string | null
-  currentAllowList: string[]
-  willChange: boolean
-  problem: string | null
-}
+// ---------------------------------------------------------------------------
+// There is deliberately no action that applies one recipient list to many
+// editions. The former global "Apply email restrictions" wrote the shared list
+// to every published edition, which would overwrite each edition's own list.
+// Recipients are now previewed, applied and verified one edition at a time in
+// src/app/actions/review-edition-access.ts.
+// ---------------------------------------------------------------------------
 
-export type RestrictionPreview = {
-  ok: boolean
-  message: string
-  approvedCount: number
-  rows: RestrictionRow[]
-}
-export async function previewEmailRestrictions(): Promise<RestrictionPreview> {
-  await requireOwner()
-  const sql = getSql()
-
-  const approved = await readApprovedRecipients(sql)
-
-  const slots = (await sql`
-    select series as slot_key, secure_link_id, papermark_document_id
-    from review_publication_editions
-    where publication_state = 'published' and secure_link_url <> ''
-    order by series, edition_date desc nulls last, edition_order desc, created_at desc
-  `) as {
-    slot_key: string
-    secure_link_id: string | null
-    papermark_document_id: string | null
-  }[]
-
-  if (!canProvisionLinks(approved)) {
-    return {
-      ok: false,
-      approvedCount: 0,
-      rows: [],
-      message:
-        "No approved recipients are configured. Applying an empty list would open every " +
-        "review link to any verified address, so nothing will be applied.",
-    }
-  }
-
-  const { getReviewLinkSettings } = await import("@/lib/papermark-datarooms")
-  const rows: RestrictionRow[] = []
-
-  for (const slot of slots) {
-    const linkId = (
-      slot.secure_link_id ??
-      ""
-    ).trim()
-    if (!linkId) {
-      rows.push({
-        slotKey: slot.slot_key,
-        linkId: null,
-        documentId: slot.papermark_document_id,
-        currentAllowList: [],
-        willChange: false,
-        problem: "No API-created link. Create the secure review link first.",
-      })
-      continue
-    }
-
-    const current = await getReviewLinkSettings(linkId)
-    if (!current.ok) {
-      rows.push({
-        slotKey: slot.slot_key,
-        linkId,
-        documentId: slot.papermark_document_id,
-        currentAllowList: [],
-        willChange: false,
-        problem: current.message,
-      })
-      continue
-    }
-
-    const existing = [...current.value.allowList]
-      .map((e) => e.toLowerCase())
-      .sort()
-    const target = [...approved].sort()
-    rows.push({
-      slotKey: slot.slot_key,
-      linkId,
-      documentId: slot.papermark_document_id,
-      currentAllowList: current.value.allowList,
-      willChange:
-        existing.join("|") !==
-          target.join("|") ||
-        !current.value.policyCompliant,
-      problem: current.value.policyProblem,
-    })
-  }
-
-  const changing = rows.filter((r) => r.willChange).length
-  return {
-    ok: true,
-    approvedCount: approved.length,
-    rows,
-    message:
-      `${approved.length} approved recipient${
-        approved.length ===
-        1
-          ? ""
-          : "s"
-      }. ` +
-      `${changing} of ${rows.length} links would change. Nothing has been applied yet.`,
-  }
-}
-export async function applyEmailRestrictions(): Promise<{
-  ok: boolean
-  message: string
-  updated: number
-  failures: { slotKey: string; reason: string }[]
-}> {
-  await requireOwner()
-  const sql = getSql()
-
-  const approved = await readApprovedRecipients(sql)
-  if (!canProvisionLinks(approved)) {
-    return {
-      ok: false,
-      updated: 0,
-      failures: [],
-      message:
-        "Refused: no approved recipients are configured. An empty allow list would let " +
-        "anyone who can verify an address open the review documents.",
-    }
-  }
-
-  const slots = (await sql`
-    select series as slot_key, secure_link_id, papermark_document_id,
-           title as document_title, id
-    from review_publication_editions
-    where publication_state = 'published' and secure_link_url <> ''
-    order by series, edition_date desc nulls last, edition_order desc, created_at desc
-  `) as {
-    slot_key: string
-    secure_link_id: string | null
-    papermark_document_id: string | null
-    document_title: string
-    id: string
-  }[]
-
-  const { updateReviewDocumentLink } = await import("@/lib/papermark-datarooms")
-
-  let updated = 0
-  const failures: { slotKey: string; reason: string }[] = []
-
-  for (const slot of slots) {
-    const linkId = (
-      slot.secure_link_id ??
-      ""
-    ).trim()
-    const docId = (
-      slot.papermark_document_id ??
-      ""
-    ).trim()
-
-    if (!linkId || !docId) {
-      failures.push({
-        slotKey: slot.slot_key,
-        reason: !linkId
-          ? "No API-created link to restrict."
-          : "No mapped document.",
-      })
-      continue
-    }
-
-    const result = await updateReviewDocumentLink({
-      linkId,
-      documentId: docId,
-      slotKey: slot.slot_key,
-      documentTitle: slot.document_title,
-      allowList: approved,
-    })
-
-    if (result.ok) {
-      updated++
-      await sql`
-        update review_publication_editions
-        set secure_link_verified_at = now(), updated_at = now()
-        where id = ${slot.id}::uuid
-      `
-    } else {
-      failures.push({ slotKey: slot.slot_key, reason: result.message })
-    }
-  }
-
-  refresh()
-
-  return {
-    ok:
-      failures.length ===
-      0,
-    updated,
-    failures,
-    message:
-      `Applied to ${updated} of ${slots.length} links.` +
-      (failures.length >
-      0
-        ? ` ${failures.length} failed: ${failures.map((f) => `${f.slotKey} (${f.reason})`).join("; ")}`
-        : " Every existing link was repaired in place; no document, link id or URL was recreated."),
-  }
-}
 export async function updateSlotPublicationTitle(
   slotKey: string,
   title: string,
@@ -909,39 +764,6 @@ export async function getApprovedSlotTitle(
   return approvedTitleForSlot(slotKey)
 }
 
-type SlotLinkRow = {
-  id: string
-  papermark_document_id: string | null
-  secure_link_url: string
-  secure_link_id: string | null
-  secure_link_document_id: string | null
-  pending_papermark_document_id: string | null
-  pending_clean_title: string | null
-  pending_secure_link_id: string | null
-  pending_secure_link_url: string | null
-  pending_secure_link_document_id: string | null
-  pub_title: string | null
-}
-
-async function loadSlotForLinking(
-  sql: ReturnType<typeof getSql>,
-  slotKey: string,
-): Promise<SlotLinkRow | null> {
-  const rows = (await sql`
-    select ri.id, ri.papermark_document_id, ri.secure_link_url,
-           ri.secure_link_id, ri.secure_link_document_id,
-           ri.pending_papermark_document_id, ri.pending_clean_title,
-           ri.pending_secure_link_id, ri.pending_secure_link_url,
-           ri.pending_secure_link_document_id,
-           d.title as pub_title
-    from complimentary_review_items ri
-    left join documents d on d.id = ri.publication_id
-    where ri.slot_key = ${slotKey}
-    limit 1
-  `) as SlotLinkRow[]
-  return rows[0] ?? null
-}
-
 /**
  * Confirms exactly one unambiguous current document is mapped to a slot.
  *
@@ -949,36 +771,6 @@ async function loadSlotForLinking(
  * wrong document would publish the wrong PDF, and the sync deliberately leaves
  * a newly detected edition pending rather than replacing the mapping.
  */
-async function resolveCurrentDocument(
-  sql: ReturnType<typeof getSql>,
-  slotKey: string,
-  slot: SlotLinkRow,
-): Promise<{ ok: true; documentId: string; title: string } | { ok: false; message: string }> {
-  const docId = (slot.papermark_document_id ?? '').trim()
-  if (!docId) {
-    return {
-      ok: false,
-      message: `${slotKey} has no mapped Papermark document. Sync the Data Room and map a document to this slot first.`,
-    }
-  }
-
-  // More than one candidate approved for the same series means the mapping is
-  // ambiguous and a human has to resolve it before a public link is minted.
-  const approved = (await sql`
-    select papermark_document_id from review_sync_candidates
-    where detected_series = ${slotKey} and sync_status = 'approved' and is_present = true
-  `) as { papermark_document_id: string }[]
-
-  const distinct = [...new Set(approved.map((r) => r.papermark_document_id))]
-  if (distinct.length > 1) {
-    return {
-      ok: false,
-      message: `${slotKey} has ${distinct.length} approved documents in the Data Room. Resolve the duplicate before creating a link.`,
-    }
-  }
-
-  return { ok: true, documentId: docId, title: slot.pub_title ?? slotKey }
-}
 
 /**
  * Creates the slot's public review link through the Papermark API.
@@ -986,77 +778,26 @@ async function resolveCurrentDocument(
  * Idempotent: a slot that already has a verified link for the same document is
  * left alone rather than accumulating duplicate public links for one PDF.
  */
-export async function createSlotSecureLink(slotKey: string): Promise<FormState> {
+const RETIRED_LINK_ACTION_MESSAGE =
+  "Retired: Complimentary Review links are now managed per edition in Review Library administration. Nothing was changed."
+
+function retiredLegacyLinkAction(): FormState {
+  return { message: RETIRED_LINK_ACTION_MESSAGE }
+}
+
+/**
+ * Retired: created a slot link with the shared list.
+ *
+ * Every pre-edition slot action that minted, re-applied or revoked a Papermark
+ * link did so with the shared recipient list. The versioning migration carried
+ * several of those slot links over as edition links, so running any of them now
+ * could overwrite an edition's own list or end its readers' access. Each is
+ * kept only as an owner-gated refusal, so a stale client is told why rather
+ * than writing anything. Links are managed per edition instead.
+ */
+export async function createSlotSecureLink(_slotKey: string): Promise<FormState> {
   await requireOwner()
-  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
-    return { message: "Invalid slot." }
-  }
-
-  const sql = getSql()
-  const slot = await loadSlotForLinking(sql, slotKey)
-  if (!slot)
-    return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
-
-  const current = await resolveCurrentDocument(sql, slotKey, slot)
-  if (!current.ok) return { message: current.message }
-  if (
-    slot.secure_link_id &&
-    slot.secure_link_document_id ===
-      current.documentId &&
-    slot.secure_link_url
-  ) {
-    return {
-      ok: true,
-      message: `${slotKey} already has a link for this document. Use Verify to re-check it.`,
-    }
-  }
-
-  const { createReviewDocumentLink, revokeReviewDocumentLink } = await import(
-    "@/lib/papermark-datarooms"
-  )
-  const approved = await readApprovedRecipients(sql)
-  if (!canProvisionLinks(approved)) {
-    return {
-      message:
-        "No approved review recipients are configured. Add at least one address under " +
-        "Approved Review Recipients before creating a link.",
-    }
-  }
-
-  const created = await createReviewDocumentLink({
-    documentId: current.documentId,
-    slotKey,
-    documentTitle: current.title,
-    allowList: approved,
-  })
-  if (!created.ok) return { message: `Link not created. ${created.message}` }
-
-  try {
-    await sql`
-      update complimentary_review_items
-      set secure_link_url = ${created.value.url},
-          secure_link_id = ${created.value.linkId},
-          secure_link_document_id = ${current.documentId},
-          secure_link_verified_at = now(),
-          updated_at = now()
-      where id = ${slot.id}::uuid
-    `
-  } catch (error) {
-    // The link exists in Papermark but is recorded nowhere. Best-effort revoke
-    // so it does not sit there as an unreferenced public address.
-    const revoked = await revokeReviewDocumentLink(created.value.linkId)
-    const tail = revoked.ok
-      ? "The new link was revoked, so nothing was left exposed."
-      : `The new link ${created.value.linkId} could NOT be revoked and must be removed manually in Papermark.`
-    return {
-      message: `Papermark created the link but saving it failed. ${tail} ${
-        error instanceof Error ? error.message : "Unknown storage error."
-      }`,
-    }
-  }
-
-  refresh()
-  return { ok: true, message: `${slotKey} secure review link created. Existing edition links were not changed.` }
+  return retiredLegacyLinkAction()
 }
 
 /**
@@ -1065,72 +806,19 @@ export async function createSlotSecureLink(slotKey: string): Promise<FormState> 
  * Touches only the link id already stored for this slot -- never lists, never
  * walks the Data Room, and never goes near a subscriber link.
  */
-export async function verifySlotSecureLink(slotKey: string): Promise<FormState> {
+/**
+ * Retired: re-applied the full policy, including the shared list, to a slot link.
+ *
+ * Every pre-edition slot action that minted, re-applied or revoked a Papermark
+ * link did so with the shared recipient list. The versioning migration carried
+ * several of those slot links over as edition links, so running any of them now
+ * could overwrite an edition's own list or end its readers' access. Each is
+ * kept only as an owner-gated refusal, so a stale client is told why rather
+ * than writing anything. Links are managed per edition instead.
+ */
+export async function verifySlotSecureLink(_slotKey: string): Promise<FormState> {
   await requireOwner()
-  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
-    return { message: "Invalid slot." }
-  }
-
-  const sql = getSql()
-  const slot = await loadSlotForLinking(sql, slotKey)
-  if (!slot)
-    return { message: `Slot ${slotKey} not found. Ensure fixed slots first.` }
-
-  const current = await resolveCurrentDocument(sql, slotKey, slot)
-  if (!current.ok) return { message: current.message }
-
-  const linkId = (
-    slot.secure_link_id ??
-    ""
-  ).trim()
-  if (!linkId) {
-    return {
-      message: `${slotKey} has no API-created link to verify. Use Create secure review link.`,
-    }
-  }
-
-  const { verifyReviewDocumentLink, updateReviewDocumentLink } = await import(
-    "@/lib/papermark-datarooms"
-  )
-
-  const verified = await verifyReviewDocumentLink({
-    linkId,
-    expectedDocumentId: current.documentId,
-  })
-  if (!verified.ok)
-    return { message: `Verification failed. ${verified.message}` }
-  const approved = await readApprovedRecipients(sql)
-  if (!canProvisionLinks(approved)) {
-    return {
-      message:
-        "Link verified, but settings were not re-applied: no approved recipients are " +
-        "configured and re-applying would send an empty allow list.",
-    }
-  }
-
-  const repaired = await updateReviewDocumentLink({
-    linkId,
-    documentId: current.documentId,
-    slotKey,
-    documentTitle: current.title,
-    allowList: approved,
-  })
-  if (!repaired.ok)
-    return {
-      message: `Link verified but settings could not be re-applied. ${repaired.message}`,
-    }
-
-  await sql`
-    update complimentary_review_items
-    set secure_link_url = ${repaired.value.url},
-        secure_link_document_id = ${current.documentId},
-        secure_link_verified_at = now(),
-        updated_at = now()
-    where id = ${slot.id}::uuid
-  `
-
-  refresh()
-  return { ok: true, message: `${slotKey} link verified and settings re-applied.` }
+  return retiredLegacyLinkAction()
 }
 
 /**
@@ -1139,86 +827,19 @@ export async function verifySlotSecureLink(slotKey: string): Promise<FormState> 
  * Writes only the `pending_secure_link_*` columns, so the public page keeps
  * serving the current edition until the owner confirms Make current.
  */
-export async function preparePendingSecureLink(slotKey: string): Promise<FormState> {
+/**
+ * Retired: created a pending slot link with the shared list.
+ *
+ * Every pre-edition slot action that minted, re-applied or revoked a Papermark
+ * link did so with the shared recipient list. The versioning migration carried
+ * several of those slot links over as edition links, so running any of them now
+ * could overwrite an edition's own list or end its readers' access. Each is
+ * kept only as an owner-gated refusal, so a stale client is told why rather
+ * than writing anything. Links are managed per edition instead.
+ */
+export async function preparePendingSecureLink(_slotKey: string): Promise<FormState> {
   await requireOwner()
-  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
-    return { message: "Invalid slot." }
-  }
-
-  const sql = getSql()
-  const slot = await loadSlotForLinking(sql, slotKey)
-  if (!slot) return { message: `Slot ${slotKey} not found.` }
-
-  const pendingDocId = (
-    slot.pending_papermark_document_id ??
-    ""
-  ).trim()
-  if (!pendingDocId) return { message: `${slotKey} has no pending edition.` }
-
-  if (
-    slot.pending_secure_link_id &&
-    slot.pending_secure_link_document_id ===
-      pendingDocId &&
-    slot.pending_secure_link_url
-  ) {
-    return {
-      ok: true,
-      message: `${slotKey} pending edition already has a prepared link.`,
-    }
-  }
-
-  const { createReviewDocumentLink, revokeReviewDocumentLink } = await import(
-    "@/lib/papermark-datarooms"
-  )
-
-  const approved = await readApprovedRecipients(sql)
-  if (!canProvisionLinks(approved)) {
-    return {
-      message:
-        "No approved review recipients are configured. Add at least one address before " +
-        "preparing a link for the pending edition.",
-    }
-  }
-
-  const created = await createReviewDocumentLink({
-    documentId: pendingDocId,
-    slotKey,
-    documentTitle:
-      slot.pending_clean_title ??
-      slotKey,
-    allowList: approved,
-  })
-  if (!created.ok) return { message: `Link not created. ${created.message}` }
-
-  try {
-    await sql`
-      update complimentary_review_items
-      set pending_secure_link_url = ${created.value.url},
-          pending_secure_link_id = ${created.value.linkId},
-          pending_secure_link_document_id = ${pendingDocId},
-          pending_secure_link_verified_at = now(),
-          updated_at = now()
-      where id = ${slot.id}::uuid
-    `
-  } catch (error) {
-    const revoked = await revokeReviewDocumentLink(created.value.linkId)
-    const tail = revoked.ok
-      ? "The new link was revoked, so nothing was left exposed."
-      : `The new link ${created.value.linkId} could NOT be revoked and must be removed manually in Papermark.`
-    return {
-      message: `Papermark created the pending link but saving it failed. ${tail} ${
-        error instanceof
-        Error
-          ? error.message
-          : "Unknown storage error."
-      }`,
-    }
-  }
-  revalidatePath("/admin/review-library")
-  return {
-    ok: true,
-    message: `${slotKey} pending edition link prepared. The public card is unchanged until you choose Make current.`,
-  }
+  return retiredLegacyLinkAction()
 }
 
 export async function syncReviewLibrary(): Promise<FormState> {
@@ -1588,102 +1209,19 @@ async function detectPendingVersion(
   `
 }
 
-export async function makeVersionCurrent(slotKey: string): Promise<FormState> {
+/**
+ * Retired: switched a slot to a new link and revoked the previous one.
+ *
+ * Every pre-edition slot action that minted, re-applied or revoked a Papermark
+ * link did so with the shared recipient list. The versioning migration carried
+ * several of those slot links over as edition links, so running any of them now
+ * could overwrite an edition's own list or end its readers' access. Each is
+ * kept only as an owner-gated refusal, so a stale client is told why rather
+ * than writing anything. Links are managed per edition instead.
+ */
+export async function makeVersionCurrent(_slotKey: string): Promise<FormState> {
   await requireOwner()
-  if (!FIXED_SLOTS.includes(slotKey as typeof FIXED_SLOTS[number])) {
-    return { message: "Invalid slot." }
-  }
-
-  const sql = getSql()
-
-  const slot = (await sql`
-    select ri.id, ri.publication_id, ri.owner_edited_fields,
-           ri.pending_papermark_document_id, ri.pending_clean_title,
-           ri.publication_type, ri.description, ri.frequency, ri.audience,
-           ri.secure_link_id,
-           ri.pending_secure_link_id, ri.pending_secure_link_url,
-           ri.pending_secure_link_document_id, ri.pending_secure_link_verified_at
-    from complimentary_review_items ri
-    where ri.slot_key = ${slotKey}
-    limit 1
-  `) as {
-    id: string
-    publication_id: string
-    owner_edited_fields: string[]
-    pending_papermark_document_id: string | null
-    pending_clean_title: string | null
-    publication_type: string
-    description: string
-    frequency: string
-    audience: string
-    secure_link_id: string | null
-    pending_secure_link_id: string | null
-    pending_secure_link_url: string | null
-    pending_secure_link_document_id: string | null
-    pending_secure_link_verified_at: string | null
-  }[]
-
-  if (!slot[0]) return { message: `Slot ${slotKey} not found.` }
-
-  const pendingDocId = slot[0].pending_papermark_document_id
-  if (!pendingDocId) return { message: "No pending version." }
-  const pendingLinkUrl = (
-    slot[0].pending_secure_link_url ??
-    ""
-  ).trim()
-  if (
-    !slot[0].pending_secure_link_id ||
-    !pendingLinkUrl ||
-    !slot[0].pending_secure_link_verified_at ||
-    slot[0].pending_secure_link_document_id !==
-      pendingDocId
-  ) {
-    return {
-      message: `${slotKey} cannot go live yet: the pending edition has no verified secure link. Use Prepare secure link first.`,
-    }
-  }
-
-  const meta = generateReviewMetadata(
-    slotKey as ReviewSeries,
-    slot[0].pending_clean_title ??
-      "",
-  )
-  const editions = (await sql`
-    insert into review_publication_editions (
-      series, title, edition_order, papermark_document_id, secure_link_id,
-      secure_link_url, secure_link_document_id, secure_link_verified_at,
-      publication_type, description, frequency, audience
-    ) values (
-      ${slotKey}, ${
-        slot[0].pending_clean_title ??
-        slotKey
-      }, '', ${pendingDocId},
-      ${slot[0].pending_secure_link_id}, ${pendingLinkUrl}, ${pendingDocId}, now(),
-      ${meta.publicationType}, ${meta.description}, ${meta.frequency}, ${meta.audience}
-    )
-    on conflict (papermark_document_id) do update set
-      secure_link_id = excluded.secure_link_id,
-      secure_link_url = excluded.secure_link_url,
-      secure_link_document_id = excluded.secure_link_document_id,
-      secure_link_verified_at = excluded.secure_link_verified_at,
-      updated_at = now()
-    returning id
-  `) as { id: string }[]
-  if (!editions[0]) return { message: "Edition could not be prepared." }
-  const result = await publishEditionAsLatest(editions[0].id)
-  if (!result?.ok)
-    return (
-      result ?? { message: "Edition could not be published." }
-    )
-  await sql`
-    update complimentary_review_items set pending_papermark_document_id = null,
-      pending_clean_title = null, pending_version_key = null,
-      pending_detected_at = null, pending_secure_link_id = null,
-      pending_secure_link_url = null, pending_secure_link_document_id = null,
-      pending_secure_link_verified_at = null, updated_at = now()
-    where id = ${slot[0].id}::uuid
-  `
-  return result
+  return retiredLegacyLinkAction()
 }
 
 export async function generateSlotDetails(slotKey: string): Promise<FormState> {
@@ -1921,54 +1459,52 @@ export async function prepareEditionSecureLink(editionId: string): Promise<FormS
   await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
   const sql = getSql()
-  const rows = (await sql`
-    select id, series, title, papermark_document_id, secure_link_id,
-           secure_link_url, secure_link_document_id
-    from review_publication_editions where id = ${editionId}::uuid limit 1
-  `) as Array<{
-    id: string
-    series: string
-    title: string
-    papermark_document_id: string
-    secure_link_id: string | null
-    secure_link_url: string
-    secure_link_document_id: string | null
-  }>
-  const edition = rows[0]
+  if (!(await editionRecipientsReady(sql, { fresh: true }))) {
+    return { message: MIGRATION_PENDING_MESSAGE }
+  }
+  const edition = await loadEditionForAccess(sql, editionId)
   if (!edition) return { message: "Edition not found." }
-  if (
-    edition.secure_link_id &&
-    edition.secure_link_url &&
-    edition.secure_link_document_id ===
-      edition.papermark_document_id
-  ) {
+  if (!edition.series) return { message: "Assign a series first. No link was created." }
+
+  // A link is created with exactly this edition's recipients -- never the
+  // shared list -- and not at all until at least one has been chosen.
+  const recipients =
+    edition.recipientMode === "edition" ? await loadActiveRecipients(sql, editionId) : []
+  const decision = decideLinkPreparation({
+    mode: edition.recipientMode,
+    hasExactLink: Boolean(
+      edition.secureLinkId &&
+        edition.secureLinkUrl &&
+        edition.secureLinkDocumentId === edition.papermarkDocumentId,
+    ),
+    hasAnyLink: Boolean(edition.secureLinkId),
+    recipients,
+  })
+  if (decision.kind === "already_linked") {
     return {
       ok: true,
       message:
-        "This edition already has an exact-document link. Verify it before publishing.",
+        "This edition already has an exact-document link. Preview and apply its recipients, then verify it before publishing.",
     }
   }
-  const approved = await readApprovedRecipients(sql)
-  if (!canProvisionLinks(approved))
-    return {
-      message: "No approved recipients are configured; no link was created.",
-    }
+  if (decision.kind === "refuse") return { message: decision.message }
+
   const {
     createReviewDocumentLink,
     verifyReviewDocumentLink,
     revokeReviewDocumentLink,
   } = await import("@/lib/papermark-datarooms")
   const created = await createReviewDocumentLink({
-    documentId: edition.papermark_document_id,
+    documentId: edition.papermarkDocumentId,
     slotKey: edition.series,
     documentTitle: edition.title,
-    allowList: approved,
+    allowList: decision.emails,
   })
   if (!created.ok) return { message: created.message }
   const verified = await verifyReviewDocumentLink({
     linkId: created.value.linkId,
-    expectedDocumentId: edition.papermark_document_id,
-    expectedAllowList: approved,
+    expectedDocumentId: edition.papermarkDocumentId,
+    expectedAllowList: decision.emails,
   })
   if (!verified.ok) {
     const cleanup = await revokeReviewDocumentLink(created.value.linkId)
@@ -1980,192 +1516,54 @@ export async function prepareEditionSecureLink(editionId: string): Promise<FormS
           : " The unverified new link requires manual cleanup."),
     }
   }
+
+  let saved = false
   try {
-    await sql`
+    // Guarded on secure_link_id is null: if another link was stored in the
+    // meantime, this one is revoked below instead of overwriting it.
+    const rows = (await sql`
       update review_publication_editions set secure_link_id = ${created.value.linkId},
         secure_link_url = ${verified.value.url},
-        secure_link_document_id = ${edition.papermark_document_id},
-        secure_link_verified_at = now(), updated_at = now()
-      where id = ${edition.id}::uuid
-    `
-  } catch (error) {
-    const cleanup = await revokeReviewDocumentLink(created.value.linkId)
-    return {
-      message: `Link storage failed; ${
-        cleanup.ok
-          ? "the orphan was revoked"
-          : "manual orphan cleanup is required"
-      }. ${
-        error instanceof
-        Error
-          ? error.message
-          : ""
-      }`,
-    }
-  }
-  refresh()
-  return {
-    ok: true,
-    message: "Exact-document secure link prepared and verified.",
-  }
-}
-export async function recoverAugustMinEdition(): Promise<FormState> {
-  await requireOwner()
-  const sql = getSql()
-  const approved = await readApprovedRecipients(sql)
-  if (!canProvisionLinks(approved)) {
-    return {
-      message: "August recovery refused: the approved-recipient list is empty.",
-    }
-  }
-
-  const configuredRoom = (await sql`
-    select value from app_settings
-    where key = 'review_library_papermark_dataroom_id' limit 1
-  `) as { value: string }[]
-  const roomId =
-    configuredRoom[0]?.value?.trim() ??
-    ""
-  if (!roomId)
-    return {
-      message: "August recovery refused: no Review Data Room is configured.",
-    }
-
-  const matches = (await sql`
-    select e.id, e.title, e.papermark_document_id,
-           e.is_latest, e.secure_link_id
-    from review_publication_editions e
-    join review_sync_candidates c
-      on c.papermark_document_id = e.papermark_document_id
-    where e.series = 'MIN'
-      and c.detected_series = 'MIN'
-      and c.detected_edition_date = '2026-08-01'
-      and c.papermark_dataroom_id = ${roomId}
-      and c.is_present = true
-    order by c.first_seen_at, e.id
-  `) as Array<{
-    id: string
-    title: string
-    papermark_document_id: string
-    is_latest: boolean
-    secure_link_id: string | null
-  }>
-
-  if (
-    matches.length !==
-    1
-  ) {
-    return {
-      message:
-        matches.length ===
-        0
-          ? "August recovery stopped: no synced August 2026 MIN exists in the configured Data Room. Run Sync first."
-          : "August recovery stopped: more than one synced August 2026 MIN matched. Resolve the duplicate manually.",
-    }
-  }
-  const august = matches[0]!
-  if (august.is_latest) {
-    return {
-      message:
-        "August recovery stopped: August is unexpectedly marked latest; September was not changed.",
-    }
-  }
-  const {
-    createReviewDocumentLink,
-    verifyReviewDocumentLink,
-    revokeReviewDocumentLink,
-  } = await import("@/lib/papermark-datarooms")
-  let linkId =
-    august.secure_link_id?.trim() ??
-    ""
-  let linkUrl = ""
-  let createdFresh = false
-  if (linkId) {
-    const existing = await verifyReviewDocumentLink({
-      linkId,
-      expectedDocumentId: august.papermark_document_id,
-      expectedAllowList: approved,
-    })
-    if (existing.ok) linkUrl = existing.value.url
-  }
-
-  if (!linkUrl) {
-    const created = await createReviewDocumentLink({
-      documentId: august.papermark_document_id,
-      slotKey: "MIN",
-      documentTitle: august.title,
-      allowList: approved,
-    })
-    if (!created.ok) {
-      return { message: `August remains unpublished: ${created.message}` }
-    }
-    linkId = created.value.linkId
-    createdFresh = true
-
-    const verified = await verifyReviewDocumentLink({
-      linkId,
-      expectedDocumentId: august.papermark_document_id,
-      expectedAllowList: approved,
-    })
-    if (!verified.ok) {
-      const cleanup = await revokeReviewDocumentLink(linkId)
-      return {
-        message:
-          `August remains unpublished: ${verified.message}` +
-          (cleanup.ok
-            ? " The failed new link was revoked."
-            : " The failed new link requires manual cleanup."),
-      }
-    }
-    linkUrl = verified.value.url
-  }
-
-  try {
-    const saved = (await sql`
-      update review_publication_editions
-      set secure_link_id = ${linkId},
-          secure_link_url = ${linkUrl},
-          secure_link_document_id = ${august.papermark_document_id},
-          secure_link_verified_at = now(),
-          publication_state = 'published',
-          is_latest = false,
-          updated_at = now()
-      where id = ${august.id}::uuid and is_latest = false
+        secure_link_document_id = ${edition.papermarkDocumentId},
+        secure_link_verified_at = now(),
+        recipients_applied_at = now(),
+        recipients_verified_at = now(),
+        recipients_verified_hash = ${recipientListHash(decision.emails)},
+        updated_at = now()
+      where id = ${edition.id}::uuid and recipient_mode = 'edition' and secure_link_id is null
       returning id
     `) as { id: string }[]
-    if (!saved[0])
-      throw new Error(
-        "August changed concurrently; September was left unchanged.",
-      )
-  } catch (error) {
-    const cleanup = createdFresh
-      ? await revokeReviewDocumentLink(linkId)
-      : { ok: true as const }
+    saved = Boolean(rows[0])
+  } catch {
+    saved = false
+  }
+  if (!saved) {
+    const cleanup = await revokeReviewDocumentLink(created.value.linkId)
     return {
       message:
-        `August remains unpublished because its verified link could not be saved. ${
-          error instanceof
-          Error
-            ? error.message
-            : ""
-        }` +
-        (cleanup.ok
-          ? " The orphan link was revoked."
-          : " The orphan link requires manual cleanup."),
+        "The new link could not be stored against this edition, so it was not kept. " +
+        (cleanup.ok ? "The orphan link was revoked." : "The orphan link requires manual cleanup in Papermark."),
     }
   }
-
-  await sql`
-    insert into app_settings (key, value)
-    values ('review_august_min_recovery_status', 'complete')
-    on conflict (key) do update set value = excluded.value
-  `
-
   refresh()
   return {
     ok: true,
-    message: "August MIN recovered as a published historical edition. September remains latest and unchanged.",
+    message: `Exact-document secure link prepared and verified with this edition's ${decision.emails.length} recipient${decision.emails.length === 1 ? "" : "s"}.`,
   }
+}
+/**
+ * Retired: a one-off, hard-coded August 2026 MIN recovery that created its link with the shared list. That edition is now handled like any other: choose its recipients, prepare its link, then publish it as historical.
+ *
+ * Every pre-edition slot action that minted, re-applied or revoked a Papermark
+ * link did so with the shared recipient list. The versioning migration carried
+ * several of those slot links over as edition links, so running any of them now
+ * could overwrite an edition's own list or end its readers' access. Each is
+ * kept only as an owner-gated refusal, so a stale client is told why rather
+ * than writing anything. Links are managed per edition instead.
+ */
+export async function recoverAugustMinEdition(): Promise<FormState> {
+  await requireOwner()
+  return retiredLegacyLinkAction()
 }
 
 /** Publish an edition without deleting, archiving, or revoking its predecessor. */
@@ -2311,28 +1709,41 @@ async function verifyEditionForPublishing(
   sql: ReturnType<typeof getSql>,
   editionId: string,
 ): Promise<FormState> {
-  const rows = (await sql`select secure_link_id, papermark_document_id
-    from review_publication_editions where id = ${editionId}::uuid limit 1`) as Array<{
-    secure_link_id: string | null
-    papermark_document_id: string
-  }>
-  if (!rows[0]?.secure_link_id)
+  // Covers both publish actions, which call this before changing anything.
+  if (!(await editionRecipientsReady(sql, { fresh: true }))) {
+    return { message: MIGRATION_PENDING_MESSAGE }
+  }
+  const edition = await loadEditionForAccess(sql, editionId)
+  if (!edition?.secureLinkId)
     return { message: "Not published: prepare a secure link first." }
-  const approved = await readApprovedRecipients(sql)
-  if (!canProvisionLinks(approved))
+
+  // A shared_legacy edition is still judged by the shared list until it is
+  // adopted; every other edition by its own recipients only.
+  const expected = await expectedRecipientsForEdition(sql, edition)
+  if (expected.length === 0)
     return {
-      message: "Not published: no approved-recipient policy is configured.",
+      message:
+        edition.recipientMode === "shared_legacy"
+          ? "Not published: the shared list this edition still uses is empty."
+          : "Not published: choose, apply and verify at least one recipient for this edition first.",
     }
   const { verifyReviewDocumentLink } = await import("@/lib/papermark-datarooms")
   const check = await verifyReviewDocumentLink({
-    linkId: rows[0].secure_link_id,
-    expectedDocumentId: rows[0].papermark_document_id,
-    expectedAllowList: approved,
+    linkId: edition.secureLinkId,
+    expectedDocumentId: edition.papermarkDocumentId,
+    expectedAllowList: expected,
   })
   if (!check.ok) return { message: `Not published: ${check.message}` }
-  await sql`update review_publication_editions set secure_link_url = ${check.value.url},
-    secure_link_document_id = ${rows[0].papermark_document_id}, secure_link_verified_at = now(),
-    updated_at = now() where id = ${editionId}::uuid`
+  if (edition.recipientMode === "edition") {
+    await sql`update review_publication_editions set secure_link_url = ${check.value.url},
+      secure_link_document_id = ${edition.papermarkDocumentId}, secure_link_verified_at = now(),
+      recipients_verified_at = now(), recipients_verified_hash = ${recipientListHash(expected)},
+      updated_at = now() where id = ${editionId}::uuid`
+  } else {
+    await sql`update review_publication_editions set secure_link_url = ${check.value.url},
+      secure_link_document_id = ${edition.papermarkDocumentId}, secure_link_verified_at = now(),
+      updated_at = now() where id = ${editionId}::uuid`
+  }
   return { ok: true }
 }
 

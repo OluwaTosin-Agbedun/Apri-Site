@@ -44,8 +44,8 @@ export async function setDocumentStatus(
 
   if (next === 'published') {
     const rows = (await sql`
-      select visibility, open_link_url from documents where id = ${id} limit 1
-    `) as { visibility: string; open_link_url: string | null }[]
+      select visibility, open_link_url, series, edition_date from documents where id = ${id} limit 1
+    `) as { visibility: string; open_link_url: string | null; series: string; edition_date: string | null }[]
 
     const row = rows[0]
     if (!row) return { message: 'That publication no longer exists.' }
@@ -62,6 +62,11 @@ export async function setDocumentStatus(
         message:
           'An open edition needs its public link before publishing. Add one, or set the audience to a subscriber level.',
       }
+    }
+
+    // Portal order comes from the issue date, never from a later upload or sync.
+    if (row.visibility !== 'OPEN' && ['PLM', 'MIN', 'AIU'].includes(row.series) && !row.edition_date) {
+      return { message: 'Add the edition date before publishing this subscriber edition.' }
     }
 
     await sql`

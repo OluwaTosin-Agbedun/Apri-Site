@@ -39,10 +39,13 @@ const CONTRACT = 'src/lib/papermark-dataroom-contract.ts'
 const RECIP_FORM = 'src/app/admin/review-library/recipients-form.tsx'
 const TRACKED = 'src/components/TrackedAccessLink.tsx'
 
+// Splits on \r?\n: a Windows checkout (core.autocrlf) leaves a \r at the end of
+// every line, which `.*$` cannot cross, so comments would survive stripping and
+// a word inside one would fail the checks below.
 const codeOnly = (src) =>
   src
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
+    .split(/\r?\n/)
     .map((l) => l.replace(/(^|\s)\/\/.*$/, '$1').replace(/^\s*--.*$/, ''))
     .join('\n')
 
@@ -661,7 +664,8 @@ describe('no new table was added', () => {
 
   it('the action reads and writes app_settings', () => {
     const src = read(ACTIONS)
-    assert.match(src, /RECIPIENTS_KEY = 'review_approved_recipients'/)
+    // Either quote style: the formatter now writes double quotes.
+    assert.match(src, /RECIPIENTS_KEY = ['"]review_approved_recipients['"]/)
     assert.match(fnBody(src, 'readApprovedRecipients'), /from app_settings where key/)
   })
 })
@@ -727,65 +731,31 @@ describe('saveApprovedRecipients', () => {
     assert.doesNotMatch(fn, /papermark-datarooms/)
   })
 
-  it('says the links are unchanged until Apply', () => {
-    assert.match(fn, /unchanged until you press Apply/)
+  it('says saving grants no access by itself', () => {
+    assert.match(fn, /grants no access by itself/)
   })
 })
 
-describe('email restrictions: preview then apply', () => {
+describe('no global recipient apply exists', () => {
   const src = read(ACTIONS)
 
-  it('both are owner-only', () => {
-    assert.match(fnBody(src, 'previewEmailRestrictions'), /requireOwner\(\)/)
-    assert.match(fnBody(src, 'applyEmailRestrictions'), /requireOwner\(\)/)
+  it('the global preview and apply actions are gone, server actions included', () => {
+    assert.doesNotMatch(src, /export async function previewEmailRestrictions/)
+    assert.doesNotMatch(src, /export async function applyEmailRestrictions/)
   })
 
-  it('preview writes nothing', () => {
-    const fn = fnBody(src, 'previewEmailRestrictions')
-    assert.doesNotMatch(fn, /setReviewLinkAllowList/)
-    assert.doesNotMatch(fn, /update complimentary_review_items/)
-  })
-
-  it('preview reads the live allow list from Papermark', () => {
-    assert.match(fnBody(src, 'previewEmailRestrictions'), /getReviewLinkSettings/)
-  })
-
-  it('both fail closed on an empty approved list', () => {
-    for (const name of ['previewEmailRestrictions', 'applyEmailRestrictions']) {
-      const fn = fnBody(src, name)
-      assert.match(fn, /canProvisionLinks\(approved\)/, name)
+  it('no client component can still call them', () => {
+    for (const f of [
+      'src/app/admin/review-library/recipients-form.tsx',
+      'src/app/admin/review-library/review-form.tsx',
+      'src/app/admin/review-library/edition-access-panel.tsx',
+    ]) {
+      assert.doesNotMatch(read(f), /applyEmailRestrictions|previewEmailRestrictions/, f)
     }
-    assert.match(fnBody(src, 'applyEmailRestrictions'), /Refused: no approved recipients/)
   })
 
-  it('apply refuses BEFORE touching any link', () => {
-    const fn = fnBody(src, 'applyEmailRestrictions')
-    const guard = fn.indexOf('canProvisionLinks(approved)')
-    const call = fn.indexOf('updateReviewDocumentLink')
-    assert.ok(guard < call, 'the guard must precede the first link write')
-  })
-
-  it('apply updates the three existing links, not new ones', () => {
-    const fn = fnBody(src, 'applyEmailRestrictions')
-    assert.match(fn, /slot_key in \('MIN', 'AIU', 'PLM'\)/)
-    assert.match(fn, /updateReviewDocumentLink/)
-    assert.doesNotMatch(fn, /createReviewDocumentLink/)
-  })
-
-  it('apply reports individual failures without aborting', () => {
-    const fn = fnBody(src, 'applyEmailRestrictions')
-    assert.match(fn, /failures\.push\(/)
-    assert.match(fn, /continue/)
-    assert.match(fn, /\$\{failures\.length\} failed/)
-  })
-
-  it('apply does not rewrite the URL, link id or document id', () => {
-    const fn = fnBody(src, 'applyEmailRestrictions')
-    const update = fn.slice(fn.indexOf('update complimentary_review_items'), fn.indexOf('where slot_key'))
-    assert.doesNotMatch(update, /secure_link_url\s*=/)
-    assert.doesNotMatch(update, /secure_link_id\s*=/)
-    assert.doesNotMatch(update, /secure_link_document_id\s*=/)
-    assert.doesNotMatch(update, /papermark_document_id\s*=/)
+  it('the address book says it grants nothing', () => {
+    assert.match(read('src/app/admin/review-library/recipients-form.tsx'), /grants no access/)
   })
 })
 
@@ -820,18 +790,22 @@ describe('setReviewLinkAllowList preserves everything else', () => {
   })
 })
 
-describe('all provisioning paths use the approved list', () => {
+describe("provisioning paths use the edition's own recipients", () => {
   const src = read(ACTIONS)
 
-  for (const name of ['createSlotSecureLink', 'verifySlotSecureLink', 'preparePendingSecureLink']) {
-    it(`${name} reads the approved list`, () => {
-      assert.match(fnBody(src, name), /readApprovedRecipients\(sql\)/, name)
-    })
+  it('link preparation uses the edition list and refuses with none chosen', () => {
+    const fn = fnBody(src, 'prepareEditionSecureLink')
+    assert.match(fn, /loadActiveRecipients\(sql, editionId\)/)
+    assert.match(fn, /decideLinkPreparation\(/)
+    assert.match(fn, /allowList: decision\.emails/)
+    assert.doesNotMatch(fn, /readApprovedRecipients/)
+  })
 
-    it(`${name} refuses when nobody is approved`, () => {
-      assert.match(fnBody(src, name), /canProvisionLinks\(approved\)/, name)
-    })
-  }
+  it('publication verification uses the relevant edition list', () => {
+    const fn = fnBody(src, 'verifyEditionForPublishing')
+    assert.match(fn, /expectedRecipientsForEdition/)
+    assert.doesNotMatch(fn, /readApprovedRecipients/)
+  })
 
   it('createReviewDocumentLink requires a non-empty allow list at the type level', () => {
     const service = read(SERVICE)

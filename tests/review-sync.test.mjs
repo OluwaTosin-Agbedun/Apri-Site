@@ -305,16 +305,22 @@ test('admin form: secure link field per slot', () => {
   assert.match(src, /updateSlotSecureLink/)
 })
 
-test('admin form: pending version display', () => {
+test('admin form: a draft edition is shown as such and waits for an exact link', () => {
+  // Replaces the pending-version display, whose action this release retired.
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /pendingCleanTitle/)
-  assert.match(src, /Pending edition/)
+  assert.match(src, /"Pending \/ Draft"/)
+  assert.equal((src.match(/disabled=\{busy \|\| !exact\}/g) ?? []).length, 2)
 })
 
-test('admin form: make current button with confirmation', () => {
-  const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /Make current/)
-  assert.match(src, /window\.confirm/)
+test('admin: the current edition changes only by an owner publish that is verified first', () => {
+  // Replaces "Make current", whose action this release retired.
+  const actions = read('src/app/actions/review-library.ts')
+  const publish = actions.slice(
+    actions.indexOf('export async function publishEditionAsLatest'),
+    actions.indexOf('export async function publishHistoricalEdition'),
+  )
+  assert.ok(publish.indexOf('await requireOwner()') < publish.indexOf('verifyEditionForPublishing(sql, editionId)'))
+  assert.ok(publish.indexOf('verifyEditionForPublishing(sql, editionId)') < publish.indexOf('promote_review_publication_edition'))
 })
 
 // ---------------------------------------------------------------------------

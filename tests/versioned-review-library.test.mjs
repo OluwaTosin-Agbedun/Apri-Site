@@ -74,18 +74,20 @@ test("public review queries never select approved recipients", () => {
   const archive = publications.slice(
     publications.indexOf("getReviewPublicationArchive"),
   )
-  assert.match(archive, /select id, title as pub_title/)
+  assert.match(archive, /select e\.id, e\.title as pub_title/)
   assert.doesNotMatch(archive, /emails:|approvedRecipients/)
+  // Recipients are tested for existence only, never selected.
+  assert.doesNotMatch(archive, /select[^;]*\br\.email\b[^;]*from review_edition_recipients/)
 })
 
-test("recipient policy applies to every published edition", () => {
-  const fn = actions.slice(
-    actions.indexOf("applyEmailRestrictions"),
-    actions.indexOf("updateSlotPublicationTitle"),
-  )
-  assert.match(fn, /from review_publication_editions/)
-  assert.match(fn, /publication_state = 'published'/)
-  assert.doesNotMatch(fn, /is_latest = true/)
+test("no action applies one recipient list to every published edition", () => {
+  assert.doesNotMatch(actions, /export async function applyEmailRestrictions/)
+  const access = read("src/app/actions/review-edition-access.ts")
+  const apply = access.slice(access.indexOf("export async function applyEditionRecipients"))
+  // One edition, by id, through the narrow allow-list-only PATCH.
+  assert.match(apply, /loadEditionForAccess\(sql, editionId\)/)
+  assert.match(apply, /setReviewLinkAllowList\(/)
+  assert.doesNotMatch(apply.slice(0, apply.indexOf("\n}")), /updateReviewDocumentLink|publication_state = 'published'/)
 })
 
 test("pending candidates can be assigned to populated series", () => {
@@ -146,8 +148,9 @@ test("publishing re-verifies the exact document and recipient policy through Pap
     actions.indexOf("async function verifyEditionForPublishing"),
   )
   assert.match(fn, /verifyReviewDocumentLink/)
-  assert.match(fn, /expectedDocumentId: rows\[0\]\.papermark_document_id/)
-  assert.match(fn, /expectedAllowList: approved/)
+  assert.match(fn, /expectedDocumentId: edition\.papermarkDocumentId/)
+  assert.match(fn, /expectedAllowList: expected/)
+  assert.match(fn, /expectedRecipientsForEdition\(sql, edition\)/)
 })
 
 test("review route remains and navigation omits its old item", () => {
@@ -171,34 +174,24 @@ test("subscriber publications remain separate from review editions", () => {
   )
 })
 
-test("August MIN recovery reuses the synced PDF and never uploads or duplicates it", () => {
+test("the hard-coded August MIN recovery is retired", () => {
   const fn = actions.slice(
     actions.indexOf("export async function recoverAugustMinEdition"),
-    actions.indexOf("export async function publishEditionAsLatest"),
   )
-  assert.match(fn, /join review_sync_candidates c/)
-  assert.match(fn, /c\.detected_edition_date = '2026-08-01'/)
-  assert.match(fn, /c\.papermark_dataroom_id = \$\{roomId\}/)
-  assert.match(fn, /documentId: august\.papermark_document_id/)
-  assert.doesNotMatch(fn, /upload|insert into review_publication_editions/i)
+  const body = fn.slice(0, fn.indexOf("\n}") + 2)
+  assert.match(body, /await requireOwner\(\)/)
+  assert.match(body, /return retiredLegacyLinkAction\(\)/)
+  assert.doesNotMatch(body, /2026-08-01|createReviewDocumentLink|publication_state/)
 })
 
-test("August recovery verifies the complete policy before publishing historical", () => {
+test("a historical edition is published only through the verified per-edition workflow", () => {
   const fn = actions.slice(
-    actions.indexOf("export async function recoverAugustMinEdition"),
-    actions.indexOf("export async function publishEditionAsLatest"),
+    actions.indexOf("export async function publishHistoricalEdition"),
   )
-  assert.match(fn, /expectedDocumentId: august\.papermark_document_id/)
-  assert.match(fn, /expectedAllowList: approved/)
-  assert.ok(
-    fn.indexOf("verifyReviewDocumentLink") <
-      fn.indexOf("publication_state = 'published'"),
-  )
-  assert.match(fn, /is_latest = false/)
-  assert.doesNotMatch(
-    fn,
-    /update complimentary_review_items|series = 'AIU'|series = 'PLM'/,
-  )
+  const body = fn.slice(0, fn.indexOf("\n}") + 2)
+  assert.match(body, /verifyEditionForPublishing\(sql, editionId\)/)
+  assert.match(body, /is_latest = false/)
+  assert.doesNotMatch(body, /update complimentary_review_items/)
 })
 
 test("Papermark review policy enforces every required August protection", () => {

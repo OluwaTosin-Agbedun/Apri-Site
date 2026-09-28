@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { readReviewSession } from "@/lib/review-security"
-import { getReviewLibrary } from "@/lib/publications"
+import { getProspectReviewLibrary } from "@/lib/publications"
 import SiteHeader from "@/components/SiteHeader"
 import { getSql } from "@/lib/db"
 export const dynamic = "force-dynamic"
@@ -9,12 +9,14 @@ export const metadata: Metadata = {
   title: "Review Library | APRI",
   robots: { index: false, follow: false },
 }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export default async function Library() {
   const id = await readReviewSession()
-  if (!id) redirect("/review")
+  if (!id || !UUID.test(id)) redirect("/review")
   const authorised = await getSql()`select 1 from review_prospects where id=${id}::uuid and verified_at is not null and access_sent_at is not null limit 1`
   if (!authorised[0]) redirect("/review")
-  const library = await getReviewLibrary()
+  // Only the editions granted to this prospect; never the full selection.
+  const editions = await getProspectReviewLibrary(id)
   return (
     <div className="min-h-screen">
       <SiteHeader />
@@ -24,14 +26,24 @@ export default async function Library() {
           Personal, confidential access. Review materials are not for
           redistribution.
         </p>
+        {editions.length === 0 && (
+          <p className="text-sm text-foreground/70 mb-12 max-w-2xl">
+            No review publications are available to your address at the moment.
+            If you expected to see one here, reply to your review access email and
+            we will look into it.
+          </p>
+        )}
         <div className="grid md:grid-cols-3 gap-6">
-          {library?.items.map((c) => (
+          {editions.map((c) => (
             <article
-              key={c.slotKey}
+              key={c.id}
               className="border border-border p-7 flex flex-col"
             >
               <p className="eyebrow">{c.publicationType}</p>
               <h2 className="font-serif text-xl mt-3">{c.pubTitle}</h2>
+              {c.editionLabel && (
+                <p className="text-xs text-muted-foreground mt-2">{c.editionLabel}</p>
+              )}
               <p className="text-sm text-foreground/70 my-5 flex-1">
                 {c.description}
               </p>

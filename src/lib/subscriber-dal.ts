@@ -159,6 +159,8 @@ export type LibraryItem = {
   pageCount: number | null
   /** Resolved read link, or null when no link is available yet. */
   linkUrl: string | null
+  viewedBySubscriber: boolean
+  downloadedBySubscriber: boolean
 }
 
 type LibraryRow = {
@@ -176,6 +178,8 @@ type LibraryRow = {
   shared_link: string | null
   /** Null when no row exists, or when the row has been revoked. */
   stamped_link: string | null
+  viewed_by_subscriber: boolean
+  downloaded_by_subscriber: boolean
 }
 
 /**
@@ -221,6 +225,14 @@ export async function getLibraryFor(
             d.edition_date, d.visibility, d.page_count,
             d.is_shared_copy,
             d.papermark_link as shared_link,
+            exists (
+              select 1 from document_views v
+              where v.subscriber_id = $1 and v.publication_id = d.id
+            ) as viewed_by_subscriber,
+            exists (
+              select 1 from document_download_events de
+              where de.subscriber_id = $1 and de.publication_id = d.id
+            ) as downloaded_by_subscriber,
             case when pa.revoke_state = 'live' then pa.link_url else null end
               as stamped_link
      from documents d
@@ -244,6 +256,8 @@ export async function getLibraryFor(
     visibility: isVisibility(row.visibility) ? row.visibility : "L4",
     pageCount: row.page_count,
     linkUrl: resolveLink(row),
+    viewedBySubscriber: row.viewed_by_subscriber,
+    downloadedBySubscriber: row.downloaded_by_subscriber,
   }))
 }
 

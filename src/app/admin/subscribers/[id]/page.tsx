@@ -7,6 +7,9 @@ import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
 import SeatActions from "../seat-actions"
 import DataRoomPanel from "@/components/DataRoomPanel"
 import { resolveDataRoom, getDataRoomLink } from "@/lib/dataroom-dal"
+import { portalSignInUrl } from "@/lib/app-url"
+import { decidePortalLinkCopy } from "@/lib/portal-link-copy"
+import CopyPortalLink from "./copy-portal-link"
 
 export const dynamic = "force-dynamic"
 
@@ -142,6 +145,47 @@ export default async function EditSubscriberPage({
 
   const status = row.status.toLowerCase()
 
+  // This subscriber's own latest access email that Resend accepted, and
+  // whether it later bounced. Filtered by this record's id only, so another
+  // subscriber's delivery can never unlock the button here.
+  const accessEmails = (await sql`
+    select e.subscriber_id, e.resend_email_id, e.occurred_at,
+           exists (
+             select 1 from client_engagement_events f
+             where f.subscriber_id = e.subscriber_id
+               and f.resend_email_id = e.resend_email_id
+               and f.event_type in ('email_bounced', 'email_failed')
+           ) as failed
+    from client_engagement_events e
+    where e.subscriber_id = ${row.id}::uuid
+      and e.event_type = 'signin_email_sent'
+      and e.resend_email_id is not null
+    order by e.occurred_at desc
+    limit 1
+  `) as {
+    subscriber_id: string
+    resend_email_id: string | null
+    occurred_at: string | null
+    failed: boolean
+  }[]
+  const portalLink = decidePortalLinkCopy({
+    subscriber: {
+      subscriberId: row.id,
+      status,
+      clientType: row.client_type,
+      termEnd: row.term_end,
+    },
+    accessEmail: accessEmails[0]
+      ? {
+          subscriberId: accessEmails[0].subscriber_id,
+          resendEmailId: accessEmails[0].resend_email_id,
+          sentAt: accessEmails[0].occurred_at,
+          failed: accessEmails[0].failed === true,
+        }
+      : null,
+    signInUrl: portalSignInUrl(),
+  })
+
   return (
     <AdminShell
       admin={admin}
@@ -165,6 +209,13 @@ export default async function EditSubscriberPage({
           hasTermEnd={Boolean(row.term_end)}
           liveLinks={Number(row.live_links ?? 0)}
         />
+        {portalLink.show && (
+          <CopyPortalLink
+            url={portalLink.url}
+            subscriberName={draft.fullName}
+            subscriberEmail={row.email}
+          />
+        )}
         <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground leading-relaxed max-w-xl">
           Entitlement reaches back {reachMonths} month
           {reachMonths === 1 ? "" : "s"} from today

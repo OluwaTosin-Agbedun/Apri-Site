@@ -23,9 +23,9 @@ test('the portal has no Open Private Library button', () => {
 })
 
 test('documents render on the portal itself rather than behind a link out', () => {
-  // Legacy pipeline still fetched and grouped on the page.
-  assert.match(portal, /getSyncedClientDocuments\(principal, \{ previousVisit \}\)/)
-  assert.match(portal, /groupBySection\(documents\)/)
+  // Legacy pipeline uses the entitlement-filtered publication library.
+  assert.match(portal, /getLibraryFor\(principal\)/)
+  assert.match(portal, /editionsBySeries\(portalLibrary\)/)
   // DR pipeline uses its own grid and cards.
   assert.match(portal, /function DataRoomGrid/)
   assert.match(portal, /function DataRoomCard/)
@@ -34,26 +34,21 @@ test('documents render on the portal itself rather than behind a link out', () =
   assert.match(portal, /function LegacyDocumentCard/)
 })
 
-test('every section the brief names is rendered, and empty ones are hidden', () => {
+test('the three paid publication libraries are rendered', () => {
   assert.equal(SECTION_LABELS.MIN, 'Monthly Intelligence Notes')
   assert.equal(SECTION_LABELS.AIU, 'Athena Intelligence Updates')
   assert.equal(SECTION_LABELS.OTHER, 'Other Assigned Publications')
 
-  // Legacy pipeline uses LIBRARY_SECTIONS
-  assert.match(portal, /LIBRARY_SECTIONS\.map/)
-  assert.match(portal, /sections\[section\]\.length === 0 \? null/)
-
-  // DR pipeline uses PORTAL_CATEGORIES (filtered then mapped)
-  assert.match(portal, /PORTAL_CATEGORIES\.filter/)
+  assert.match(portal, /PORTAL_SERIES\.map/)
+  assert.match(portal, /editionsBySeries/)
 })
 
-test('Latest Publications always shows content for DR subscribers', () => {
-  // When fewer new docs exist, the most recent documents are shown instead.
-  assert.match(portal, /latestToShow\.length === 0 \?/)
-  assert.match(portal, /latest\.length > 0 \? latest : documents\.slice\(0, 6\)/)
+test('Latest shows exactly one editorially newest publication', () => {
+  assert.match(portal, /newestEdition\(editions\)/)
+  assert.match(portal, /documents=\{\[latest\]\}/)
 })
 
-test('a card shows the title, the type, a date and a badge only when earned', () => {
+test('a card shows the title, type, editorial date and confirmed activity', () => {
   // Legacy cards
   assert.match(portal, /\{document\.typeLabel\}/)
   assert.match(portal, /\{document\.title\}/)
@@ -61,7 +56,8 @@ test('a card shows the title, the type, a date and a badge only when earned', ()
   assert.match(portal, /\{document\.isNew && \(/)
   // DR cards
   assert.match(portal, /\{document\.categoryLabel\}/)
-  assert.match(portal, /\{document\.badge && \(/)
+  assert.match(portal, /const date = document\.editionDate/)
+  assert.match(portal, /<ActivityStatus document=\{document\}/)
 })
 
 // ---------------------------------------------------------------------------
@@ -203,16 +199,15 @@ test('no Papermark credential can reach a client component', () => {
   assert.match(read('src/lib/papermark-client-library.ts'), /^import "server-only"/m)
 })
 
-test('DR cards show both Download and View buttons', () => {
+test('DR cards show View but do not enable downloads', () => {
   const cardSection = portal.slice(
     portal.indexOf('function DataRoomCard'),
     portal.indexOf('function LegacyDocumentGrid') > -1
       ? portal.indexOf('function LegacyDocumentGrid')
       : portal.length,
   )
-  assert.match(cardSection, /Download/)
   assert.match(cardSection, /View/)
-  assert.match(cardSection, /\/portal\/document\/.*\/download/)
+  assert.doesNotMatch(cardSection, /\/download/)
   assert.match(cardSection, /\/portal\/document\/.*[^/]`\}/)
 })
 

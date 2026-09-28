@@ -16,6 +16,14 @@ import {
   sendReviewVerification,
   sendSubscriptionMessages,
 } from "@/lib/review-email"
+import {
+  expectedRecipientsForEdition,
+  grantedEditionsForProspect,
+} from "@/lib/edition-recipients-dal"
+import { editionRecipientsReady } from "@/lib/edition-recipients-schema"
+import { MIGRATION_PENDING_MESSAGE } from "@/lib/edition-recipients"
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type ReviewFormState = { ok?: boolean; message?: string }
 const USER_TYPES = [
@@ -189,6 +197,7 @@ export async function sendSecureReviewAccess(
   readiness: string[],
 ): Promise<ReviewFormState> {
   const admin = await requireOwner()
+  if (!UUID.test(prospectId)) return { message: "Unknown review request." }
   const required = [
     "allowlist",
     "mapped",
@@ -200,6 +209,8 @@ export async function sendSecureReviewAccess(
     return {
       message: "Complete and confirm every Papermark readiness check first.",
     }
+  if (!(await editionRecipientsReady(getSql(), { fresh: true })))
+    return { message: MIGRATION_PENDING_MESSAGE }
   const sql = getSql(),
     rows =
       (await sql`select id,full_name,email,status from review_prospects where id=${prospectId}::uuid and verified_at is not null`) as {
@@ -210,28 +221,28 @@ export async function sendSecureReviewAccess(
       }[]
   const p = rows[0]
   if (!p) return { message: "Verified prospect not found." }
-  const links =
-    (await sql`select slot_key,secure_link_id,papermark_document_id from complimentary_review_items where slot_key in ('MIN','AIU','PLM') and secure_link_verified_at is not null and secure_link_document_id=papermark_document_id and secure_link_url<>'' order by slot_key`) as {
-      slot_key: string
-      secure_link_id: string | null
-      papermark_document_id: string | null
-    }[]
-  if (links.length !== 3 || links.some((link) => !link.secure_link_id || !link.papermark_document_id))
+
+  // Only the editions this prospect was explicitly granted -- never a fixed
+  // set, and never everything published. Each is then checked live against
+  // its own list, which is what the prospect's library will actually show.
+  const granted = await grantedEditionsForProspect(sql, p.email)
+  if (granted.length === 0)
     return {
       message:
-        "All three fixed links must be verified and mapped before access can be sent.",
+        "No published edition is granted to this prospect yet. Grant at least one edition, apply it in Review Library, then send access.",
     }
-  const approvedRow = (await sql`select value from app_settings where key='review_approved_recipients'`) as { value: string }[]
-  const approved = (approvedRow[0]?.value ?? "").split(/[\n,]/).map((email) => email.trim().toLowerCase()).filter(Boolean)
-  if (!approved.includes(p.email.toLowerCase())) return { message: "This verified address is not yet in Approved Review Recipients." }
   const { verifyReviewDocumentLink } = await import("@/lib/papermark-datarooms")
-  for (const link of links) {
+  for (const edition of granted) {
+    const label = [edition.series, edition.editionLabel || edition.title].filter(Boolean).join(" · ")
+    const expected = await expectedRecipientsForEdition(sql, edition)
+    if (!expected.includes(p.email.trim().toLowerCase()))
+      return { message: `${label} does not list this prospect. Nothing was sent.` }
     const checked = await verifyReviewDocumentLink({
-      linkId: link.secure_link_id!,
-      expectedDocumentId: link.papermark_document_id!,
-      expectedAllowList: approved,
+      linkId: edition.secureLinkId,
+      expectedDocumentId: edition.papermarkDocumentId,
+      expectedAllowList: expected,
     })
-    if (!checked.ok) return { message: `${link.slot_key} is not ready. ${checked.message}` }
+    if (!checked.ok) return { message: `${label} is not ready. ${checked.message} Nothing was sent.` }
   }
   const token = newToken()
   await sql`update review_tokens set consumed_at=now() where prospect_id=${p.id}::uuid and purpose='review_access' and consumed_at is null`
@@ -247,37 +258,25 @@ export async function sendSecureReviewAccess(
   return { ok: true, message: "Secure review access sent." }
 }
 
-export async function approveProspectRecipient(formData: FormData) {
-  await requireOwner()
-  const id = String(formData.get("id") || "")
-  const sql = getSql(),
-    prospects =
-      (await sql`select email from review_prospects where id=${id}::uuid and verified_at is not null`) as {
-        email: string
-      }[]
-  if (!prospects[0]) throw new Error("Verified prospect not found")
-  const current =
-    (await sql`select value from app_settings where key='review_approved_recipients'`) as {
-      value: string
-    }[]
-  const emails = new Set(
-    (current[0]?.value || "")
-      .split(/[\n,]/)
-      .map((v) => v.trim().toLowerCase())
-      .filter(Boolean),
-  )
-  emails.add(prospects[0].email.toLowerCase())
-  await sql`insert into app_settings(key,value) values('review_approved_recipients',${[...emails].sort().join("\n")}) on conflict(key) do update set value=excluded.value`
-  revalidatePath(`/admin/review-requests/${id}`)
-  revalidatePath("/admin/review-library")
-}
+// Approving a prospect no longer appends them to the shared list, which would
+// have granted every published edition. Editions are granted explicitly, one
+// choice at a time, by grantProspectEditions in review-edition-access.ts.
 
-export async function sendSecureReviewAccessForm(formData: FormData) {
-  const id = String(formData.get("id") || "")
+/**
+ * Form-state wrapper for the Admin page.
+ *
+ * Returns the reason access was not sent rather than throwing: a thrown
+ * server-action error is redacted in production, which would leave the owner
+ * with no idea which edition was not ready.
+ */
+export async function sendSecureReviewAccessFromForm(
+  prospectId: string,
+  _state: ReviewFormState,
+  formData: FormData,
+): Promise<ReviewFormState> {
+  await requireOwner()
   const readiness = formData.getAll("readiness").map(String)
-  const result = await sendSecureReviewAccess(id, readiness)
-  if (!result.ok)
-    throw new Error(result.message || "Review access could not be sent")
+  return sendSecureReviewAccess(prospectId, readiness)
 }
 
 export async function submitSubscriptionRequest(

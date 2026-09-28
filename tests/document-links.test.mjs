@@ -619,9 +619,10 @@ test('portal: card renders summary when present', () => {
   assert.match(src, /document\.summary/)
 })
 
-test('portal: card prefers editionDate over Papermark dates', () => {
+test('portal: card uses only the editorial editionDate', () => {
   const src = read('src/app/portal/page.tsx')
-  assert.match(src, /document\.editionDate \|\| document\.papermarkUpdatedAt/)
+  assert.match(src, /const date = document\.editionDate/)
+  assert.doesNotMatch(src, /const date = document\.editionDate \|\|/)
 })
 
 test('viewer: uses displayTitle for page title', () => {

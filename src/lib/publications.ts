@@ -2,6 +2,7 @@ import "server-only"
 import { getSql } from "./db"
 import { isVisibility, type Visibility } from "./entitlements"
 import { canProvisionLinks, deserialiseRecipients } from "./review-recipients"
+import { editionRecipientsReady } from "./edition-recipients-schema"
 
 export { PUBLICATION_SECTIONS, type PublicationSection } from "./sections"
 
@@ -268,7 +269,18 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
   }
 }
 
-/** Authorised query for the protected Review Library only. */
+/**
+ * The homepage's one-card-per-series selection, with each card's secure URL.
+ *
+ * Selecting the URL here is deliberate: the public pages link straight to each
+ * edition's Papermark document, and that link's own allow list decides who can
+ * open it. What this query never selects is anyone's address -- whether an
+ * edition has recipients is tested for existence only.
+ *
+ * The per-series choice is made first and the access check applied to the
+ * chosen edition afterwards, so an edition that is not ready hides the review
+ * section rather than being silently replaced by an older edition.
+ */
 export async function getReviewLibrary(): Promise<{
   items: SecureReviewCard[]
 } | null> {
@@ -281,18 +293,42 @@ export async function getReviewLibrary(): Promise<{
     const setting = (key: string) =>
       settings.find((row) => row.key === key)?.value
     if (setting("review_library_enabled") !== "true") return null
-    if (
-      !canProvisionLinks(
-        deserialiseRecipients(setting("review_approved_recipients")),
-      )
+    // Only editions not yet adopted still depend on the shared list.
+    const sharedConfigured = canProvisionLinks(
+      deserialiseRecipients(setting("review_approved_recipients")),
     )
-      return null
 
-    const items = (await sql`
+    // Before the per-edition migration has run there is no recipient_mode:
+    // every published edition with a secure link is judged by the shared list,
+    // which is exactly how the migration classifies it, so readers see the
+    // same cards before and after it.
+    const perEdition = await editionRecipientsReady(sql)
+    const items = (perEdition
+      ? await sql`
     select distinct on (e.series)
       e.id, e.title as pub_title, e.publication_type, e.description,
       e.frequency, e.audience, e.series as slot_key, e.secure_link_url,
-      e.edition_date, e.edition_label, e.papermark_document_id, e.is_latest
+      e.edition_date, e.edition_label, e.papermark_document_id, e.is_latest,
+      case
+        when e.recipient_mode = 'shared_legacy' then ${sharedConfigured}::boolean
+        else exists (
+          select 1 from review_edition_recipients r
+          where r.edition_id = e.id and r.revoked_at is null
+        )
+      end as access_configured
+    from review_publication_editions e
+    where e.publication_state = 'published'
+      and e.secure_link_url <> '' and e.secure_link_verified_at is not null
+      and e.secure_link_document_id = e.papermark_document_id
+    order by e.series, e.is_latest desc, e.edition_date desc nulls last,
+             e.edition_order desc, e.created_at desc, e.id desc
+    `
+      : await sql`
+    select distinct on (e.series)
+      e.id, e.title as pub_title, e.publication_type, e.description,
+      e.frequency, e.audience, e.series as slot_key, e.secure_link_url,
+      e.edition_date, e.edition_label, e.papermark_document_id, e.is_latest,
+      (e.secure_link_id is not null and ${sharedConfigured}::boolean) as access_configured
     from review_publication_editions e
     where e.publication_state = 'published'
       and e.secure_link_url <> '' and e.secure_link_verified_at is not null
@@ -312,12 +348,14 @@ export async function getReviewLibrary(): Promise<{
       edition_label: string
       papermark_document_id: string
       is_latest: boolean
+      access_configured: boolean
     }[]
     const requiredSlots = new Set(["MIN", "AIU", "PLM"])
     if (
       items.length !== 3 ||
       new Set(items.map((item) => item.slot_key)).size !== 3 ||
-      items.some((item) => !requiredSlots.has(item.slot_key))
+      items.some((item) => !requiredSlots.has(item.slot_key)) ||
+      items.some((item) => item.access_configured !== true)
     )
       return null
     return {
@@ -341,7 +379,13 @@ export async function getReviewLibrary(): Promise<{
   }
 }
 
-/** Complete verified, published Review archive; recipient settings are never selected. */
+/**
+ * Complete verified, published Review archive.
+ *
+ * Recipient addresses are never selected. Each edition is listed only if its
+ * access is configured: its own recipients exist, or -- for an edition not yet
+ * adopted -- the shared list it still uses is not empty.
+ */
 export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]> {
   try {
     const sql = getSql()
@@ -351,25 +395,152 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
     `) as { key: string; value: string }[]
     const setting = (key: string) =>
       settings.find((row) => row.key === key)?.value
-    if (
-      setting("review_library_enabled") !== "true" ||
-      !canProvisionLinks(
-        deserialiseRecipients(setting("review_approved_recipients")),
-      )
+    if (setting("review_library_enabled") !== "true") return []
+    const sharedConfigured = canProvisionLinks(
+      deserialiseRecipients(setting("review_approved_recipients")),
     )
-      return []
 
-    const rows = (await sql`
-      select id, title as pub_title, publication_type, description, frequency,
-             audience, series as slot_key, secure_link_url, edition_date, edition_label,
-             papermark_document_id, is_latest
-      from review_publication_editions
-      where publication_state = 'published'
-        and secure_link_url <> '' and secure_link_verified_at is not null
-        and secure_link_document_id = papermark_document_id
-      order by case series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
+    // Before the migration: the shared-list rule for every linked edition,
+    // exactly as the migration will classify them (see getReviewLibrary).
+    const perEdition = await editionRecipientsReady(sql)
+    const rows = (perEdition
+      ? await sql`
+      select e.id, e.title as pub_title, e.publication_type, e.description, e.frequency,
+             e.audience, e.series as slot_key, e.secure_link_url, e.edition_date, e.edition_label,
+             e.papermark_document_id, e.is_latest
+      from review_publication_editions e
+      where e.publication_state = 'published'
+        and e.secure_link_url <> '' and e.secure_link_verified_at is not null
+        and e.secure_link_document_id = e.papermark_document_id
+        and (
+          (e.recipient_mode = 'shared_legacy' and ${sharedConfigured}::boolean)
+          or (e.recipient_mode = 'edition' and exists (
+            select 1 from review_edition_recipients r
+            where r.edition_id = e.id and r.revoked_at is null
+          ))
+        )
+      order by case e.series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
                is_latest desc, edition_sort_key desc, edition_date desc nulls last, edition_order desc,
                created_at desc, id desc
+    `
+      : await sql`
+      select e.id, e.title as pub_title, e.publication_type, e.description, e.frequency,
+             e.audience, e.series as slot_key, e.secure_link_url, e.edition_date, e.edition_label,
+             e.papermark_document_id, e.is_latest
+      from review_publication_editions e
+      where e.publication_state = 'published'
+        and e.secure_link_url <> '' and e.secure_link_verified_at is not null
+        and e.secure_link_document_id = e.papermark_document_id
+        and e.secure_link_id is not null and ${sharedConfigured}::boolean
+      order by case e.series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
+               is_latest desc, edition_sort_key desc, edition_date desc nulls last, edition_order desc,
+               created_at desc, id desc
+    `) as Array<{
+      id: string
+      pub_title: string
+      publication_type: string
+      description: string
+      frequency: string
+      audience: string
+      slot_key: ReviewCard["slotKey"]
+      secure_link_url: string
+      edition_date: string | null
+      edition_label: string
+      papermark_document_id: string
+      is_latest: boolean
+    }>
+    return rows.map((r) => ({
+      id: r.id,
+      pubTitle: r.pub_title,
+      publicationType: r.publication_type,
+      description: r.description,
+      frequency: r.frequency,
+      audience: r.audience,
+      slotKey: r.slot_key,
+      secureUrl: r.secure_link_url,
+      editionDate: r.edition_date,
+      editionLabel: r.edition_label,
+      papermarkDocumentId: r.papermark_document_id,
+      isLatest: r.is_latest,
+    }))
+  } catch {
+    return []
+  }
+}
+
+const PROSPECT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * One verified prospect's Review Library: only the editions granted to them.
+ *
+ * An edition is listed only if this prospect's own address is an active
+ * recipient of it -- or, for an edition not yet adopted, is on the shared list
+ * its link was written from. Nothing else is listed, there is no fallback to
+ * "everything published", and no other reader's address is selected.
+ *
+ * The prospect id comes from a signed review session, and is still validated
+ * here rather than trusted.
+ */
+export async function getProspectReviewLibrary(
+  prospectId: string,
+): Promise<SecureReviewCard[]> {
+  if (!PROSPECT_UUID.test(prospectId ?? "")) return []
+  try {
+    const sql = getSql()
+    const settings = (await sql`
+      select key, value from app_settings
+      where key in ('review_library_enabled', 'review_approved_recipients')
+    `) as { key: string; value: string }[]
+    const setting = (key: string) =>
+      settings.find((row) => row.key === key)?.value
+    if (setting("review_library_enabled") !== "true") return []
+
+    const prospects = (await sql`
+      select email from review_prospects
+      where id = ${prospectId}::uuid and verified_at is not null and access_sent_at is not null
+      limit 1
+    `) as { email: string }[]
+    const email = (prospects[0]?.email ?? "").trim().toLowerCase()
+    if (!email) return []
+    const onSharedList = deserialiseRecipients(
+      setting("review_approved_recipients"),
+    ).includes(email)
+
+    // Before the migration: the shared-list rule for every linked edition,
+    // exactly as the migration will classify them (see getReviewLibrary).
+    const perEdition = await editionRecipientsReady(sql)
+    const rows = (perEdition
+      ? await sql`
+      select e.id, e.title as pub_title, e.publication_type, e.description, e.frequency,
+             e.audience, e.series as slot_key, e.secure_link_url, e.edition_date, e.edition_label,
+             e.papermark_document_id, e.is_latest
+      from review_publication_editions e
+      where e.publication_state = 'published'
+        and e.secure_link_url <> '' and e.secure_link_verified_at is not null
+        and e.secure_link_document_id = e.papermark_document_id
+        and (
+          (e.recipient_mode = 'edition' and exists (
+            select 1 from review_edition_recipients r
+            where r.edition_id = e.id and r.revoked_at is null and r.email = ${email}
+          ))
+          or (e.recipient_mode = 'shared_legacy' and ${onSharedList}::boolean)
+        )
+      order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+               e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last,
+               e.created_at desc, e.id desc
+    `
+      : await sql`
+      select e.id, e.title as pub_title, e.publication_type, e.description, e.frequency,
+             e.audience, e.series as slot_key, e.secure_link_url, e.edition_date, e.edition_label,
+             e.papermark_document_id, e.is_latest
+      from review_publication_editions e
+      where e.publication_state = 'published'
+        and e.secure_link_url <> '' and e.secure_link_verified_at is not null
+        and e.secure_link_document_id = e.papermark_document_id
+        and e.secure_link_id is not null and ${onSharedList}::boolean
+      order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+               e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last,
+               e.created_at desc, e.id desc
     `) as Array<{
       id: string
       pub_title: string

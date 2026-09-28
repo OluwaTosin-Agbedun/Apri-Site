@@ -296,9 +296,21 @@ describe('owner approval for version changes', () => {
     assert.match(fn, /requireOwner/)
   })
 
-  it('admin UI has Make current button with confirmation', () => {
-    assert.match(form, /Make current/)
-    assert.match(form, /window\.confirm/)
+  it('the current edition changes only by an owner publish that is verified first', () => {
+    // Replaces "Make current", whose action this release retired: the current
+    // edition now changes only through Publish as latest, which re-verifies
+    // the edition's link and recipients against Papermark before promoting it.
+    const actions = read('src/app/actions/review-library.ts')
+    const publish = actions.slice(
+      actions.indexOf('export async function publishEditionAsLatest'),
+      actions.indexOf('export async function publishHistoricalEdition'),
+    )
+    const owner = publish.indexOf('await requireOwner()')
+    const verify = publish.indexOf('verifyEditionForPublishing(sql, editionId)')
+    const promote = publish.indexOf('promote_review_publication_edition')
+    assert.ok(owner !== -1 && owner < verify && verify < promote)
+    assert.match(publish, /if \(!verified\?\.ok\) return/)
+    assert.match(form, /disabled=\{busy \|\| !exact\}\s*onClick=\{\(\) => run\(e\.id, \(\) => publishEditionAsLatest\(e\.id\)\)\}/)
   })
 })
 
@@ -347,10 +359,12 @@ describe('pending version workflow', () => {
     assert.match(migration, /pending_clean_title/)
   })
 
-  it('admin shows pending version info', () => {
+  it('a draft edition is shown as such and cannot be published until its link is exact', () => {
+    // Replaces the slot-era pending-version panel, whose action this release
+    // retired: every synced edition is its own card, in Draft until published.
     const form = read('src/app/admin/review-library/review-form.tsx')
-    assert.match(form, /Pending edition/)
-    assert.match(form, /pendingCleanTitle/)
+    assert.match(form, /"Pending \/ Draft"/)
+    assert.equal((form.match(/disabled=\{busy \|\| !exact\}/g) ?? []).length, 2)
   })
 })
 

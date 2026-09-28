@@ -27,6 +27,7 @@ import {
   portalCategoryLabel,
   type PortalCategoryKey,
 } from "@/lib/papermark-dataroom-contract"
+import { PORTAL_SERIES, editionsBySeries, isPortalSeries, newestEdition, type PortalSeries } from "@/lib/portal-library"
 
 export const dynamic = "force-dynamic"
 
@@ -89,10 +90,10 @@ async function DataRoomPortal({
 }) {
   await touchLastViewed(principal.id)
 
-  const categories = groupDataRoomByCategory(documents)
-  const latest = documents.filter((d) => d.badge === "new" || d.badge === "updated")
-  const latestToShow = latest.length > 0 ? latest : documents.slice(0, 6)
-  const total = documents.length
+  const editions = documents.filter((document) => PORTAL_SERIES.includes(document.series as PortalSeries))
+  const libraries = editionsBySeries(editions)
+  const latest = newestEdition(editions)
+  const total = editions.length
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -114,29 +115,22 @@ async function DataRoomPortal({
             : `${total} ${total === 1 ? "document" : "documents"} issued to you.`}
         </p>
 
-        <PortalSection title="Latest Publications">
-          {latestToShow.length === 0 ? (
-            <p className="text-sm text-foreground/60 border border-border bg-card/30 p-6">
-              No documents have been added to your library yet.
-            </p>
-          ) : (
-            <DataRoomGrid documents={latestToShow} />
-          )}
+        <PortalSection title="Latest">
+          {latest ? <DataRoomGrid documents={[latest]} featured /> : <EmptyLibrary />}
         </PortalSection>
 
-        {PORTAL_CATEGORIES.filter(({ key }) => key !== "OTHER").map(({ key }) =>
-          categories[key as PortalCategoryKey].length === 0 ? null : (
-            <PortalSection key={key} title={portalCategoryLabel(key as PortalCategoryKey)}>
-              <DataRoomGrid documents={categories[key as PortalCategoryKey]} />
-            </PortalSection>
-          ),
-        )}
+        <LibraryNavigation counts={Object.fromEntries(PORTAL_SERIES.map((series) => [series, libraries[series].length])) as Record<PortalSeries, number>} />
 
-        {categories.OTHER.length > 0 && (
-          <PortalSection title={portalCategoryLabel("OTHER")}>
-            <DataRoomGrid documents={categories.OTHER} />
-          </PortalSection>
-        )}
+        {PORTAL_SERIES.map((series) => (
+          <section key={series} id={`library-${series.toLowerCase()}`} className="mb-16 scroll-mt-24">
+            <div className="flex items-end justify-between gap-4 border-b border-border pb-4 mb-6">
+              <div><p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-accent mb-2">{series}</p>
+                <h2 className="font-serif text-xl sm:text-2xl text-foreground">{seriesLabel(series)}</h2></div>
+              <span className="text-xs text-muted-foreground">{libraries[series].length} {libraries[series].length === 1 ? "edition" : "editions"}</span>
+            </div>
+            {libraries[series].length ? <DataRoomGrid documents={libraries[series]} /> : <p className="text-sm text-muted-foreground py-5">No editions are currently available to you in this library.</p>}
+          </section>
+        ))}
 
         <PortalFooter />
       </main>
@@ -159,24 +153,12 @@ async function LegacyPortal({
   principal: CurrentSubscriber
   previousVisit: string | null
 }) {
-  const [library, documents] = await Promise.all([
-    getLibraryFor(principal),
-    getSyncedClientDocuments(principal, { previousVisit }),
-  ])
+  const library = await getLibraryFor(principal)
   await touchLastViewed(principal.id)
 
-  const sections = groupBySection(documents)
-  const latest = documents.filter((document) => document.isNew)
-  const embedUrl = subscriberLibraryEmbedUrl({
-    authenticatedSubscriberId: principal.id,
-    subscriberId: principal.id,
-    status: principal.status,
-    termEnd: principal.termEnd,
-    libraryLinkUrl: principal.libraryLinkUrl,
-    customDomain: process.env.PAPERMARK_CUSTOM_DOMAIN,
-  })
-  const grouped = groupBySeries(library)
-  const total = documents.length + library.length
+  const portalLibrary = library.filter((item) => isPortalSeries(item.series))
+  const grouped = editionsBySeries(portalLibrary)
+  const total = portalLibrary.length
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -198,36 +180,21 @@ async function LegacyPortal({
             : `${total} ${total === 1 ? "document" : "documents"} issued to you.`}
         </p>
 
-        {latest.length > 0 && (
-          <PortalSection title="Latest updates">
-            <LegacyDocumentGrid documents={latest} />
-          </PortalSection>
-        )}
+        <PortalSection title="Latest">
+          {portalLibrary.length > 0 ? <ul className="grid grid-cols-1 gap-4"><li><PublicationRow item={newestEdition(portalLibrary)!} /></li></ul> : <EmptyLibrary />}
+        </PortalSection>
 
-        {LIBRARY_SECTIONS.map((section) =>
-          sections[section].length === 0 ? null : (
-            <PortalSection key={section} title={SECTION_LABELS[section]}>
-              <LegacyDocumentGrid documents={sections[section]} />
-            </PortalSection>
-          ),
-        )}
-
-        {documents.length === 0 && embedUrl && (
-          <PortalSection title="Your private library">
-            <PapermarkEmbed src={embedUrl} title="Your private library" />
-          </PortalSection>
-        )}
-
-        {library.length > 0 && (
+        {portalLibrary.length > 0 && (
           <PortalSection title="Published editions">
+            <LibraryNavigation counts={Object.fromEntries(PORTAL_SERIES.map((series) => [series, grouped[series].length])) as Record<PortalSeries, number>} />
             <div className="space-y-12">
-              {grouped.map(([series, items]) => (
-                <section key={series}>
+              {PORTAL_SERIES.map((series) => (
+                <section key={series} id={`library-${series.toLowerCase()}`} className="scroll-mt-24">
                   <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
                     {seriesLabel(series)}
                   </h3>
                   <ul className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {items.map((item) => (
+                    {grouped[series].map((item) => (
                       <li key={item.id}>
                         <PublicationRow item={item} />
                       </li>
@@ -298,37 +265,29 @@ function PortalFooter() {
 // Data Room document cards (new pipeline)
 // ---------------------------------------------------------------------------
 
-function DataRoomGrid({ documents }: { documents: DataRoomDocument[] }) {
+function DataRoomGrid({ documents, featured = false }: { documents: DataRoomDocument[]; featured?: boolean }) {
   return (
     <ul className="grid grid-cols-1 gap-4">
       {documents.map((doc) => (
         <li key={doc.id}>
-          <DataRoomCard document={doc} />
+          <DataRoomCard document={doc} featured={featured} />
         </li>
       ))}
     </ul>
   )
 }
 
-function DataRoomCard({ document }: { document: DataRoomDocument }) {
-  const date = document.editionDate || document.papermarkUpdatedAt || document.papermarkCreatedAt
+function DataRoomCard({ document, featured = false }: { document: DataRoomDocument; featured?: boolean }) {
+  const date = document.editionDate
   return (
-    <div className="w-full max-w-none border border-border bg-card/30 p-5 sm:p-6">
+    <div className={`w-full max-w-none border bg-card/30 p-5 sm:p-7 ${featured ? "border-accent/50 shadow-[0_12px_40px_rgba(20,39,34,0.06)]" : "border-border"}`}>
       <div className="flex flex-col sm:flex-row sm:gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3 mb-2">
             <span className="text-xs uppercase tracking-wider text-muted-foreground truncate">
               {document.categoryLabel}
             </span>
-            {document.badge && (
-              <span className={`shrink-0 border text-[0.65rem] uppercase tracking-wider px-2 py-0.5 ${
-                document.badge === "new"
-                  ? "border-accent/50 text-accent"
-                  : "border-foreground/30 text-foreground/60"
-              }`}>
-                {document.badge === "new" ? "New" : "Updated"}
-              </span>
-            )}
+            <ActivityStatus document={document} />
           </div>
           <h3 className="font-serif text-lg text-foreground leading-snug break-words">
             {document.displayTitle}
@@ -359,15 +318,6 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
         </div>
         <div className="flex gap-3 shrink-0 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border sm:items-start sm:pt-1">
           <TrackedAccessLink
-            href={`/portal/document/${encodeURIComponent(document.id)}/download`}
-            eventType="subscriber_document_download_clicked"
-            papermarkDocumentId={document.papermarkDocumentId}
-            internal
-            className="text-sm font-medium text-foreground/60 hover:text-foreground transition-colors py-2 sm:py-1"
-          >
-            Download
-          </TrackedAccessLink>
-          <TrackedAccessLink
             href={`/portal/document/${encodeURIComponent(document.id)}`}
             eventType="subscriber_document_view_clicked"
             papermarkDocumentId={document.papermarkDocumentId}
@@ -380,6 +330,31 @@ function DataRoomCard({ document }: { document: DataRoomDocument }) {
       </div>
     </div>
   )
+}
+
+function ActivityStatus({ document }: { document: DataRoomDocument }) {
+  if (!document.viewedBySubscriber && !document.downloadedBySubscriber) return null
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
+      {document.viewedBySubscriber && <span className="inline-flex" title="Viewed by you" aria-label="Viewed by you"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg></span>}
+      {document.downloadedBySubscriber && <span className="inline-flex" title="Downloaded by you" aria-label="Downloaded by you"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16" /></svg></span>}
+    </span>
+  )
+}
+
+function LibraryNavigation({ counts }: { counts: Record<PortalSeries, number> }) {
+  return (
+    <nav aria-label="Publication libraries" className="mb-16">
+      <p className="text-xs font-medium uppercase tracking-wider text-accent mb-5">Browse libraries</p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {PORTAL_SERIES.map((series) => <a key={series} href={`#library-${series.toLowerCase()}`} className="group border border-border bg-card/20 p-5 hover:border-accent transition-colors"><span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-accent">{series}</span><span className="mt-2 block font-serif text-lg leading-snug group-hover:text-accent transition-colors">{seriesLabel(series)}</span><span className="mt-3 block text-xs text-muted-foreground">{counts[series]} {counts[series] === 1 ? "edition" : "editions"} <span aria-hidden>→</span></span></a>)}
+      </div>
+    </nav>
+  )
+}
+
+function EmptyLibrary() {
+  return <div className="border border-border bg-card/30 px-5 py-10 sm:px-8"><h3 className="font-serif text-lg text-foreground">Your library is ready</h3><p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">No PLM, MIN or AIU editions are currently assigned to your subscription. New authorised editions will appear here when issued.</p></div>
 }
 
 // ---------------------------------------------------------------------------
@@ -443,7 +418,7 @@ function PublicationRow({ item }: { item: Item }) {
   if (!item.linkUrl) {
     return (
       <div className="block h-full border border-border bg-card/30 p-5 sm:p-6">
-        <h3 className="font-serif text-lg text-foreground leading-snug">{item.title}</h3>
+        <div className="flex items-start gap-3"><h3 className="font-serif text-lg text-foreground leading-snug">{item.title}</h3><LegacyActivityStatus item={item} /></div>
         {item.summary && (
           <p className="text-sm text-foreground/60 leading-relaxed mt-2">{item.summary}</p>
         )}
@@ -464,9 +439,7 @@ function PublicationRow({ item }: { item: Item }) {
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h3 className="font-serif text-lg text-foreground leading-snug group-hover:text-accent transition-colors">
-            {item.title}
-          </h3>
+          <div className="flex items-start gap-3"><h3 className="font-serif text-lg text-foreground leading-snug group-hover:text-accent transition-colors">{item.title}</h3><LegacyActivityStatus item={item} /></div>
           {item.summary && (
             <p className="text-sm text-foreground/60 leading-relaxed mt-2">{item.summary}</p>
           )}
@@ -489,6 +462,11 @@ function PublicationRow({ item }: { item: Item }) {
       </div>
     </a>
   )
+}
+
+function LegacyActivityStatus({ item }: { item: Item }) {
+  if (!item.viewedBySubscriber && !item.downloadedBySubscriber) return null
+  return <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">{item.viewedBySubscriber && <span title="Viewed by you" aria-label="Viewed by you">◉</span>}{item.downloadedBySubscriber && <span title="Downloaded by you" aria-label="Downloaded by you">↓</span>}</span>
 }
 
 function LockedLibrary({ name }: { name: string }) {

@@ -1,6 +1,14 @@
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
+import { deserialiseRecipients } from "@/lib/review-recipients"
+import {
+  isRecipientMode,
+  recipientListHash,
+  recipientStatus,
+} from "@/lib/edition-recipients"
+import { loadActiveRecipientsByEdition } from "@/lib/edition-recipients-dal"
+import { editionRecipientsReady } from "@/lib/edition-recipients-schema"
 import { ApprovedRecipientsSection } from "./recipients-form"
 import ReviewLibraryForm from "./review-form"
 
@@ -10,6 +18,33 @@ export const metadata = { title: "Review Library · APRI" }
 export default async function ReviewLibraryPage() {
   const admin = await requireOwner()
   const sql = getSql()
+
+  // Everything on this page reads per-edition access, so until its migration
+  // has run the page says so rather than failing. The public review pages keep
+  // working as before in the meantime.
+  if (!(await editionRecipientsReady(sql, { fresh: true }))) {
+    return (
+      <AdminShell
+        admin={admin}
+        current="/admin/review-library"
+        title="Complimentary Review Library"
+        description="Waiting for the per-edition access database migration."
+      >
+        <section className="border border-amber-300 bg-amber-50 p-6 text-sm leading-relaxed max-w-2xl">
+          <h3 className="font-serif text-lg mb-2">Database migration required</h3>
+          <p className="mb-2">
+            This version manages each edition&apos;s approved emails separately, which needs the
+            migration <code>db/migrations/20260928_review_edition_recipients.sql</code> to be run
+            on the database first.
+          </p>
+          <p>
+            Until then the public review pages keep working exactly as before, and nothing can be
+            changed here. This page switches over by itself once the migration has run.
+          </p>
+        </section>
+      </AdminShell>
+    )
+  }
 
   const enabledRow = (await sql`
     select value from app_settings where key = 'review_library_enabled' limit 1
@@ -36,10 +71,8 @@ export default async function ReviewLibraryPage() {
   const recipientsRow = (await sql`
     select value from app_settings where key = 'review_approved_recipients' limit 1
   `) as { value: string }[]
-  const approvedRecipients = (recipientsRow[0]?.value ?? "")
-    .split(/[\n\r,;\t]+/)
-    .map((e) => e.trim().toLowerCase())
-    .filter((e) => e.length > 0)
+  // Re-validated on read, like every other reader of this setting.
+  const approvedRecipients = deserialiseRecipients(recipientsRow[0]?.value ?? "")
   const lastSyncAt = lastSyncRow[0]?.value ?? ""
   const lastSyncResult = lastSyncResultRow[0]?.value ?? ""
 
@@ -50,7 +83,8 @@ export default async function ReviewLibraryPage() {
            e.description, e.frequency, e.audience, e.secure_link_url,
            e.secure_link_id, e.secure_link_document_id,
            e.secure_link_verified_at, e.publication_state, e.is_latest,
-           e.owner_edited_fields,
+           e.owner_edited_fields, e.recipient_mode, e.recipients_verified_hash,
+           e.recipients_verified_at, e.recipients_adopted_at,
            case when c.id is null then 'Imported' else c.sync_status end as mapping_status
     from review_publication_editions e
     left join review_sync_candidates c on c.id = e.sync_candidate_id
@@ -79,8 +113,18 @@ export default async function ReviewLibraryPage() {
     publication_state: string
     is_latest: boolean
     owner_edited_fields: string[]
+    recipient_mode: string
+    recipients_verified_hash: string | null
+    recipients_verified_at: string | null
+    recipients_adopted_at: string | null
     mapping_status: string
   }>
+
+  // Owner-only: each edition's own recipients, for its panel.
+  const recipientsByEdition = await loadActiveRecipientsByEdition(sql)
+  const legacyEditionCount = editions.filter(
+    (e) => e.recipient_mode === "shared_legacy" && e.publication_state === "published",
+  ).length
 
   return (
     <AdminShell
@@ -92,7 +136,7 @@ export default async function ReviewLibraryPage() {
       <div className="mb-8">
         <ApprovedRecipientsSection
           emails={approvedRecipients}
-          slotsWithLinks={editions.filter((r) => r.secure_link_id).length}
+          legacyEditionCount={legacyEditionCount}
         />
       </div>
 
@@ -101,7 +145,12 @@ export default async function ReviewLibraryPage() {
         dataroomId={dataroomId}
         lastSyncAt={lastSyncAt}
         lastSyncResult={lastSyncResult}
-        editions={editions.map((e) => ({
+        addressBook={approvedRecipients}
+        editions={editions.map((e) => {
+          const mode = isRecipientMode(e.recipient_mode) ? e.recipient_mode : "edition"
+          const recipients = recipientsByEdition.get(e.id) ?? []
+          const hasLink = Boolean(e.secure_link_id)
+          return ({
           id: e.id,
           series: e.series,
           title: e.title,
@@ -124,7 +173,21 @@ export default async function ReviewLibraryPage() {
           isLatest: e.is_latest,
           ownerEditedFields: e.owner_edited_fields ?? [],
           mappingStatus: e.mapping_status,
-        }))}
+          access: {
+            mode,
+            recipients,
+            status: recipientStatus({
+              mode,
+              recipientCount: recipients.length,
+              hasLink,
+              currentHash: recipientListHash(recipients),
+              verifiedHash: e.recipients_verified_hash,
+            }),
+            verifiedAt: e.recipients_verified_at,
+            adoptedAt: e.recipients_adopted_at,
+          },
+        })
+        })}
       />
     </AdminShell>
   )

@@ -34,10 +34,13 @@ const LAYOUT = 'src/app/layout.tsx'
  * "must not contain" assertion matches the comment explaining the removal
  * rather than any live code.
  */
+// Splits on \r?\n: a Windows checkout (core.autocrlf) leaves a \r at the end of
+// every line, which `.*$` cannot cross, so comments would survive stripping and
+// a word inside one would fail the checks below.
 const codeOnly = (src) =>
   src
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
+    .split(/\r?\n/)
     .map((line) => line.replace(/(^|\s)\/\/.*$/, '$1').replace(/^\s*--.*$/, ''))
     .join('\n')
 

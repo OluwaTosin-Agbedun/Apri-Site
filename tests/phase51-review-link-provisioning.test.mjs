@@ -30,6 +30,23 @@ const SERVICE = 'src/lib/papermark-datarooms.ts'
 const CONTRACT = 'src/lib/papermark-dataroom-contract.ts'
 const FORM = 'src/app/admin/review-library/review-form.tsx'
 const MIGRATION = 'db/migrations/20260903_review_secure_link_provisioning.sql'
+const ACCESS = 'src/app/actions/review-edition-access.ts'
+
+/** From `export async function NAME(` to its closing brace at column 0. */
+const stubBody = (src, name) => {
+  const start = src.indexOf(`export async function ${name}(`)
+  assert.notEqual(start, -1, `${name} must exist`)
+  const end = src.indexOf('\n}', start)
+  return src.slice(start, end + 2)
+}
+
+const RETIRED = [
+  'createSlotSecureLink',
+  'verifySlotSecureLink',
+  'preparePendingSecureLink',
+  'makeVersionCurrent',
+  'recoverAugustMinEdition',
+]
 
 /** The body of one named function, up to the next top-level `export`. */
 const fnBody = (src, name) => {
@@ -46,26 +63,41 @@ const fnBody = (src, name) => {
 
 describe('owner-only access', () => {
   const src = read(ACTIONS)
+  const access = read(ACCESS)
 
-  for (const name of [
-    'createSlotSecureLink',
-    'verifySlotSecureLink',
-    'preparePendingSecureLink',
-    'updateSlotSecureLink',
-    'makeVersionCurrent',
-  ]) {
+  for (const name of [...RETIRED, 'updateSlotSecureLink', 'prepareEditionSecureLink']) {
     it(`${name} calls requireOwner`, () => {
       assert.match(fnBody(src, name), /requireOwner\(\)/)
     })
   }
 
-  it('every new action validates the slot key against FIXED_SLOTS', () => {
-    for (const name of [
-      'createSlotSecureLink',
-      'verifySlotSecureLink',
-      'preparePendingSecureLink',
-    ]) {
-      assert.match(fnBody(src, name), /FIXED_SLOTS\.includes/, `${name} must validate the slot`)
+  for (const name of [
+    'saveEditionRecipients',
+    'previewEditionRecipients',
+    'applyEditionRecipients',
+    'adoptEditionAccess',
+    'checkEditionAddress',
+    'grantProspectEditions',
+  ]) {
+    it(`${name} authorises before it reads or writes anything`, () => {
+      const body = stubBody(access, name)
+      const guard = body.indexOf('await requireOwner()')
+      assert.notEqual(guard, -1, `${name} must call requireOwner`)
+      const firstRead = body.indexOf('getSql()')
+      assert.ok(firstRead === -1 || guard < firstRead, `${name} must authorise before touching the database`)
+    })
+  }
+
+  it('every retired slot link action refuses without touching Papermark or the database', () => {
+    for (const name of RETIRED) {
+      const body = stubBody(src, name)
+      assert.match(body, /await requireOwner\(\)/, name)
+      assert.match(body, /return retiredLegacyLinkAction\(\)/, name)
+      assert.doesNotMatch(
+        body,
+        /papermark-datarooms|getSql|sql`|readApprovedRecipients|review_approved_recipients|createReviewDocumentLink|verifyReviewDocumentLink|updateReviewDocumentLink|revokeReviewDocumentLink|setReviewLinkAllowList/,
+        `${name} must do nothing but refuse`,
+      )
     }
   })
 })
@@ -257,23 +289,26 @@ describe('isDocumentTargetedLink', () => {
 
 describe('idempotency', () => {
   const src = read(ACTIONS)
+  const access = read(ACCESS)
 
-  it('createSlotSecureLink returns early when a link for the same document exists', () => {
-    const fn = fnBody(src, 'createSlotSecureLink')
-    assert.match(fn, /slot\.secure_link_document_id === current\.documentId/)
-    assert.match(fn, /already has a link for this document/)
+  it('preparing an edition that already has its exact link creates nothing', () => {
+    const fn = fnBody(src, 'prepareEditionSecureLink')
+    const early = fn.indexOf('decision.kind === "already_linked"')
+    const create = fn.indexOf('createReviewDocumentLink({')
+    assert.notEqual(early, -1)
+    assert.ok(early < create, 'the already-linked return must come before any creation')
   })
 
-  it('preparePendingSecureLink returns early for an already prepared edition', () => {
-    const fn = fnBody(src, 'preparePendingSecureLink')
-    assert.match(fn, /slot\.pending_secure_link_document_id === pendingDocId/)
-    assert.match(fn, /already has a prepared link/)
+  it('an edition with a non-matching link is refused rather than given a second link', () => {
+    const fn = fnBody(src, 'prepareEditionSecureLink')
+    assert.match(fn, /hasAnyLink: Boolean\(edition\.secureLinkId\)/)
+    assert.match(fn, /secure_link_id is null/)
   })
 
-  it('verify targets only the stored link id, never a list', () => {
-    const fn = fnBody(src, 'verifySlotSecureLink')
-    assert.match(fn, /slot\.secure_link_id/)
-    assert.doesNotMatch(fn, /listLinks|listDataRoomLinks/)
+  it('applying targets only the one stored edition link, never a list', () => {
+    const fn = stubBody(access, 'applyEditionRecipients')
+    assert.match(fn, /const linkId = edition\.secureLinkId as string/)
+    assert.doesNotMatch(fn, /listLinks|listDataRoomLinks|\/v1\/links\?/)
   })
 
   it('verifyReviewDocumentLink reads exactly one link by id', () => {
@@ -339,6 +374,7 @@ describe('subscriber isolation', () => {
 
 describe('revalidation', () => {
   const src = read(ACTIONS)
+  const access = read(ACCESS)
 
   it('refresh revalidates / and /publications', () => {
     const fn = src.slice(src.indexOf('function refresh'), src.indexOf('// -----'))
@@ -346,17 +382,17 @@ describe('revalidation', () => {
     assert.match(fn, /revalidatePath\("\/publications"\)/)
   })
 
-  it('createSlotSecureLink refreshes the public pages on success', () => {
-    const fn = fnBody(src, 'createSlotSecureLink')
-    assert.match(fn, /refresh\(\)/)
+  it('link preparation refreshes the public pages on success', () => {
+    assert.match(fnBody(src, 'prepareEditionSecureLink'), /refresh\(\)/)
   })
 
-  it('verifySlotSecureLink refreshes the public pages on success', () => {
-    assert.match(fnBody(src, 'verifySlotSecureLink'), /refresh\(\)/)
-  })
-
-  it('makeVersionCurrent refreshes the public pages', () => {
-    assert.match(fnBody(src, 'makeVersionCurrent'), /refresh\(\)/)
+  it('per-edition access changes refresh the public pages', () => {
+    const helper = access.slice(access.indexOf('function refreshReviewPages'), access.indexOf('async function readLiveLink'))
+    assert.match(helper, /revalidatePath\("\/"\)/)
+    assert.match(helper, /revalidatePath\("\/publications"\)/)
+    for (const name of ['saveEditionRecipients', 'applyEditionRecipients', 'adoptEditionAccess', 'grantProspectEditions']) {
+      assert.match(stubBody(access, name), /refreshReviewPages\(\)/, name)
+    }
   })
 })
 
@@ -366,47 +402,46 @@ describe('revalidation', () => {
 
 describe('failure handling', () => {
   const src = read(ACTIONS)
+  const access = read(ACCESS)
+  const prepare = () => fnBody(src, 'prepareEditionSecureLink')
 
-  it('a failed creation returns before any database write', () => {
-    const fn = fnBody(src, 'createSlotSecureLink')
+  it('a failed link creation returns before any database write', () => {
+    const fn = prepare()
     const guard = fn.indexOf('if (!created.ok) return')
-    const write = fn.indexOf('update complimentary_review_items')
+    const write = fn.indexOf('update review_publication_editions')
     assert.notEqual(guard, -1, 'must guard on a failed create')
     assert.ok(guard < write, 'the guard must come before the write')
-    assert.match(fn, /Link not created\./)
   })
 
-  it('a failed verification returns without writing', () => {
-    const fn = fnBody(src, 'verifySlotSecureLink')
-    const guard = fn.indexOf('if (!verified.ok) return')
-    const write = fn.indexOf('update complimentary_review_items')
+  it('a failed verification revokes the new link and writes nothing', () => {
+    const fn = prepare()
+    const guard = fn.indexOf('if (!verified.ok) {')
+    const write = fn.indexOf('update review_publication_editions')
     assert.notEqual(guard, -1)
     assert.ok(guard < write)
+    assert.match(fn.slice(guard, write), /revokeReviewDocumentLink\(created\.value\.linkId\)/)
   })
 
   it('a storage failure after creation revokes the orphan link', () => {
-    const fn = fnBody(src, 'createSlotSecureLink')
-    assert.match(fn, /catch \(error\)/)
-    assert.match(fn, /revokeReviewDocumentLink\(created\.value\.linkId\)/)
-    assert.match(fn, /could NOT be revoked and must be removed manually/)
-  })
-
-  it('a storage failure on a pending link revokes that orphan too', () => {
-    const fn = fnBody(src, 'preparePendingSecureLink')
-    assert.match(fn, /catch \(error\)/)
-    assert.match(fn, /revokeReviewDocumentLink\(created\.value\.linkId\)/)
+    const fn = prepare()
+    assert.match(fn, /if \(!saved\) \{/)
+    assert.match(fn.slice(fn.indexOf('if (!saved) {')), /revokeReviewDocumentLink\(created\.value\.linkId\)/)
+    assert.match(fn, /orphan link requires manual cleanup/)
   })
 
   it('the exact provider message is surfaced, not a generic one', () => {
-    assert.match(src, /\$\{created\.message\}/)
-    assert.match(src, /\$\{verified\.message\}/)
+    assert.match(prepare(), /\$\{verified\.message\}/)
+    assert.match(prepare(), /return \{ message: created\.message \}/)
   })
 
-  it('a slot with no unambiguous mapped document is refused', () => {
-    const fn = fnBody(src, 'resolveCurrentDocument')
-    assert.match(fn, /no mapped Papermark document/)
-    assert.match(fn, /approved documents in the Data Room/)
-    assert.match(fn, /Resolve the duplicate/)
+  it('apply never reports success unless Papermark reads back as matching', () => {
+    const fn = stubBody(access, 'applyEditionRecipients')
+    const mismatch = fn.indexOf('if (!readBack.ok || !readBack.matches) {')
+    const success = fn.indexOf('ok: true,')
+    assert.notEqual(mismatch, -1)
+    assert.ok(mismatch < success, 'the mismatch path must be decided before any success')
+    assert.match(fn.slice(mismatch, success), /recipients_verified_hash = null/)
+    assert.match(fn.slice(mismatch, success), /ok: false/)
   })
 })
 
@@ -417,67 +452,23 @@ describe('failure handling', () => {
 describe('pending editions stay private', () => {
   const src = read(ACTIONS)
 
-  it('preparePendingSecureLink writes only pending_ columns', () => {
-    const fn = fnBody(src, 'preparePendingSecureLink')
-    const update = fn.slice(fn.indexOf('update complimentary_review_items'), fn.indexOf('where id'))
-    assert.match(update, /pending_secure_link_url/)
-    assert.match(update, /pending_secure_link_id/)
-    // The live columns must not appear in the pending write.
-    assert.doesNotMatch(update, /[^g_]secure_link_url = /)
-    assert.doesNotMatch(update, /papermark_document_id = /)
+  it('the pre-edition pending-slot flow is retired', () => {
+    for (const name of ['preparePendingSecureLink', 'makeVersionCurrent']) {
+      assert.match(stubBody(src, name), /return retiredLegacyLinkAction\(\)/, name)
+    }
   })
 
-  it('preparePendingSecureLink does not revalidate the public pages', () => {
-    const fn = fnBody(src, 'preparePendingSecureLink')
-    assert.doesNotMatch(fn, /refresh\(\)/)
-    assert.match(fn, /revalidatePath\("\/admin\/review-library"\)/)
-    assert.doesNotMatch(fn, /revalidatePath\("\/publications"\)/)
-    assert.doesNotMatch(fn, /revalidatePath\("\/"\)/)
+  it('a newly synced edition is a private draft with no link until someone acts', () => {
+    const sync = fnBody(src, 'syncReviewLibrary')
+    assert.match(sync, /now\(\), now\(\), 'draft', false/)
+    assert.doesNotMatch(sync, /createReviewDocumentLink|secure_link_id =/)
   })
 
-  it('preparing a link says the public card is unchanged', () => {
-    assert.match(fnBody(src, 'preparePendingSecureLink'), /public card is unchanged/)
-  })
-
-  it('makeVersionCurrent refuses a pending edition with no verified link', () => {
-    const fn = fnBody(src, 'makeVersionCurrent')
-    assert.match(fn, /pending_secure_link_verified_at/)
-    assert.match(fn, /no verified secure link/)
-    assert.match(fn, /Prepare secure link first/)
-  })
-
-  it('makeVersionCurrent switches document and URL in one statement', () => {
-    const fn = fnBody(src, 'makeVersionCurrent')
-    const update = fn.slice(
-      fn.indexOf('update complimentary_review_items set'),
-      fn.indexOf('where id ='),
-    )
-    assert.match(update, /papermark_document_id = \$\{pendingDocId\}/)
-    assert.match(update, /secure_link_url = \$\{pendingLinkUrl\}/)
-    assert.match(update, /secure_link_id = \$\{slot\[0\]\.pending_secure_link_id\}/)
-    // and clears the pending fields in the same statement
-    assert.match(update, /pending_secure_link_id = null/)
-    assert.match(update, /pending_papermark_document_id = null/)
-  })
-
-  it('the old link is revoked best-effort after the switch', () => {
-    const fn = fnBody(src, 'makeVersionCurrent')
-    assert.match(fn, /revokeReviewDocumentLink\(previousLinkId\)/)
-    assert.match(fn, /still needs manual revocation/)
-  })
-
-  it('a failed revocation keeps the new edition live', () => {
-    const fn = fnBody(src, 'makeVersionCurrent')
-    const revoke = fn.indexOf('revokeReviewDocumentLink(previousLinkId)')
-    const ret = fn.indexOf('return { ok: true')
-    assert.ok(revoke < ret, 'revocation is attempted before the success return')
-    assert.match(fn, /WARNING/)
-  })
-
-  it('the admin UI only enables Make current for a verified pending link', () => {
-    const form = read(FORM)
-    assert.match(form, /pendingLinkReady/)
-    assert.match(form, /disabled=\{makeBusy \|\| !pendingLinkReady\}/)
+  it('no edition is published without a verified link for its own recipients', () => {
+    const fn = fnBody(src, 'verifyEditionForPublishing')
+    assert.match(fn, /expectedRecipientsForEdition\(sql, edition\)/)
+    assert.match(fn, /if \(expected\.length === 0\)/)
+    assert.match(fn, /expectedAllowList: expected/)
   })
 })
 
@@ -494,9 +485,14 @@ describe('public library gating', () => {
     assert.match(fn, /secure_link_verified_at is not null/)
   })
 
-  it('getReviewLibrary requires the link to match the mapped document', () => {
-    const fn = pubs.slice(pubs.indexOf('async function getReviewLibrary'))
-    assert.match(fn, /secure_link_document_id = ri\.papermark_document_id/)
+  it('getReviewLibrary requires a verified link to the exact document, in both forms', () => {
+    const fn = pubs.slice(
+      pubs.indexOf('async function getReviewLibrary'),
+      pubs.indexOf('export async function getReviewPublicationArchive'),
+    )
+    // Once in the per-edition query and once in its pre-migration form.
+    assert.equal((fn.match(/and e\.secure_link_document_id = e\.papermark_document_id/g) ?? []).length, 2)
+    assert.equal((fn.match(/e\.secure_link_url <> '' and e\.secure_link_verified_at is not null/g) ?? []).length, 2)
   })
 
   it('getReviewLibrary still requires exactly three slots', () => {
@@ -682,16 +678,28 @@ describe('migration', () => {
 describe('admin UI', () => {
   const form = read(FORM)
 
-  it('offers Create secure review link when none exists', () => {
-    assert.match(form, /Create secure review link/)
+  it('offers Prepare & verify secure link for an edition with chosen recipients', () => {
+    // Replaces the slot-era "Create secure review link", whose action this
+    // release retired: a link is prepared per edition, with exactly that
+    // edition's recipients, and only once there is at least one.
+    assert.match(form, /onClick=\{\(\) => run\(e\.id, \(\) => prepareEditionSecureLink\(e\.id\)\)\}/)
+    assert.match(form, /const canPrepareLink =\s*e\.access\.mode === "edition" && e\.access\.recipients\.length > 0 && !e\.secureLinkId/)
   })
 
-  it('offers Verify\/update secure review link when one exists', () => {
-    assert.match(form, /Verify\/update secure review link/)
+  it('an edition with an exact link shows it as verified and offers no second link', () => {
+    // Replaces "Verify/update secure review link", whose action this release
+    // retired: a second link is never minted over an existing one.
+    assert.match(form, /\{exact \? "Exact link verified" : "Prepare & verify secure link"\}/)
+    assert.match(form, /disabled=\{busy \|\| !e\.series \|\| exact \|\| !canPrepareLink\}/)
   })
 
-  it('offers Prepare secure link for a pending edition', () => {
-    assert.match(form, /Prepare secure link/)
+  it('a draft can be published only once its exact link is verified', () => {
+    // Replaces the pending-edition flow, whose action this release retired:
+    // each synced edition is its own card, and both publish buttons wait for
+    // an exact, verified link (the server re-verifies before publishing).
+    assert.equal((form.match(/disabled=\{busy \|\| !exact\}/g) ?? []).length, 2)
+    assert.match(form, /publishEditionAsLatest\(e\.id\)/)
+    assert.match(form, /publishHistoricalEdition\(e\.id\)/)
   })
 
   it('shows a Ready status', () => {
@@ -724,8 +732,9 @@ describe('admin UI', () => {
     assert.match(form, /manualMode/)
   })
 
-  it('the create button is disabled without a mapped document', () => {
-    assert.match(form, /disabled=\{linkBusy \|\| !hasDoc\}/)
+  it('the prepare button is disabled until the edition has recipients and no link', () => {
+    assert.match(form, /disabled=\{busy \|\| !e\.series \|\| exact \|\| !canPrepareLink\}/)
+    assert.match(form, /Choose and save at least one recipient for this edition first\./)
   })
 
   it('holds no Papermark API token', () => {
