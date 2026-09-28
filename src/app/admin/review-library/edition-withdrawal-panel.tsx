@@ -9,6 +9,7 @@ import {
   withdrawReviewEdition,
   type WithdrawalPreview,
 } from "@/app/actions/review-withdrawal"
+import { proposedReplacement } from "@/lib/review-withdrawal"
 
 /**
  * Withdrawing one edition from Complimentary Review, and choosing which edition
@@ -213,7 +214,7 @@ export function EditionWithdrawalPanel({
             try {
               const p = await previewReviewEditionWithdrawal(editionId)
               setPreview(p.ok ? p : null)
-              setChoice("")
+              setChoice(p.ok && p.replacementRequired ? proposedReplacement(p.candidates) : "")
               if (!p.ok) setResult({ ok: false, text: p.message, paths: [] })
             } catch {
               setResult({ ok: false, text: "The preview failed. Nothing was changed.", paths: [] })
@@ -300,7 +301,9 @@ export function EditionWithdrawalPanel({
                 </li>
               </ul>
               {preview.candidates.length === 0 && (
-                <p className="text-muted-foreground mt-1">No other verified published edition of this series is available.</p>
+                <p className="text-muted-foreground mt-1">
+                  No eligible replacement exists. You can still choose No replacement and withdraw this edition.
+                </p>
               )}
             </fieldset>
           )}

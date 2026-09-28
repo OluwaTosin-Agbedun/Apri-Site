@@ -107,7 +107,7 @@ export async function loadReplacementCandidates(
   if (!edition.series) return []
   const sharedConfigured = canProvisionLinks(await readSharedRecipients(sql))
   const rows = (await sql`
-    select e.id, e.series, e.title, e.edition_label, e.is_latest
+    select e.id, e.series, e.title, e.edition_label
     from review_publication_editions e
     where e.series = ${edition.series}
       and e.id <> ${edition.id}::uuid
@@ -122,8 +122,9 @@ export async function loadReplacementCandidates(
           where r.edition_id = e.id and r.revoked_at is null
         ))
       )
-    order by e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last, e.created_at desc, e.id desc
-  `) as Array<{ id: string; series: string | null; title: string; edition_label: string; is_latest: boolean }>
+    order by e.edition_sort_key desc, e.edition_date desc nulls last,
+             e.edition_order desc, e.id desc
+  `) as Array<{ id: string; series: string | null; title: string; edition_label: string }>
   return rows.map((r) => ({ id: r.id, label: label(r.series, r.edition_label, r.title) }))
 }
 

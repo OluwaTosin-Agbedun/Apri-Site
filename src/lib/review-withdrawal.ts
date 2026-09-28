@@ -110,6 +110,11 @@ export function parseReplacementChoice(value: unknown): ReplacementChoice {
 
 export type ReplacementCandidate = { id: string; label: string }
 
+/** The preview proposes the newest eligible edition, while keeping "none" a deliberate choice. */
+export function proposedReplacement(candidates: readonly ReplacementCandidate[]): string {
+  return candidates[0]?.id ?? ""
+}
+
 export type WithdrawalDecision =
   | { ok: true; resume: false; linkId: string; replacementId: string | null }
   | { ok: true; resume: true; linkId: string }

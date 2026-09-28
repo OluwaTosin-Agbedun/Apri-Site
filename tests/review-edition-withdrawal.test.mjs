@@ -33,6 +33,7 @@ import {
   decideWithdrawal,
   describeAccessPaths,
   parseReplacementChoice,
+  proposedReplacement,
   REVIEW_SERIES,
   revocationTargetProblem,
   runWithdrawal,
@@ -210,6 +211,18 @@ describe("which edition each series offers", () => {
   it("no series offering anything means no cards, and anything but MIN, AIU and PLM is ignored", () => {
     assert.deepEqual(selectOfferedCards([]), [])
     assert.deepEqual(selectOfferedCards([card("XYZ")]), [])
+  })
+})
+
+describe("the proposed homepage replacement", () => {
+  it("preselects August MIN when it is the newest eligible replacement for September MIN", () => {
+    const august = { id: uuid(2), label: "MIN · August 2026" }
+    const july = { id: uuid(3), label: "MIN · July 2026" }
+    assert.equal(proposedReplacement([august, july]), august.id)
+  })
+
+  it("does not infer a replacement when no eligible candidate exists", () => {
+    assert.equal(proposedReplacement([]), "")
   })
 })
 
@@ -472,6 +485,7 @@ describe("failures part-way, and finishing afterwards", () => {
     const w = world([latest, august], { replacementFails: true })
     const r = await runWithdrawal(w.deps, input(latest, uuid(2)))
     assert.equal(r.ok, false)
+    assert.deepEqual(w.log.filter(([op]) => op === "verifyReplacement"), [["verifyReplacement", august.id]])
     assert.ok(!w.ops().includes("beginWithdrawal") && !w.ops().includes("revokeLink"))
   })
 })
@@ -708,6 +722,31 @@ describe("a withdrawn edition leaves every public and grant path", () => {
     assert.match(body(read("src/lib/edition-recipients-dal.ts"), "grantedEditionsForProspect"), /e\.publication_state = 'published'/)
     assert.match(read("src/app/admin/review-requests/[id]/page.tsx"), /where e\.publication_state = 'published'/)
     assert.match(read("src/lib/edition-recipients.ts"), /edition\.publicationState !== "published"/)
+  })
+
+  it("the homepage never falls back from an explicit no-replacement decision", () => {
+    const b = body(read(PUBLICATIONS), "getReviewLibrary")
+    const offeredQuery = b.slice(b.indexOf("? await sql`"), b.indexOf("`\n      : perEdition"))
+    assert.match(offeredQuery, /where e\.complimentary_featured/)
+    assert.doesNotMatch(offeredQuery, /distinct on \(e\.series\)|where[^`]*is_latest/)
+  })
+})
+
+describe("replacement eligibility and ordering", () => {
+  it("accepts historical editions and orders candidates by edition identity, never latest or sync time", () => {
+    const b = body(read(DAL), "loadReplacementCandidates")
+    assert.match(b, /publication_state = 'published'/)
+    assert.match(b, /secure_link_document_id = e\.papermark_document_id/)
+    assert.match(b, /review_edition_recipients/)
+    assert.match(b, /order by e\.edition_sort_key desc, e\.edition_date desc nulls last,\s*e\.edition_order desc, e\.id desc/)
+    assert.doesNotMatch(b.slice(b.indexOf("order by")), /is_latest|last_synced_at|updated_at|created_at/)
+  })
+
+  it("the Admin preview preselects the proposed edition but leaves No replacement explicit", () => {
+    const panel = read(PANEL)
+    assert.match(panel, /setChoice\(p\.ok && p\.replacementRequired \? proposedReplacement\(p\.candidates\) : ""\)/)
+    assert.match(panel, /value="none"/)
+    assert.match(panel, /No eligible replacement exists\. You can still choose No replacement/)
   })
 })
 
