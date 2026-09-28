@@ -683,6 +683,104 @@ export async function revokeReviewDocumentLink(
   }, 'Revoking the Complimentary Review link')
 }
 
+// ---------------------------------------------------------------------------
+// Withdrawing a Complimentary Review edition
+// ---------------------------------------------------------------------------
+
+export type ReviewLinkState =
+  | { state: 'gone' }
+  | {
+      state: 'active'
+      targetType: string | null
+      documentId: string | null
+      dataroomId: string | null
+    }
+  | { state: 'unknown'; message: string }
+
+/**
+ * Whether one link still exists in Papermark.
+ *
+ * Papermark revokes a link by soft-deleting it: its public URL stops resolving
+ * immediately and the link then reads as 404. That 404 -- and only that --
+ * counts as "no longer works". Any other failure is `unknown`, never `gone`,
+ * so a network error can never be mistaken for a closed link.
+ */
+export async function readReviewLinkState(linkId: string): Promise<ReviewLinkState> {
+  const id = linkId.trim()
+  if (!id) return { state: 'unknown', message: 'No link id.' }
+
+  const result = await attempt(
+    () => papermarkRequest<DataRoomLink>(`/v1/links/${encodeURIComponent(id)}`),
+    'Reading the Complimentary Review link',
+  )
+  if (result.ok) {
+    return {
+      state: 'active',
+      targetType: result.value.target_type ?? null,
+      documentId: result.value.document_id ?? null,
+      dataroomId: result.value.dataroom_id ?? null,
+    }
+  }
+  if (result.status === 404) return { state: 'gone' }
+  return { state: 'unknown', message: result.message }
+}
+
+/**
+ * Revokes one Complimentary Review link during a withdrawal.
+ *
+ * Only ever called with the link a withdrawal recorded for its edition, after
+ * that link was read back as targeting the edition's own document. A 404 means
+ * it is already gone, which is the outcome wanted. Success here is not taken as
+ * proof: the caller reads the link back and only a 404 completes a withdrawal.
+ */
+export async function revokeWithdrawnReviewLink(linkId: string): Promise<ServiceResult<true>> {
+  const id = linkId.trim()
+  if (!id) return { ok: false, status: null, message: 'No link id to revoke.' }
+
+  const result = await attempt(
+    () => papermarkRequest<unknown>(`/v1/links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    'Revoking the Complimentary Review link',
+  )
+  if (result.ok || result.status === 404) return { ok: true, value: true }
+  return result
+}
+
+/**
+ * Every share link Papermark holds for one document, cursors followed.
+ *
+ * Read-only, for reporting what else can still open a withdrawn edition's PDF.
+ * Links that target a Data Room rather than the document are not listed here;
+ * the rooms holding the document are checked separately.
+ */
+export async function listDocumentLinks(
+  documentId: string,
+): Promise<ServiceResult<DataRoomLink[]>> {
+  const id = documentId.trim()
+  if (!id) return { ok: false, status: null, message: 'No document id.' }
+
+  return attempt(async () => {
+    const links: DataRoomLink[] = []
+    let cursor: string | null = null
+
+    do {
+      const query: string = [
+        `document_id=${encodeURIComponent(id)}`,
+        'limit=100',
+        cursor ? `cursor=${encodeURIComponent(cursor)}` : '',
+      ]
+        .filter(Boolean)
+        .join('&')
+
+      const page: { items: DataRoomLink[]; next: string | null } =
+        await papermarkFetch<DataRoomLink>(`/v1/links?${query}`, 'links')
+      links.push(...page.items)
+      cursor = page.next
+    } while (cursor && links.length < 1000)
+
+    return links
+  }, 'Reading the document links')
+}
+
 /**
  * Replaces one review link's allow list and nothing else.
  *

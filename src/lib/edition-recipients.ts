@@ -261,12 +261,18 @@ export type SaveDecision =
  * Saving records the owner's intent only; Papermark is changed separately by
  * Apply, after a preview. The one hard rule is the last recipient: an edition
  * that already has a link must keep at least one, because the only other way
- * to empty its Papermark list would open it to anybody. Ending an edition's
- * access is a withdrawal, which is a separate workflow.
+ * to empty its Papermark list would open it to anybody. Ending a published
+ * edition's access is a withdrawal: Withdraw from Complimentary Review revokes
+ * its link instead.
  */
+export const WITHDRAW_TO_END_ACCESS =
+  "To end access to a published edition, use Withdraw from Complimentary Review instead."
+
 export function decideRecipientSave(args: {
   mode: RecipientMode
   hasLink: boolean
+  /** Published editions are told how to end access instead. */
+  published?: boolean
   current: readonly string[]
   proposed: readonly string[]
 }): SaveDecision {
@@ -290,8 +296,8 @@ export function decideRecipientSave(args: {
     return {
       ok: false,
       message:
-        "This edition has a Papermark link, so it must keep at least one recipient. " +
-        "Removing the last recipient requires the withdrawal workflow, which is not available yet. Nothing was saved.",
+        "This edition has a Papermark link, so it must keep at least one recipient: Papermark would treat an " +
+        `empty list as open to anyone. ${args.published ? WITHDRAW_TO_END_ACCESS + " " : ""}Nothing was saved.`,
     }
   }
   const current = normaliseRecipientList(args.current).emails
@@ -373,7 +379,12 @@ export function decideApply(args: {
   }
   const emails = normaliseRecipientList(args.desired).emails
   if (emails.length === 0) {
-    return { ok: false, message: "Refused: Papermark is never sent an empty list, which it would treat as unrestricted." }
+    return {
+      ok: false,
+      message:
+        "Refused: Papermark is never sent an empty list, which it would treat as unrestricted. " +
+        WITHDRAW_TO_END_ACCESS,
+    }
   }
   const hash = recipientListHash(emails)
   if (!args.previewedHash || args.previewedHash !== hash) {

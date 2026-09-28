@@ -151,16 +151,20 @@ const reviewLibraryFn = () => {
 
 test('getReviewLibrary: one published edition per series, from the versioned library', () => {
   const fn = reviewLibraryFn()
+  // Once the withdrawal migration has run: only the edition each series offers.
+  assert.match(fn, /from review_publication_editions e\s+where e\.complimentary_featured\s+and e\.publication_state = 'published'/)
+  // Before it: each series' latest published edition, as always.
   assert.equal((fn.match(/select distinct on \(e\.series\)/g) ?? []).length, 2)
   assert.equal((fn.match(/from review_publication_editions e\s+where e\.publication_state = 'published'/g) ?? []).length, 2)
-  assert.equal((fn.match(/e\.secure_link_url <> ''/g) ?? []).length, 2)
+  assert.equal((fn.match(/e\.secure_link_url <> ''/g) ?? []).length, 3)
   assert.doesNotMatch(fn, /complimentary_review_items/)
 })
 
-test('getReviewLibrary: returns null unless exactly 3 items', () => {
+test('getReviewLibrary: returns null only when no series has a card', () => {
   const src = read('src/lib/publications.ts')
-  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /items\.length !== 3[\s\S]*?return null/)
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'), src.indexOf('export async function getReviewPublicationArchive'))
+  assert.match(fn, /if \(cards\.length === 0\) return null/)
+  assert.doesNotMatch(fn, /items\.length !== 3/)
 })
 
 // ---------------------------------------------------------------------------
@@ -181,10 +185,13 @@ test('admin page: slots ordered by display_order', () => {
 // 8. Inactive items not displayed
 // ---------------------------------------------------------------------------
 
-test('getReviewLibrary: all three series must be present and ready, with no older substitute', () => {
+test('getReviewLibrary: each series stands alone, with no older substitute', () => {
   const fn = reviewLibraryFn()
-  assert.match(fn, /const requiredSlots = new Set\(\["MIN", "AIU", "PLM"\]\)/)
-  assert.match(fn, /items\.some\(\(item\) => item\.access_configured !== true\)/)
+  // A series that is missing or not ready drops only its own card; the choice
+  // per series is made in SQL and the readiness check applied to it after.
+  assert.match(fn, /const cards = selectOfferedCards\(/)
+  assert.match(fn, /accessConfigured: item\.access_configured/)
+  assert.doesNotMatch(fn, /requiredSlots/)
 })
 
 // ---------------------------------------------------------------------------
@@ -316,11 +323,11 @@ test('getReviewLibrary: returns null when disabled', () => {
   assert.match(fn, /!== ["']true["'].*return null/)
 })
 
-test('getReviewLibrary: returns null unless exactly 3 slots with secure links', () => {
+test('getReviewLibrary: hides the section only when no series has a verified edition to offer', () => {
   const src = read('src/lib/publications.ts')
-  const fn = src.slice(src.indexOf('async function getReviewLibrary'))
-  assert.match(fn, /items\.length !== 3/)
+  const fn = src.slice(src.indexOf('async function getReviewLibrary'), src.indexOf('export async function getReviewPublicationArchive'))
   assert.match(fn, /secure_link_url <> ''/)
+  assert.match(fn, /if \(cards\.length === 0\) return null/)
 })
 
 test('publications page: review section hidden when library is null', () => {

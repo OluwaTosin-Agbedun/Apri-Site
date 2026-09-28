@@ -8,7 +8,8 @@ import {
   recipientStatus,
 } from "@/lib/edition-recipients"
 import { loadActiveRecipientsByEdition } from "@/lib/edition-recipients-dal"
-import { editionRecipientsReady } from "@/lib/edition-recipients-schema"
+import { editionRecipientsReady, editionWithdrawalReady } from "@/lib/edition-recipients-schema"
+import { loadEditionEvents, type EditionEvent } from "@/lib/review-withdrawal-dal"
 import { ApprovedRecipientsSection } from "./recipients-form"
 import ReviewLibraryForm from "./review-form"
 
@@ -122,6 +123,28 @@ export default async function ReviewLibraryPage() {
 
   // Owner-only: each edition's own recipients, for its panel.
   const recipientsByEdition = await loadActiveRecipientsByEdition(sql)
+
+  // What each edition offers and whether it is withdrawn -- only once the
+  // withdrawal migration has run; until then its panel says so instead.
+  const withdrawalReady = await editionWithdrawalReady(sql, { fresh: true })
+  const withdrawalRows = withdrawalReady
+    ? ((await sql`
+        select id, complimentary_featured, withdrawal_state, withdrawal_link_id,
+               withdrawal_requested_at, withdrawn_at
+        from review_publication_editions
+      `) as Array<{
+        id: string
+        complimentary_featured: boolean
+        withdrawal_state: string | null
+        withdrawal_link_id: string | null
+        withdrawal_requested_at: string | null
+        withdrawn_at: string | null
+      }>)
+    : []
+  const withdrawalById = new Map(withdrawalRows.map((w) => [w.id, w]))
+  const eventsByEdition: Map<string, EditionEvent[]> = withdrawalReady
+    ? await loadEditionEvents(sql)
+    : new Map()
   const legacyEditionCount = editions.filter(
     (e) => e.recipient_mode === "shared_legacy" && e.publication_state === "published",
   ).length
@@ -186,6 +209,25 @@ export default async function ReviewLibraryPage() {
             verifiedAt: e.recipients_verified_at,
             adoptedAt: e.recipients_adopted_at,
           },
+          withdrawal: (() => {
+            const w = withdrawalById.get(e.id)
+            return {
+              ready: withdrawalReady,
+              offered: w?.complimentary_featured === true,
+              state:
+                w?.withdrawal_state === "revoking" || w?.withdrawal_state === "revoked"
+                  ? w.withdrawal_state
+                  : null,
+              linkId: w?.withdrawal_link_id ?? null,
+              requestedAt: w?.withdrawal_requested_at ? String(w.withdrawal_requested_at) : null,
+              withdrawnAt: w?.withdrawn_at ? String(w.withdrawn_at) : null,
+              events: (eventsByEdition.get(e.id) ?? []).map((ev) => ({
+                eventType: ev.eventType,
+                detail: ev.detail,
+                createdAt: ev.createdAt,
+              })),
+            }
+          })(),
         })
         })}
       />

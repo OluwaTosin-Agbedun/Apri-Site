@@ -63,3 +63,57 @@ export async function editionRecipientsReady(
   }
   return applied
 }
+
+/**
+ * Whether the withdrawal migration
+ * (db/migrations/20260929_review_edition_withdrawal.sql) has been applied, as
+ * well as the per-edition one it depends on.
+ *
+ * Same rules as editionRecipientsReady: it only ever moves from "not yet" to
+ * "applied", public callers re-check at most every 30 seconds, Admin callers
+ * every time, and a failed check counts as "not yet". Until it has run, the
+ * homepage offers each series' latest edition as before, and nothing can be
+ * withdrawn.
+ */
+export const EDITION_WITHDRAWAL_COLUMNS = [
+  "complimentary_featured",
+  "withdrawal_state",
+  "withdrawal_link_id",
+  "withdrawal_requested_at",
+  "withdrawal_requested_by",
+  "withdrawn_at",
+  "withdrawn_by",
+  "reoffered_at",
+  "reoffered_by",
+] as const
+
+let withdrawalApplied = false
+let withdrawalCheckedAt = 0
+
+export async function editionWithdrawalReady(
+  sql: Sql,
+  options: { fresh?: boolean } = {},
+): Promise<boolean> {
+  if (withdrawalApplied) return true
+  if (!(await editionRecipientsReady(sql, options))) return false
+  const now = Date.now()
+  if (!options.fresh && now - withdrawalCheckedAt < RECHECK_MS) return false
+  withdrawalCheckedAt = now
+  try {
+    const rows = (await sql`
+      select to_regclass('review_edition_events') is not null as has_table,
+             to_regprocedure('begin_review_edition_withdrawal(uuid, text, uuid, uuid)') is not null as has_functions,
+             (select count(*)::int from information_schema.columns
+               where table_schema = current_schema()
+                 and table_name = 'review_publication_editions'
+                 and column_name = any(${[...EDITION_WITHDRAWAL_COLUMNS]}::text[])) as columns
+    `) as { has_table: boolean; has_functions: boolean; columns: number }[]
+    withdrawalApplied =
+      rows[0]?.has_table === true &&
+      rows[0]?.has_functions === true &&
+      rows[0]?.columns === EDITION_WITHDRAWAL_COLUMNS.length
+  } catch {
+    withdrawalApplied = false
+  }
+  return withdrawalApplied
+}

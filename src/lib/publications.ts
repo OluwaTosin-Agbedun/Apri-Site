@@ -2,7 +2,8 @@ import "server-only"
 import { getSql } from "./db"
 import { isVisibility, type Visibility } from "./entitlements"
 import { canProvisionLinks, deserialiseRecipients } from "./review-recipients"
-import { editionRecipientsReady } from "./edition-recipients-schema"
+import { editionRecipientsReady, editionWithdrawalReady } from "./edition-recipients-schema"
+import { selectOfferedCards } from "./review-withdrawal"
 
 export { PUBLICATION_SECTIONS, type PublicationSection } from "./sections"
 
@@ -270,16 +271,20 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
 }
 
 /**
- * The homepage's one-card-per-series selection, with each card's secure URL.
+ * The homepage's cards: at most one edition per series, with its secure URL.
  *
  * Selecting the URL here is deliberate: the public pages link straight to each
  * edition's Papermark document, and that link's own allow list decides who can
  * open it. What this query never selects is anyone's address -- whether an
  * edition has recipients is tested for existence only.
  *
- * The per-series choice is made first and the access check applied to the
- * chosen edition afterwards, so an edition that is not ready hides the review
- * section rather than being silently replaced by an older edition.
+ * Each series stands alone. Once the withdrawal migration has run, a series
+ * shows only the edition the owner chose to offer -- being the latest edition
+ * does not offer it by itself -- and a series can offer none. Before then each
+ * series offers its latest edition, as it always has. Either way the access
+ * check is applied to the edition chosen for its series afterwards, so one
+ * that is not ready removes only that series' card: it neither hides the other
+ * series nor is replaced by an older edition.
  */
 export async function getReviewLibrary(): Promise<{
   items: SecureReviewCard[]
@@ -303,7 +308,28 @@ export async function getReviewLibrary(): Promise<{
     // which is exactly how the migration classifies it, so readers see the
     // same cards before and after it.
     const perEdition = await editionRecipientsReady(sql)
-    const items = (perEdition
+    const offering = perEdition && (await editionWithdrawalReady(sql))
+    const items = (offering
+      ? await sql`
+    select
+      e.id, e.title as pub_title, e.publication_type, e.description,
+      e.frequency, e.audience, e.series as slot_key, e.secure_link_url,
+      e.edition_date, e.edition_label, e.papermark_document_id, e.is_latest,
+      case
+        when e.recipient_mode = 'shared_legacy' then ${sharedConfigured}::boolean
+        else exists (
+          select 1 from review_edition_recipients r
+          where r.edition_id = e.id and r.revoked_at is null
+        )
+      end as access_configured
+    from review_publication_editions e
+    where e.complimentary_featured
+      and e.publication_state = 'published'
+      and e.secure_link_url <> '' and e.secure_link_verified_at is not null
+      and e.secure_link_document_id = e.papermark_document_id
+    order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end
+    `
+      : perEdition
       ? await sql`
     select distinct on (e.series)
       e.id, e.title as pub_title, e.publication_type, e.description,
@@ -350,16 +376,16 @@ export async function getReviewLibrary(): Promise<{
       is_latest: boolean
       access_configured: boolean
     }[]
-    const requiredSlots = new Set(["MIN", "AIU", "PLM"])
-    if (
-      items.length !== 3 ||
-      new Set(items.map((item) => item.slot_key)).size !== 3 ||
-      items.some((item) => !requiredSlots.has(item.slot_key)) ||
-      items.some((item) => item.access_configured !== true)
+    const cards = selectOfferedCards(
+      items.map((item) => ({
+        ...item,
+        slotKey: item.slot_key,
+        accessConfigured: item.access_configured,
+      })),
     )
-      return null
+    if (cards.length === 0) return null
     return {
-      items: items.map((r) => ({
+      items: cards.map((r) => ({
         id: r.id,
         pubTitle: r.pub_title,
         publicationType: r.publication_type,

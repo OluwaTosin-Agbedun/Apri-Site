@@ -292,7 +292,7 @@ import {
   loadActiveRecipients,
   loadEditionForAccess,
 } from "@/lib/edition-recipients-dal"
-import { editionRecipientsReady } from "@/lib/edition-recipients-schema"
+import { editionRecipientsReady, editionWithdrawalReady } from "@/lib/edition-recipients-schema"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -384,19 +384,33 @@ export async function saveReviewLibrarySettings(
     formData.get("enabled") ===
     "on"
 
+  // Each series stands alone: enabling needs at least one series with a
+  // verified edition to offer, not all three. Once the withdrawal migration has
+  // run, that is the edition the series offers; before it, its latest.
+  let offered: string[] = []
+  let missing: string[] = []
   if (enabled) {
-    const current = (await sql`
+    const offering = await editionWithdrawalReady(sql, { fresh: true })
+    const current = (offering
+      ? await sql`
+      select series from review_publication_editions
+      where publication_state = 'published' and complimentary_featured
+        and secure_link_url <> '' and secure_link_verified_at is not null
+        and secure_link_document_id = papermark_document_id
+    `
+      : await sql`
       select series from review_publication_editions
       where publication_state = 'published' and is_latest = true
         and secure_link_url <> '' and secure_link_verified_at is not null
         and secure_link_document_id = papermark_document_id
     `) as { series: string }[]
     const present = new Set(current.map((row) => row.series))
-    const missing = FIXED_SLOTS.filter((series) => !present.has(series))
-    if (missing.length)
+    offered = FIXED_SLOTS.filter((series) => present.has(series))
+    missing = FIXED_SLOTS.filter((series) => !present.has(series))
+    if (offered.length === 0)
       return {
-        message: `Cannot enable: verified latest editions are missing for ${missing.join(", ")}.`,
-    }
+        message: "Cannot enable: no series has a verified edition to offer.",
+      }
   }
 
   await sql`
@@ -408,7 +422,10 @@ export async function saveReviewLibrarySettings(
   refresh()
   return {
     ok: true,
-    message: enabled ? "Library enabled." : "Library disabled.",
+    message: enabled
+      ? `Library enabled. Offered: ${offered.join(", ")}.` +
+        (missing.length ? ` ${missing.join(" and ")} offer${missing.length === 1 ? "s" : ""} no edition yet.` : "")
+      : "Library disabled.",
   }
 }
 
@@ -1566,20 +1583,34 @@ export async function recoverAugustMinEdition(): Promise<FormState> {
   return retiredLegacyLinkAction()
 }
 
-/** Publish an edition without deleting, archiving, or revoking its predecessor. */
+/**
+ * Publish an edition as its series' latest, without deleting, archiving, or
+ * revoking its predecessor. Publishing as latest is also the owner's explicit
+ * choice to offer it: once the withdrawal migration has run it becomes the
+ * edition its series offers on the homepage.
+ */
 export async function publishEditionAsLatest(editionId: string): Promise<FormState> {
-  await requireOwner()
+  const admin = await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
   const sql = getSql()
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }
+  const offering = await editionWithdrawalReady(sql, { fresh: true })
   try {
-    await sql`select promote_review_publication_edition(${editionId}::uuid)`
+    if (offering) {
+      await sql`select promote_review_publication_edition(${editionId}::uuid, ${admin.id}::uuid)`
+    } else {
+      await sql`select promote_review_publication_edition(${editionId}::uuid)`
+    }
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Edition could not be published." }
   }
   refresh()
-  return { ok: true, message: "Published as latest. The previous edition and its secure link remain active." }
+  return {
+    ok: true,
+    message:
+      "Published as latest and offered on the homepage for its series. The previous edition and its secure link remain active.",
+  }
 }
 
 /** Publish a historical edition without changing the series' latest edition. */
@@ -1589,10 +1620,13 @@ export async function publishHistoricalEdition(editionId: string): Promise<FormS
   const sql = getSql()
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }
+  // Never a withdrawn edition: it is offered again only through re-offering,
+  // which clears its revoked link and requires a new, verified one.
   const updated = (await sql`
     update review_publication_editions
     set publication_state = 'published', is_latest = false, updated_at = now()
     where id = ${editionId}::uuid and secure_link_id is not null
+      and publication_state in ('draft', 'published')
       and secure_link_url <> '' and secure_link_verified_at is not null
       and secure_link_document_id = papermark_document_id
     returning id
@@ -1692,8 +1726,10 @@ export async function setEditionReviewState(
   if (!UUID.test(editionId) || !["draft", "ignored"].includes(state))
     return { message: "Invalid edition state." }
   const sql = getSql()
+  // Neither a published nor a withdrawn edition changes state here: one is
+  // withdrawn through the withdrawal workflow, the other re-offered through it.
   await sql`update review_publication_editions set publication_state = ${state}, is_latest = false,
-    updated_at = now() where id = ${editionId}::uuid and publication_state <> 'published'`
+    updated_at = now() where id = ${editionId}::uuid and publication_state in ('draft', 'ignored')`
   refresh()
   return {
     ok: true,
@@ -1714,6 +1750,11 @@ async function verifyEditionForPublishing(
     return { message: MIGRATION_PENDING_MESSAGE }
   }
   const edition = await loadEditionForAccess(sql, editionId)
+  if (edition?.publicationState === "withdrawn")
+    return {
+      message:
+        "Not published: this edition is withdrawn. Offer it again first; that needs its recipients and a new verified link.",
+    }
   if (!edition?.secureLinkId)
     return { message: "Not published: prepare a secure link first." }
 

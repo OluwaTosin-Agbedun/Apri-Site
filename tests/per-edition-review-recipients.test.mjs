@@ -427,7 +427,17 @@ describe("saving an edition's list", () => {
     const d = decideRecipientSave({ mode: "edition", hasLink: true, current: ["a@example.org"], proposed: [] })
     assert.equal(d.ok, false)
     assert.match(d.message, /at least one recipient/)
-    assert.match(d.message, /withdrawal workflow/)
+    assert.match(d.message, /open to anyone/)
+    assert.match(d.message, /Nothing was saved\./)
+  })
+
+  it("tells the owner of a published edition to withdraw it instead of emptying it", () => {
+    const published = decideRecipientSave({ mode: "edition", hasLink: true, published: true, current: ["a@example.org"], proposed: [] })
+    assert.equal(published.ok, false)
+    assert.match(published.message, /use Withdraw from Complimentary Review instead/)
+    const draft = decideRecipientSave({ mode: "edition", hasLink: true, published: false, current: ["a@example.org"], proposed: [] })
+    assert.equal(draft.ok, false)
+    assert.doesNotMatch(draft.message, /Withdraw from Complimentary Review/)
   })
 
   it("allows an unlinked draft to be emptied, since nothing is in Papermark", () => {
@@ -951,8 +961,10 @@ describe("scope and exposure", () => {
 
   it("the homepage never substitutes an older edition for one that is not ready", () => {
     const b = body(read(PUBLICATIONS), "getReviewLibrary")
-    assert.match(b, /end as access_configured/)
-    assert.match(b, /items\.some\(\(item\) => item\.access_configured !== true\)/)
+    // Access is checked on the edition chosen for its series, after the choice.
+    assert.equal((b.match(/end as access_configured/g) ?? []).length, 2)
+    assert.match(b, /const cards = selectOfferedCards\(/)
+    assert.match(b, /if \(cards\.length === 0\) return null/)
   })
 
   it("no new module logs anything", () => {

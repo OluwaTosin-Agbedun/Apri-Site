@@ -16,6 +16,7 @@ import {
 } from "@/app/actions/review-library"
 import type { FormState } from "@/lib/definitions"
 import { EditionAccessPanel, type EditionAccess } from "./edition-access-panel"
+import { EditionWithdrawalPanel, type EditionWithdrawal } from "./edition-withdrawal-panel"
 
 const field =
   "w-full border border-border bg-background p-3 text-sm focus:outline-none focus:border-accent"
@@ -50,6 +51,7 @@ type Edition = {
   ownerEditedFields: string[]
   mappingStatus: string
   access: EditionAccess
+  withdrawal: EditionWithdrawal
 }
 
 export default function ReviewLibraryForm(props: {
@@ -267,13 +269,19 @@ function EditionCard({
   // The server refuses too; this only stops offering a button that cannot work.
   const canPrepareLink =
     e.access.mode === "edition" && e.access.recipients.length > 0 && !e.secureLinkId
-  const status = e.isLatest
-    ? "Latest"
-    : e.publicationState === "published"
-      ? "Published Historical"
-      : e.publicationState === "ignored"
-        ? "Ignored"
-        : "Pending / Draft"
+  const status =
+    e.publicationState === "withdrawn"
+      ? e.withdrawal.state === "revoked"
+        ? "Withdrawn"
+        : "Withdrawal not complete"
+      : e.isLatest
+        ? "Latest"
+        : e.publicationState === "published"
+          ? "Published Historical"
+          : e.publicationState === "ignored"
+            ? "Ignored"
+            : "Pending / Draft"
+  const editionName = [e.series, e.editionLabel || e.title].filter(Boolean).join(" · ") || "this edition"
   return (
     <article className="border border-border bg-card/30 p-6">
       <div className="flex justify-between gap-4 mb-5">
@@ -337,11 +345,18 @@ function EditionCard({
       </dl>
       <EditionAccessPanel
         editionId={e.id}
-        editionName={[e.series, e.editionLabel || e.title].filter(Boolean).join(" · ") || "this edition"}
+        editionName={editionName}
         published={e.publicationState === "published"}
+        withdrawn={e.publicationState === "withdrawn"}
         hasLink={Boolean(e.secureLinkId)}
         access={e.access}
         addressBook={addressBook}
+      />
+      <EditionWithdrawalPanel
+        editionId={e.id}
+        editionName={editionName}
+        publicationState={e.publicationState}
+        withdrawal={e.withdrawal}
       />
       <form
         className="grid md:grid-cols-2 gap-4"
@@ -430,15 +445,16 @@ function EditionCard({
             >
           {exact ? "Exact link verified" : "Prepare & verify secure link"}
             </button>
-        {e.publicationState !== "published" &&
-          e.publicationState !== "ignored" && (
+        {/* Drafts only: a withdrawn edition is offered again through its own
+            panel, which needs new recipients and a new verified link first. */}
+        {e.publicationState === "draft" && (
             <>
               <button
                 className={primary}
                 disabled={busy || !exact}
                 onClick={() => run(e.id, () => publishEditionAsLatest(e.id))}
               >
-                Publish as latest edition
+                Publish as latest and offer it
               </button>
                 <button
                 className={secondary}

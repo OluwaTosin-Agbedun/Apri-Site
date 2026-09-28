@@ -108,6 +108,7 @@ export async function saveEditionRecipients(
   const decision = decideRecipientSave({
     mode: edition.recipientMode,
     hasLink: Boolean(edition.secureLinkId),
+    published: edition.publicationState === "published",
     current,
     proposed: posted,
   })

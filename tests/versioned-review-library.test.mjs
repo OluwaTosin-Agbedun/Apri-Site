@@ -60,14 +60,20 @@ test("public archive returns all published editions deterministically", () => {
   )
 })
 
-test("homepage selects one deterministic latest per series", () => {
+test("homepage selects one deterministic edition per series", () => {
   const fn = publications.slice(
     publications.indexOf("getReviewLibrary"),
     publications.indexOf("getReviewPublicationArchive"),
   )
+  // Before the withdrawal migration: each series' latest, deterministically.
   assert.match(fn, /distinct on \(e\.series\)/)
   assert.match(fn, /e\.is_latest desc/)
-  assert.match(fn, /new Set\(items\.map/)
+  // After it: the edition the owner chose to offer -- one per series by
+  // constraint -- never chosen by being the latest.
+  const offered = fn.slice(fn.indexOf("? await sql"), fn.indexOf(": perEdition"))
+  assert.match(offered, /where e\.complimentary_featured/)
+  assert.doesNotMatch(offered, /distinct on|is_latest desc/)
+  assert.match(fn, /selectOfferedCards\(/)
 })
 
 test("public review queries never select approved recipients", () => {

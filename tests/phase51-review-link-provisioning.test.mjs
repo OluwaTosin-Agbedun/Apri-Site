@@ -485,19 +485,23 @@ describe('public library gating', () => {
     assert.match(fn, /secure_link_verified_at is not null/)
   })
 
-  it('getReviewLibrary requires a verified link to the exact document, in both forms', () => {
+  it('getReviewLibrary requires a verified link to the exact document, in every form', () => {
     const fn = pubs.slice(
       pubs.indexOf('async function getReviewLibrary'),
       pubs.indexOf('export async function getReviewPublicationArchive'),
     )
-    // Once in the per-edition query and once in its pre-migration form.
-    assert.equal((fn.match(/and e\.secure_link_document_id = e\.papermark_document_id/g) ?? []).length, 2)
-    assert.equal((fn.match(/e\.secure_link_url <> '' and e\.secure_link_verified_at is not null/g) ?? []).length, 2)
+    // The offered-edition query, the per-edition query and the pre-migration form.
+    assert.equal((fn.match(/and e\.secure_link_document_id = e\.papermark_document_id/g) ?? []).length, 3)
+    assert.equal((fn.match(/e\.secure_link_url <> '' and e\.secure_link_verified_at is not null/g) ?? []).length, 3)
   })
 
-  it('getReviewLibrary still requires exactly three slots', () => {
-    const fn = pubs.slice(pubs.indexOf('async function getReviewLibrary'))
-    assert.match(fn, /items\.length !== 3/)
+  it('a series with no edition to offer removes only its own card', () => {
+    const fn = pubs.slice(
+      pubs.indexOf('async function getReviewLibrary'),
+      pubs.indexOf('export async function getReviewPublicationArchive'),
+    )
+    assert.doesNotMatch(fn, /items\.length !== 3/)
+    assert.match(fn, /selectOfferedCards\(/)
   })
 
   it('the public page uses verified secure links directly', () => {

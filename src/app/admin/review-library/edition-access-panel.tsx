@@ -10,6 +10,15 @@ import {
   saveEditionRecipients,
   type EditionPreview,
 } from "@/app/actions/review-edition-access"
+import {
+  sameSelection,
+  selectAll,
+  selectableAddresses,
+  selectionGuard,
+  selectionSummary,
+  toggleAddress,
+  unselectAll,
+} from "@/lib/recipient-selection"
 
 /**
  * One edition's Complimentary Review access, managed on its own.
@@ -58,18 +67,11 @@ const secondary =
   "border border-border px-3 py-1.5 text-xs hover:bg-black/5 disabled:opacity-40 cursor-pointer"
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-function sameSet(a: Iterable<string>, b: Iterable<string>): boolean {
-  const left = new Set(a)
-  const right = new Set(b)
-  if (left.size !== right.size) return false
-  for (const v of left) if (!right.has(v)) return false
-  return true
-}
-
 export function EditionAccessPanel({
   editionId,
   editionName,
   published,
+  withdrawn = false,
   hasLink,
   access,
   addressBook,
@@ -77,12 +79,17 @@ export function EditionAccessPanel({
   editionId: string
   editionName: string
   published: boolean
+  /** Withdrawn from Complimentary Review: managed through re-offering. */
+  withdrawn?: boolean
   hasLink: boolean
   access: EditionAccess
   addressBook: string[]
 }) {
   const router = useRouter()
+  // This panel's own selection. Nothing here is shared with another edition's
+  // panel, and nothing is saved until Save.
   const [selection, setSelection] = useState<Set<string>>(() => new Set(access.recipients))
+  const [added, setAdded] = useState<string[]>([])
   const [extra, setExtra] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
@@ -90,8 +97,16 @@ export function EditionAccessPanel({
   const [probe, setProbe] = useState("")
   const [probeResult, setProbeResult] = useState<{ ok: boolean; text: string } | null>(null)
 
-  const dirty = !sameSet(selection, access.recipients)
-  const candidates = [...new Set([...addressBook, ...access.recipients, ...selection])].sort()
+  const dirty = !sameSelection(selection, access.recipients)
+  const candidates = selectableAddresses(addressBook, access.recipients, [...added, ...selection])
+  const guard = selectionGuard({ selectedCount: selection.size, hasLink, published })
+
+  /** Changes this panel's on-screen selection only. */
+  function choose(next: Set<string>) {
+    setSelection(next)
+    setPreview(null)
+    setMessage(null)
+  }
 
   async function act<T extends { ok: boolean; message: string }>(
     fn: () => Promise<T>,
@@ -123,7 +138,12 @@ export function EditionAccessPanel({
           edition&rsquo;s own list. It never changes Papermark, and no reader gains or loses
           access. If anything cannot be verified, it stops and reports why.
         </p>
-        {published && hasLink ? (
+        {withdrawn ? (
+          <p className="text-xs text-foreground/70">
+            Withdrawn from Complimentary Review, so there is no live link to adopt. Offering it again gives it
+            its own list of recipients, chosen from scratch.
+          </p>
+        ) : published && hasLink ? (
           <button
             type="button"
             className={secondary}
@@ -148,8 +168,6 @@ export function EditionAccessPanel({
   }
 
   // --- Edition-mode: choose, save, preview, apply, verify ------------------
-  const emptyWithLink = hasLink && selection.size === 0
-
   return (
     <section className="border border-border/60 bg-background p-4 mb-6">
       <h4 className="text-sm font-medium mb-1">Access for this edition</h4>
@@ -169,26 +187,47 @@ export function EditionAccessPanel({
             No approved people yet. Add an address below, or add people to the address book.
           </p>
         ) : (
-          <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1 max-h-60 overflow-y-auto">
-            {candidates.map((email) => (
-              <li key={email}>
-                <label className="flex items-center gap-2 text-xs font-mono">
-                  <input
-                    type="checkbox"
-                    checked={selection.has(email)}
-                    onChange={(ev) => {
-                      const next = new Set(selection)
-                      if (ev.target.checked) next.add(email)
-                      else next.delete(email)
-                      setSelection(next)
-                      setPreview(null)
-                    }}
-                  />
-                  {email}
-                </label>
-              </li>
-            ))}
-          </ul>
+          <>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              {/* On-screen only: neither button saves anything or touches Papermark. */}
+              <button
+                type="button"
+                className={secondary}
+                disabled={busy || selection.size === candidates.length}
+                onClick={() => choose(selectAll(candidates))}
+                aria-label={`Select every address for ${editionName}`}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className={secondary}
+                disabled={busy || selection.size === 0}
+                onClick={() => choose(unselectAll())}
+                aria-label={`Unselect every address for ${editionName}`}
+              >
+                Unselect all
+              </button>
+              <span className="text-xs text-muted-foreground" aria-live="polite">
+                {selectionSummary(selection.size, candidates.length)}
+                {dirty ? " · not saved yet" : ""}
+              </span>
+            </div>
+            <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1 max-h-60 overflow-y-auto">
+              {candidates.map((email) => (
+                <li key={email}>
+                  <label className="flex items-center gap-2 text-xs font-mono">
+                    <input
+                      type="checkbox"
+                      checked={selection.has(email)}
+                      onChange={(ev) => choose(toggleAddress(selection, email, ev.target.checked))}
+                    />
+                    {email}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </fieldset>
 
@@ -208,19 +247,18 @@ export function EditionAccessPanel({
           onClick={() => {
             const email = extra.trim().toLowerCase()
             if (!EMAIL_SHAPE.test(email)) return
-            setSelection(new Set([...selection, email]))
+            setAdded([...added, email])
+            choose(toggleAddress(selection, email, true))
             setExtra("")
-            setPreview(null)
           }}
         >
           Add to this edition
         </button>
       </div>
 
-      {emptyWithLink && (
-        <p className="text-xs text-red-600 mb-2">
-          An edition with a Papermark link must keep at least one recipient. Removing
-          the last one requires the withdrawal workflow, which is not available yet.
+      {guard.warning && (
+        <p className={`text-xs mb-2 ${guard.canSave ? "text-amber-700" : "text-red-600"}`} role="status">
+          {guard.warning}
         </p>
       )}
 
@@ -228,7 +266,7 @@ export function EditionAccessPanel({
         <button
           type="button"
           className={secondary}
-          disabled={busy || !dirty || emptyWithLink}
+          disabled={busy || !dirty || !guard.canSave}
           onClick={() => void act(() => saveEditionRecipients(editionId, [...selection]), () => setPreview(null))}
         >
           Save recipients
