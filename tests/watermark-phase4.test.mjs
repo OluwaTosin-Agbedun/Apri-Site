@@ -384,8 +384,9 @@ test('review library page still queries three approved cards', () => {
 
 test('complimentary review section exists on publications page', () => {
   const src = read('src/app/publications/page.tsx')
+  assert.match(src, /<section id="review-publications"/)
   assert.match(src, /Complimentary Review/)
-  assert.match(src, /complimentary-review/)
+  assert.match(src, /href="\/review"/)
 })
 
 // ---------------------------------------------------------------------------

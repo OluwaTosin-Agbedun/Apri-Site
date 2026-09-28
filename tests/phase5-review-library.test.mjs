@@ -24,7 +24,8 @@ describe('fixed review slots', () => {
 
   it('review-library actions define FIXED_SLOTS = MIN, AIU, PLM', () => {
     const src = read('src/app/actions/review-library.ts')
-    assert.match(src, /FIXED_SLOTS\s*=\s*\['MIN',\s*'AIU',\s*'PLM'\]/)
+    // Either quote style: the formatter now writes double quotes.
+    assert.match(src, /FIXED_SLOTS\s*=\s*\[['"]MIN['"],\s*['"]AIU['"],\s*['"]PLM['"]\]/)
   })
 
   it('SLOT_ORDER is MIN=0, AIU=1, PLM=2', () => {
@@ -77,9 +78,11 @@ describe('per-card secure document links', () => {
   const pubPage = read('src/app/publications/page.tsx')
 
   it('public cards use their stored secure document links', () => {
-    assert.match(pubPage, /href=\{card\.secureUrl\}/)
-    assert.doesNotMatch(pubPage, /href="\/review"/)
-    assert.match(pubPage, /newTab/)
+    const start = pubPage.indexOf('<section id="review-publications"')
+    const archive = pubPage.slice(start, pubPage.indexOf('</section>', start))
+    assert.match(archive, /href=\{card\.secureUrl\}/)
+    assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')
+    assert.match(archive, /newTab/)
   })
 
   it('no "Enter Secure Review Library" button exists', () => {
@@ -186,8 +189,9 @@ describe('admin detail generation', () => {
     assert.match(actions, /edited\.has/)
   })
 
-  it('generateSlotDetails only fills empty fields', () => {
-    assert.match(actions, /!item\.publication_type && !edited\.has/)
+  it('series defaults only fill empty fields the owner has not edited', () => {
+    // generateEditionDefaults replaced generateSlotDetails for the edition library.
+    assert.match(actions, /case when publication_type = '' and not \('publication_type' = any\(\$\{edited\}\)\)/)
   })
 
   it('saveReviewItemDetails tracks owner-edited fields', () => {
@@ -380,9 +384,10 @@ describe('library enable validation', () => {
     assert.match(actions, /Cannot enable/)
   })
 
-  it('saveReviewLibrarySettings checks all 3 slots have mapped documents', () => {
-    assert.match(actions, /publication_id/)
-    assert.match(actions, /no mapped document/)
+  it('saveReviewLibrarySettings needs a verified edition for at least one series', () => {
+    const fn = actions.slice(actions.indexOf('export async function saveReviewLibrarySettings'), actions.indexOf('export async function fetchAvailableReviewDataRooms'))
+    assert.match(fn, /secure_link_document_id = papermark_document_id/)
+    assert.match(fn, /Cannot enable: no series has a verified edition to offer\./)
   })
 })
 
@@ -390,9 +395,10 @@ describe('library enable validation', () => {
 // 18. Three-column responsive layout
 // ---------------------------------------------------------------------------
 
-test('publications page uses 3-column grid', () => {
+test('publications page groups the archive by series', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /grid-cols-1 md:grid-cols-3/)
+  assert.match(src, /\(\["MIN", "AIU", "PLM"\] as const\)\.map\(\(series\) =>/)
+  assert.match(src, /grid grid-cols-1 md:grid-cols-2/)
 })
 
 // ---------------------------------------------------------------------------
@@ -422,9 +428,10 @@ describe('simplified admin', () => {
     assert.doesNotMatch(form, /reorderReviewItems/)
   })
 
-  it('SlotCard component exists for each fixed slot', () => {
-    assert.match(form, /function SlotCard/)
-    assert.match(form, /SLOT_LABELS/)
+  it('each edition is its own card', () => {
+    // EditionCard replaced the three fixed SlotCards.
+    assert.match(form, /function EditionCard\(/)
+    assert.match(form, /<EditionCard\s+key=\{e\.id\}/)
   })
 })
 

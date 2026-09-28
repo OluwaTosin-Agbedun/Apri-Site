@@ -1,22 +1,31 @@
 /**
  * Shared fixtures for the integration tests.
  *
- * These run against the real database in DATABASE_URL. Every row a test creates
- * is prefixed with a per-file tag and removed afterwards, so a failed run cannot
- * leave data behind that a later run would trip over.
+ * These run against the isolated test database scripts/run-tests.mjs starts:
+ * a real PostgreSQL engine built from the current schema, holding nothing but
+ * what the tests create, reached through the same @neondatabase/serverless
+ * driver the application uses. Never a real database: the only endpoint
+ * accepted is a loopback address. Every row a test creates is prefixed with a
+ * per-file tag and removed afterwards.
  *
  * Run with:  pnpm test
  */
-import { neon } from '@neondatabase/serverless'
+import { neon, neonConfig } from '@neondatabase/serverless'
 import { createHash, randomBytes } from 'node:crypto'
 
-if (!process.env.DATABASE_URL) {
+const endpoint = process.env.APRI_TEST_DB_ENDPOINT
+const databaseUrl = process.env.APRI_TEST_DATABASE_URL
+if (!endpoint || !databaseUrl) {
   throw new Error(
-    'DATABASE_URL is not set. Run the tests with: node --env-file=.env.local --test tests/'
+    'These integration tests need the isolated test database. Run them with: pnpm test (scripts/run-tests.mjs starts it).'
   )
 }
+if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(endpoint).hostname)) {
+  throw new Error('APRI_TEST_DB_ENDPOINT must be the local test database, never a real one.')
+}
+neonConfig.fetchEndpoint = () => endpoint
 
-export const sql = neon(process.env.DATABASE_URL)
+export const sql = neon(databaseUrl)
 
 // ---------------------------------------------------------------------------
 // The production rules, imported by value rather than reimplemented.

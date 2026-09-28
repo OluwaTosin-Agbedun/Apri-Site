@@ -377,7 +377,8 @@ describe('revalidation', () => {
   const access = read(ACCESS)
 
   it('refresh revalidates / and /publications', () => {
-    const fn = src.slice(src.indexOf('function refresh'), src.indexOf('// -----'))
+    const start = src.indexOf('function refresh()')
+    const fn = src.slice(start, src.indexOf('\n}', start) + 2)
     assert.match(fn, /revalidatePath\("\/"\)/)
     assert.match(fn, /revalidatePath\("\/publications"\)/)
   })
@@ -505,16 +506,19 @@ describe('public library gating', () => {
   })
 
   it('the public page uses verified secure links directly', () => {
-    assert.match(page, /href=\{card\.secureUrl\}/)
-    assert.doesNotMatch(page, /href="\/review"/)
-    assert.match(page, /Access review copy/)
-    assert.match(page, /newTab/)
+    const start = page.indexOf('<section id="review-publications"')
+    const archive = page.slice(start, page.indexOf('</section>', start))
+    assert.match(archive, /href=\{card\.secureUrl\}/)
+    assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')
+    assert.match(archive, /Access review copy/)
+    assert.match(archive, /newTab/)
   })
 
   it('the enable gate refuses an unverified or mismatched link', () => {
     const fn = fnBody(read(ACTIONS), 'saveReviewLibrarySettings')
-    assert.match(fn, /secure link not verified against Papermark/)
-    assert.match(fn, /points at a different document/)
+    // Only editions whose link is verified and targets their exact document count.
+    assert.equal((fn.match(/secure_link_verified_at is not null/g) ?? []).length, 2)
+    assert.equal((fn.match(/secure_link_document_id = papermark_document_id/g) ?? []).length, 2)
   })
 })
 
@@ -706,34 +710,29 @@ describe('admin UI', () => {
     assert.match(form, /publishHistoricalEdition\(e\.id\)/)
   })
 
-  it('shows a Ready status', () => {
-    assert.match(form, /linkReady/)
-    assert.match(form, />\s*Ready\s*</)
+  it('shows whether the link is verified for the exact document', () => {
+    assert.match(form, /e\.secureLinkDocumentId === e\.papermarkDocumentId/)
+    assert.match(form, /"Exact document verified"/)
   })
 
-  it('shows an Error status when the link points elsewhere', () => {
-    assert.match(form, /linkStale/)
-    assert.match(form, /Error: link points elsewhere/)
+  it('says so when the link points elsewhere', () => {
+    assert.match(form, /"Not verified for exact document"/)
   })
 
   it('shows the mapped Papermark filename and document ID', () => {
-    // The filename is read from the matching sync candidate, which is the one
-    // record of what is actually in the Data Room, and falls back to the
-    // publication title only if that row is absent.
-    assert.match(form, /Papermark PDF:/)
-    assert.match(form, /mappedCandidate\?\.rawFilename/)
-    assert.match(form, /slot\.pubTitle/)
-    assert.match(form, /Document ID: \{slot\.papermarkDocumentId\}/)
+    assert.match(form, /name="Papermark PDF filename"\s+value=\{e\.papermarkFilename \|\| "Not recorded"\}/)
+    assert.match(form, /name="Papermark document ID" value=\{e\.papermarkDocumentId\}/)
   })
 
   it('shows the link ID and when it was verified', () => {
-    assert.match(form, /Link ID: \{slot\.secureLinkId\}/)
-    assert.match(form, /slot\.secureLinkVerifiedAt/)
+    assert.match(form, /name="Secure-link ID" value=\{e\.secureLinkId \?\? "Not prepared"\}/)
+    assert.match(form, /e\.secureLinkVerifiedAt/)
   })
 
-  it('keeps the manual URL field as a labelled emergency fallback', () => {
-    assert.match(form, /Emergency fallback/)
-    assert.match(form, /manualMode/)
+  it('offers no way to type a link in by hand', () => {
+    // The manual URL field was removed on purpose: a pasted address bypassed
+    // the verification every prepared link goes through.
+    assert.doesNotMatch(form, /Emergency fallback|manualMode|updateSlotSecureLink/)
   })
 
   it('the prepare button is disabled until the edition has recipients and no link', () => {

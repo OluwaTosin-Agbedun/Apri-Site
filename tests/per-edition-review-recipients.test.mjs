@@ -96,8 +96,10 @@ const LIVE_OK = (allowList, extra = {}) => ({
 
 describe("migration", () => {
   const mig = read(MIGRATION)
+  // Split on CRLF too: a Windows checkout has it, and `.` never matches the
+  // "\r" a plain "\n" split leaves on each line, so no comment would be removed.
   const code = mig
-    .split("\n")
+    .split(/\r?\n/)
     .map((l) => l.replace(/--.*$/, ""))
     .join("\n")
 

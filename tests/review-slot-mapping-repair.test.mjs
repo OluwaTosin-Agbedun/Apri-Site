@@ -104,12 +104,12 @@ describe('the production fault', () => {
     assert.equal(d.status, 'repaired')
   })
 
-  it('the secure-link button becomes enabled once mapped', () => {
-    // hasDoc drives the button; the repair sets papermark_document_id, so the
-    // gate that disabled it is satisfied.
+  it('the prepare-link button is enabled once the edition has a series and recipients', () => {
+    // The edition card replaced the slot card: a link can be prepared once the
+    // edition is mapped to a series and has recipients, and never twice.
     const form = read(FORM)
-    assert.match(form, /const hasDoc = !!slot\.papermarkDocumentId/)
-    assert.match(form, /disabled=\{linkBusy \|\| !hasDoc\}/)
+    assert.match(form, /const canPrepareLink =\s*e\.access\.mode === "edition" && e\.access\.recipients\.length > 0 && !e\.secureLinkId/)
+    assert.match(form, /disabled=\{busy \|\| !e\.series \|\| exact \|\| !canPrepareLink\}/)
     // and the repair is what populates that column
     assert.match(fnBody(read(ACTIONS), 'repairFixedSlotMappings'), /papermark_document_id = \$\{only\.documentId\}/)
   })
@@ -219,7 +219,8 @@ describe('ambiguous candidates', () => {
 
   it('the action performs no write for an ambiguous slot', () => {
     const fn = fnBody(read(ACTIONS), 'repairFixedSlotMappings')
-    assert.match(fn, /if \(decision\.status !== 'repaired' \|\| !decision\.candidate\) continue/)
+    // Formatting-independent: the condition now spans several lines.
+    assert.match(fn, /if\s*\(\s*decision\.status\s*!==\s*['"]repaired['"]\s*\|\|\s*!decision\.candidate\s*\)\s*continue/)
   })
 
   it('three copies of one document are not ambiguity', () => {
@@ -455,23 +456,13 @@ describe('candidate filtering', () => {
 describe('sync integration', () => {
   const src = read(ACTIONS)
 
-  it('syncReviewLibrary calls the repair', () => {
+  // Sync no longer repairs fixed-slot mappings: since the versioned library
+  // (PRs #25-#30) every synced document becomes its own edition, so there is
+  // no slot left to repair. The three tests of that integration were removed.
+  it('sync maps every document to its own edition instead of repairing slots', () => {
     const fn = fnBody(src, 'syncReviewLibrary')
-    assert.match(fn, /repairFixedSlotMappings\(sql\)/)
-  })
-
-  it('the repair runs after the document loop, not instead of it', () => {
-    const fn = fnBody(src, 'syncReviewLibrary')
-    const loop = fn.indexOf('for (const d of docs)')
-    const repair = fn.indexOf('repairFixedSlotMappings(sql)')
-    assert.ok(loop !== -1 && repair !== -1)
-    assert.ok(loop < repair, 'the repair must run after the documents are ingested')
-  })
-
-  it('the repair outcome is reported in the sync message', () => {
-    const fn = fnBody(src, 'syncReviewLibrary')
-    assert.match(fn, /summariseRepair\(repair\)/)
-    assert.match(fn, /repairNote \? /)
+    assert.doesNotMatch(fn, /repairFixedSlotMappings/)
+    assert.match(fn, /insert into review_publication_editions/)
   })
 
   it('an unmapped slot no longer parks its document in the pending columns', () => {
@@ -563,44 +554,24 @@ describe('repairMissingMappings action', () => {
 describe('admin UI', () => {
   const form = read(FORM)
 
-  it('offers a Repair missing mappings button', () => {
-    assert.match(form, /Repair missing mappings/)
-    assert.match(form, /repairMissingMappings/)
+  // The slot repair screens (Repair missing mappings, Use this document, the
+  // ambiguity and no-candidate notices) went with the fixed slots in PRs
+  // #25-#30; the repair's own rules are still tested above. What the owner
+  // sees about each edition's document is now on its edition card.
+  it('the Admin offers no slot-repair controls', () => {
+    assert.doesNotMatch(form, /Repair missing mappings|UseThisDocumentButton/)
   })
 
-  it('offers Use this document for an explicit choice', () => {
-    assert.match(form, /function UseThisDocumentButton/)
-    assert.match(form, /Use this document/)
-    assert.match(form, /mapCandidateToCard/)
-  })
-
-  it('the choice is confirmed before it is applied', () => {
-    const fn = fnBody(form, 'UseThisDocumentButton')
-    assert.match(fn, /window\.confirm/)
-  })
-
-  it('shows the ambiguity count and refuses to auto-pick', () => {
-    assert.match(form, /recognised \{slot\.slotKey\} documents were found/)
-    assert.match(form, /not<\/strong>\s*\n?\s*chosen/)
-  })
-
-  it('shows the exact reason when no candidate matches', () => {
-    assert.match(form, /No recognised \{slot\.slotKey\} document was found/)
-    assert.match(form, /filename or folder identifies the series/)
-  })
-
-  it('shows the mapped Papermark filename from the candidate', () => {
-    assert.match(form, /mappedCandidate/)
-    assert.match(form, /mappedCandidate\?\.rawFilename/)
+  it('shows the mapped Papermark filename', () => {
+    assert.match(form, /name="Papermark PDF filename"/)
   })
 
   it('shows the Papermark document ID', () => {
-    assert.match(form, /Document ID: \{slot\.papermarkDocumentId\}/)
+    assert.match(form, /name="Papermark document ID" value=\{e\.papermarkDocumentId\}/)
   })
 
   it('shows an explicit mapping status', () => {
-    assert.match(form, /Mapping:/)
-    assert.match(form, /hasDoc \? 'Mapped' : 'Not mapped'/)
+    assert.match(form, /name="Mapping status" value=\{e\.mappingStatus\}/)
   })
 
   it('holds no Papermark credential', () => {

@@ -148,11 +148,34 @@ test('sync: upserts by papermark_document_id', () => {
 // 6. Existing three files can be mapped to existing three cards
 // ---------------------------------------------------------------------------
 
-test('actions: mapCandidateToCard stores papermark_document_id on review item', () => {
+
+// The /publications review archive, and everything after it. The archive
+// links each edition straight to its own secure link; the separate prospect
+// journey (/review) is a call to action outside it.
+const archiveSection = (src) => {
+  const start = src.indexOf('<section id="review-publications"')
+  return src.slice(start, src.indexOf('</section>', start))
+}
+const afterArchive = (src) => src.slice(src.indexOf('</section>', src.indexOf('<section id="review-publications"')))
+
+const enableGate = (src) =>
+  src.slice(src.indexOf('export async function saveReviewLibrarySettings'), src.indexOf('export async function fetchAvailableReviewDataRooms'))
+
+// The body of review-library.ts's refresh(), up to its own closing brace. (The
+// old slices ran to the first "// -----" in the file, which now comes before
+// the function, so they checked an empty string.)
+const refreshBody = (src) => {
+  const start = src.indexOf('function refresh()')
+  return src.slice(start, src.indexOf('\n}', start) + 2)
+}
+
+test('actions: mapCandidateToCard maps a document into the edition library, never with a link', () => {
   const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function mapCandidateToCard'))
+  const fn = src.slice(src.indexOf('export async function mapCandidateToCard'), src.indexOf('export async function prepareEditionSecureLink'))
+  assert.match(fn, /insert into review_publication_editions/)
   assert.match(fn, /papermark_document_id/)
-  assert.match(fn, /complimentary_review_items/)
+  // A secure link is only ever prepared and verified per edition.
+  assert.doesNotMatch(fn, /secure_link_(id|url)\s*=/)
 })
 
 // ---------------------------------------------------------------------------
@@ -224,9 +247,12 @@ test('actions: makeVersionCurrent preserves owner-edited fields', () => {
 // 11. Regeneration requires confirmation
 // ---------------------------------------------------------------------------
 
-test('admin form: generate details fills blanks only', () => {
-  const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /generateSlotDetails/)
+test('admin form: series defaults fill blanks only', () => {
+  const form = read('src/app/admin/review-library/review-form.tsx')
+  assert.match(form, /generateEditionDefaults\(e\.id\)/)
+  const actions = read('src/app/actions/review-library.ts')
+  const fn = actions.slice(actions.indexOf('export async function generateEditionDefaults'), actions.indexOf('export async function setEditionReviewState'))
+  assert.match(fn, /case when edition_label = '' and not \('edition_label' = any\(\$\{edited\}\)\)/)
 })
 
 test('actions: generateSlotDetails checks owner_edited_fields', () => {
@@ -277,21 +303,20 @@ test('actions: makeVersionCurrent targets specific slot', () => {
 // 15. Exactly three active cards remain (validation)
 // ---------------------------------------------------------------------------
 
-test('enable validation: requires all three fixed slots', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /three fixed slots/)
-  assert.match(fn, /slots\.length !== 3/)
+test('enable validation: needs one series with a verified edition, not all three', () => {
+  const fn = enableGate(read('src/app/actions/review-library.ts'))
+  assert.match(fn, /if \(offered\.length === 0\)/)
+  assert.doesNotMatch(fn, /slots\.length !== 3/)
 })
 
 // ---------------------------------------------------------------------------
 // 16. Room-count warnings appear
 // ---------------------------------------------------------------------------
 
-test('admin form: has SlotCard component for fixed slots', () => {
+test('admin form: each edition is its own card', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /function SlotCard/)
-  assert.match(src, /SLOT_LABELS/)
+  assert.match(src, /function EditionCard\(/)
+  assert.match(src, /<EditionCard\s+key=\{e\.id\}/)
 })
 
 test('admin form: enable section shows diagnostics for missing slots', () => {
@@ -299,10 +324,10 @@ test('admin form: enable section shows diagnostics for missing slots', () => {
   assert.match(src, /function EnableSection/)
 })
 
-test('admin form: secure link field per slot', () => {
+test('admin form: a link is prepared and verified by APRI, never typed in', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
-  assert.match(src, /secureLinkUrl/)
-  assert.match(src, /updateSlotSecureLink/)
+  assert.match(src, /prepareEditionSecureLink\(e\.id\)/)
+  assert.doesNotMatch(src, /updateSlotSecureLink/)
 })
 
 test('admin form: a draft edition is shown as such and waits for an exact link', () => {
@@ -443,8 +468,7 @@ test('review-classify.ts has no server dependencies', () => {
 // ---------------------------------------------------------------------------
 
 test('refresh revalidates / and /publications', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('function refresh'), src.indexOf('// -----'))
+  const fn = refreshBody(read('src/app/actions/review-library.ts'))
   assert.match(fn, /revalidatePath\("\/"\)/)
   assert.match(fn, /revalidatePath\("\/publications"\)/)
 })
@@ -551,20 +575,21 @@ test('classify: folder path fallback to PLM', () => {
 // 28. Public display unchanged
 // ---------------------------------------------------------------------------
 
-test('publications page: still shows library.items.map', () => {
+test('publications page: lists every archived edition', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /library\.items\.map/)
+  assert.match(src, /\{cards\.map\(\(card\) => \(/)
 })
 
-test('publications page: still has #complimentary-review anchor', () => {
+test('publications page: the review archive has its own anchor', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /id="complimentary-review"/)
+  assert.match(src, /<section id="review-publications"/)
 })
 
 test('publications page: direct secure review URL (no Data Room fallback)', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /href=\{card\.secureUrl\}/)
-  assert.doesNotMatch(src, /href="\/review"/)
+  const archive = archiveSection(src)
+  assert.match(archive, /href=\{card\.secureUrl\}/)
+  assert.doesNotMatch(archive, /href="\/review"/)
   assert.doesNotMatch(src, /library\.papermarkUrl/)
 })
 
@@ -604,11 +629,10 @@ test('phase 2: admin still requires owner', () => {
   assert.match(src, /requireOwner/)
 })
 
-test('phase 2: enable validation still checks slots and secure links', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
+test('phase 2: enable validation still checks secure links', () => {
+  const fn = enableGate(read('src/app/actions/review-library.ts'))
   assert.match(fn, /Cannot enable/)
-  assert.match(fn, /no secure link URL/)
+  assert.equal((fn.match(/secure_link_url <> '' and secure_link_verified_at is not null/g) ?? []).length, 2)
 })
 
 test('phase 2: getPublishedPublications still excludes OPEN', () => {

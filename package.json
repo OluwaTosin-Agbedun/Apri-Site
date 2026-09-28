@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "next lint",
-    "test": "node --env-file=.env.local --test \"tests/*.test.mjs\"",
+    "test": "node scripts/run-tests.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",
     "format": "oxfmt",
@@ -30,6 +30,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.3.16",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

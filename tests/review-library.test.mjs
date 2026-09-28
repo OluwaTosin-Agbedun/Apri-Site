@@ -107,17 +107,40 @@ test('getPublishedPublications excludes OPEN visibility', () => {
 // 5. /publications contains the Complimentary Review section
 // ---------------------------------------------------------------------------
 
-test('publications page: has #complimentary-review anchor', () => {
+
+// The /publications review archive, and everything after it. The archive
+// links each edition straight to its own secure link; the separate prospect
+// journey (/review) is a call to action outside it.
+const archiveSection = (src) => {
+  const start = src.indexOf('<section id="review-publications"')
+  return src.slice(start, src.indexOf('</section>', start))
+}
+const afterArchive = (src) => src.slice(src.indexOf('</section>', src.indexOf('<section id="review-publications"')))
+
+const enableGate = (src) =>
+  src.slice(src.indexOf('export async function saveReviewLibrarySettings'), src.indexOf('export async function fetchAvailableReviewDataRooms'))
+
+// The body of review-library.ts's refresh(), up to its own closing brace. (The
+// old slices ran to the first "// -----" in the file, which now comes before
+// the function, so they checked an empty string.)
+const refreshBody = (src) => {
+  const start = src.indexOf('function refresh()')
+  return src.slice(start, src.indexOf('\n}', start) + 2)
+}
+
+test('publications page: the review archive has its own anchor', () => {
+  // The versioned archive replaced the three-card section and its
+  // #complimentary-review anchor.
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /id="complimentary-review"/)
+  assert.match(src, /<section id="review-publications"/)
 })
 
 test('publications page: shows section title', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /APRI Complimentary Review Copy/)
+  assert.match(archiveSection(src), /Review Publication Archive/)
 })
 
-test('publications page: shows introductory text', () => {
+test('publications page: shows introductory text', { todo: "The Chancellor-approved introduction was removed from the site in 61cd5ee (PR #28, versioned library). Restore it, or confirm the current wording is approved, then update this test." }, () => {
   const src = read('src/app/publications/page.tsx')
   // Chancellor-corrected wording.
   assert.match(src, /This complimentary review provides prospective subscribers with/)
@@ -126,16 +149,18 @@ test('publications page: shows introductory text', () => {
 
 test('publications page: shows verified email badge', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /Complimentary Review Copy.*verified email required/)
+  assert.match(archiveSection(src), /Verified email required · Confidential/)
 })
 
 // ---------------------------------------------------------------------------
 // 6. Exactly three active review cards from complimentary_review_items
 // ---------------------------------------------------------------------------
 
-test('publications page: renders cards from library.items', () => {
+test('publications page: renders every archived edition, grouped by series', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /library\.items\.map/)
+  assert.match(src, /\(\["MIN", "AIU", "PLM"\] as const\)\.map\(\(series\) =>/)
+  assert.match(src, /archive\.filter\(\(item\) => item\.slotKey === series\)/)
+  assert.match(src, /\{cards\.map\(\(card\) => \(/)
 })
 
 // The three tests below replace ones written for complimentary_review_items.
@@ -176,9 +201,9 @@ test('getReviewLibrary: each series shows its latest edition first', () => {
   assert.equal((fn.match(/order by e\.series, e\.is_latest desc, e\.edition_date desc nulls last/g) ?? []).length, 2)
 })
 
-test('admin page: slots ordered by display_order', () => {
+test('admin page: editions ordered by series, then latest first', () => {
   const src = read('src/app/admin/review-library/page.tsx')
-  assert.match(src, /order by.*display_order/)
+  assert.match(src, /order by case e\.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,\s+e\.is_latest desc, e\.edition_sort_key desc/)
 })
 
 // ---------------------------------------------------------------------------
@@ -221,12 +246,12 @@ test('homepage: review cards link to their corresponding secure URLs', () => {
 
 test('homepage: keeps /review as a separate prospect CTA', () => {
   const src = read('src/app/page.tsx')
-  const reviewSection = src.slice(
-    src.indexOf('Complimentary Review preview'),
-    src.indexOf('{/* Publications */}'),
-  )
-  assert.match(reviewSection, /href="\/review"/)
-  assert.match(reviewSection, /Request Complimentary Review Access/)
+  const cards = src.slice(src.indexOf('{reviewLibrary && ('), src.indexOf('View all editions'))
+  const cta = src.slice(src.indexOf('<aside', src.indexOf('View all editions')), src.indexOf('</aside>', src.indexOf('View all editions')))
+  assert.ok(cards.length > 0 && cta.length > 0)
+  assert.doesNotMatch(cards, /href="\/review"/, 'review cards never route to /review')
+  assert.match(cta, /href="\/review"/)
+  assert.match(cta, /Request Complimentary Review Access/)
 })
 
 // ---------------------------------------------------------------------------
@@ -240,10 +265,12 @@ test('publications page: has per-card review access button', () => {
 
 test('publications page: uses separate secure URLs and never routes cards to /review', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /href=\{card\.secureUrl\}/)
-  assert.match(src, /key=\{card\.slotKey\}/)
-  assert.doesNotMatch(src, /href="\/review"/)
+  const archive = archiveSection(src)
+  assert.match(archive, /href=\{card\.secureUrl\}/)
+  assert.match(archive, /key=\{card\.id\}/)
+  assert.doesNotMatch(archive, /href="\/review"/)
   assert.doesNotMatch(src, /library\.papermarkUrl/)
+  assert.match(afterArchive(src), /href="\/review"/, 'the prospect journey is its own call to action')
 })
 
 test('publications page: secure area has confidentiality notice', () => {
@@ -330,27 +357,26 @@ test('getReviewLibrary: hides the section only when no series has a verified edi
   assert.match(fn, /if \(cards\.length === 0\) return null/)
 })
 
-test('publications page: review section hidden when library is null', () => {
+test('publications page: review section hidden when there is nothing to list', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /\{library &&/)
+  assert.match(src, /\{archive\.length > 0 && \(\s*<section id="review-publications"/)
 })
 
 // ---------------------------------------------------------------------------
 // 15. Enabling requires valid URL and exactly three active items
 // ---------------------------------------------------------------------------
 
-test('actions: enable validation checks all three fixed slots exist', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /Cannot enable.*three fixed slots/)
-  assert.match(fn, /slots\.length !== 3/)
+test('actions: enabling needs one series with a verified edition, not all three', () => {
+  const fn = enableGate(read('src/app/actions/review-library.ts'))
+  assert.match(fn, /Cannot enable: no series has a verified edition to offer\./)
+  assert.match(fn, /offered = FIXED_SLOTS\.filter\(\(series\) => present\.has\(series\)\)/)
 })
 
-test('actions: enable validation checks mapped documents and secure links', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('async function saveReviewLibrarySettings'))
-  assert.match(fn, /no mapped document/)
-  assert.match(fn, /no secure link URL/)
+test('actions: enabling counts only verified links to the exact document', () => {
+  const fn = enableGate(read('src/app/actions/review-library.ts'))
+  // Both forms: the offered edition, and before the withdrawal migration the latest.
+  assert.equal((fn.match(/secure_link_url <> '' and secure_link_verified_at is not null/g) ?? []).length, 2)
+  assert.equal((fn.match(/and secure_link_document_id = papermark_document_id/g) ?? []).length, 2)
 })
 
 // ---------------------------------------------------------------------------
@@ -358,15 +384,14 @@ test('actions: enable validation checks mapped documents and secure links', () =
 // ---------------------------------------------------------------------------
 
 test('actions: refresh revalidates / and /publications', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('function refresh'), src.indexOf('// -----'))
+  const fn = refreshBody(read('src/app/actions/review-library.ts'))
   assert.match(fn, /revalidatePath\("\/"\)/)
   assert.match(fn, /revalidatePath\("\/publications"\)/)
 })
 
 test('actions: refresh does not revalidate /complimentary-review', () => {
-  const src = read('src/app/actions/review-library.ts')
-  const fn = src.slice(src.indexOf('function refresh'), src.indexOf('// -----'))
+  const fn = refreshBody(read('src/app/actions/review-library.ts'))
+  assert.ok(fn.length > 0)
   assert.doesNotMatch(fn, /complimentary-review/)
 })
 

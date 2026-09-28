@@ -561,26 +561,38 @@ describe('instrumented surfaces', () => {
 
   it('the public review link uses the stored URL and preserves its slot key', () => {
     const page = read('src/app/publications/page.tsx')
-    assert.match(page, /href=\{card\.secureUrl\}/)
-    assert.match(page, /slotKey=\{card\.slotKey\}/)
-    assert.match(page, /newTab/)
-    assert.doesNotMatch(page, /href="\/review"/)
+    const start = page.indexOf('<section id="review-publications"')
+    const archive = page.slice(start, page.indexOf('</section>', start))
+    assert.match(archive, /href=\{card\.secureUrl\}/)
+    assert.match(archive, /slotKey=\{card\.slotKey\}/)
+    assert.match(archive, /newTab/)
+    assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')
   })
 
   it('subscriber View details is tracked', () => {
     assert.match(read('src/app/publications/page.tsx'), /eventType="publication_details_clicked"/)
   })
 
-  it('portal View and Download are tracked', () => {
+  // Subscriber policy: View only, with downloads disabled.
+  it('portal View is tracked, and the portal offers no Download', () => {
     const src = read('src/app/portal/page.tsx')
     assert.match(src, /eventType="subscriber_document_view_clicked"/)
-    assert.match(src, /eventType="subscriber_document_download_clicked"/)
+    assert.doesNotMatch(src, /subscriber_document_download_clicked/)
+    assert.doesNotMatch(src, /\/download`|\/download"/, 'no link to the download route')
   })
 
-  it('portal hrefs are unchanged', () => {
+  it('portal View opens the document page, and "Downloaded by you" needs a real download record', () => {
     const src = read('src/app/portal/page.tsx')
-    assert.match(src, /\/portal\/document\/\$\{encodeURIComponent\(document\.id\)\}\/download/)
-    assert.match(src, /\/portal\/document\/\$\{encodeURIComponent\(document\.id\)\}`/)
+    assert.match(src, /href=\{`\/portal\/document\/\$\{encodeURIComponent\(document\.id\)\}`\}/)
+    // The label is shown only for a download the subscriber really made...
+    const labels = [...src.matchAll(/title="Downloaded by you"/g)]
+    assert.ok(labels.length > 0)
+    for (const m of labels) {
+      assert.match(src.slice(Math.max(0, m.index - 200), m.index), /\.downloadedBySubscriber && <span/)
+    }
+    // ...which comes only from a recorded download event.
+    assert.match(read('src/lib/papermark-client-library.ts'), /exists \(select 1 from document_download_events de/)
+    assert.match(read('src/lib/subscriber-dal.ts'), /select 1 from document_download_events de/)
   })
 })
 
