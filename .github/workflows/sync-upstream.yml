@@ -31,7 +31,7 @@ jobs:
 
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 
-          rsync -a --delete --exclude='.git' /tmp/upstream/ ./
+          rsync -a --delete --exclude='.git' --exclude='/.github/workflows/' /tmp/upstream/ ./
 
           mkdir -p .github/workflows
           cp -f /tmp/current-workflow/sync-upstream.yml .github/workflows/sync-upstream.yml || true
