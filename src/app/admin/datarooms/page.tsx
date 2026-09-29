@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { requireOwner } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
-import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom } from "@/lib/dataroom-dal"
+import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom, getPersonalLinkGaps } from "@/lib/dataroom-dal"
 import { PUBLIC_TIERS, tierDisplayName } from "@/lib/entitlements"
 import { portalCategoryLabel, type PortalCategoryKey } from "@/lib/papermark-dataroom-contract"
 import DataRoomMappingForm, { MappingActions, CreatePublicationButton, LinkExistingPublication, GenerateDocumentDetailsButton } from "./dataroom-form"
@@ -11,9 +11,10 @@ export const metadata = { title: "Data Rooms · APRI" }
 
 export default async function DataRoomsPage() {
   const admin = await requireOwner()
-  const [mappings, stats] = await Promise.all([
+  const [mappings, stats, linkGaps] = await Promise.all([
     getLevelRoomMappings(),
     getDataRoomStats(),
+    getPersonalLinkGaps(),
   ])
 
   const mapped = new Set(mappings.map((m) => m.publicTier))
@@ -64,6 +65,7 @@ export default async function DataRoomsPage() {
                 <th className="font-medium p-4">Subscription Level</th>
                 <th className="font-medium p-4">Data Room</th>
                 <th className="font-medium p-4">Last Sync</th>
+                <th className="font-medium p-4">Personal Links</th>
                 <th className="font-medium p-4 text-right">Status</th>
               </tr>
             </thead>
@@ -81,6 +83,18 @@ export default async function DataRoomsPage() {
                           minute: "2-digit",
                         })
                       : "Never"}
+                  </td>
+                  <td className="p-4">
+                    {(() => {
+                      const gap = linkGaps.get(m.dataroomId)
+                      return gap ? (
+                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                          {gap.missing} missing · {gap.subscribers} subscriber{gap.subscribers === 1 ? "" : "s"}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-foreground/70">None missing</span>
+                      )
+                    })()}
                   </td>
                   <td className="p-4 text-right">
                     {m.lastSyncError ? (

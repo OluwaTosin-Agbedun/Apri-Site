@@ -51,6 +51,8 @@ test("headshots enforce owner, mime, signature, size and safe URL", () => {
   assert.match(l, /Private network URLs are not allowed/)
 })
 test("activation gate requires all commercial milestones", () => {
+  // The action reads every milestone and hands them to activationGate before
+  // any write; the gate itself is tested as behaviour in subscription-journey.test.mjs.
   const s = read("src/app/actions/review-admin.ts")
   for (const field of [
     "verified_at",
@@ -58,13 +60,16 @@ test("activation gate requires all commercial milestones", () => {
     "agreement_signed_at",
     "invoice_sent_at",
     "payment_confirmed_at",
-    "papermark_access_prepared_at",
     "subscription_starts_at",
     "subscription_ends_at",
   ])
     assert.match(s, new RegExp(field))
-  assert.match(s, /Professional Team Access/)
-  assert.match(s, /users\.length\s*>\s*expected/)
+  const fn = s.slice(s.indexOf("export async function activateSubscriptionRequest("))
+  assert.ok(fn.indexOf("activationGate(") > 0 && fn.indexOf("activationGate(") < fn.indexOf("insert into subscribers"))
+  const plans = read("src/lib/subscription-journey.ts")
+  assert.match(plans, /tier: "Professional Team Access"/)
+  assert.match(plans, /maxUsers: 3/)
+  assert.match(plans, /if \(cleaned\.length > max\)/)
 })
 test("manager destination is fixed and PII is not sent to analytics", () => {
   assert.match(
@@ -121,13 +126,17 @@ test("repeat review requests preserve first-touch attribution", () => {
   assert.doesNotMatch(conflict, /attributed_source\s*=/)
   assert.match(conflict, /latest_utm_source=excluded\.latest_utm_source/)
 })
-test("subscriber preparation never overwrites active subscribers or marks activation complete", () => {
+test("activating a request never overwrites an existing active subscriber", () => {
   const actions = read("src/app/actions/review-admin.ts")
-  const activate = actions.slice(actions.indexOf("async function activateReviewSubscription"))
-  assert.match(activate, /lower\(status\)='active'/)
-  assert.match(activate, /status\)<>['"]active['"]/)
-  assert.doesNotMatch(activate, /set status='Access Activated'/)
-  assert.match(activate, /final activation remains in the existing Subscribers workflow/)
+  const activate = actions.slice(actions.indexOf("export async function activateSubscriptionRequest("))
+  // An active subscriber this request did not create is reported, not changed.
+  assert.match(activate, /existing\.status\.toLowerCase\(\) === "active"\) \{\s*outcomes\.push\(\{\s*\.\.\.user,\s*state: "blocked"/)
+  // Only an inactive, unlinked record can be taken on, and the update says so itself.
+  assert.match(activate, /where id = \$\{existing\.id\}::uuid and subscription_request_id is null and lower\(status\) <> 'active'/)
+  // A new record never replaces an existing one.
+  assert.match(activate, /on conflict \(\(lower\(email\)\)\) do nothing/)
+  // "Access Activated" only when every named person's access is ready.
+  assert.match(activate, /const next = complete \? laterStatus\(status, "Access Activated"\) : status/)
 })
 test("migration enforces append-only events and one unused token", () => {
   const migration = read("db/migrations/20260917_review_funnel_team_images.sql")

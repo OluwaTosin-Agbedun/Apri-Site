@@ -18,7 +18,10 @@ import {
   revokeAllDocumentLinks,
   ensureAllDocumentLinks,
   updateDocumentLinkExpiry,
+  type NotEligibleReason,
+  type SubscriberLinkOutcome,
 } from './document-links'
+import { describePersonalLinks } from './personal-links'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -56,7 +59,11 @@ export async function reassignDataRoomOnLevelChange(args: {
   newPublicTier: string | null
   changedById: string
   changedByName: string
-}): Promise<{ action: 'reassigned' | 'revoked' | 'created' | 'unchanged' | 'skipped' }> {
+}): Promise<{
+  action: 'reassigned' | 'revoked' | 'created' | 'unchanged' | 'skipped'
+  /** The new room's personal links. Undefined when they could not be checked at all. */
+  links?: SubscriberLinkOutcome
+}> {
   const sub = await loadSubscriber(args.subscriberId)
   if (!sub) return { action: 'skipped' }
 
@@ -128,9 +135,142 @@ export async function reassignDataRoomOnLevelChange(args: {
     changedByName: args.changedByName,
   })
 
-  try { await ensureAllDocumentLinks(sub.id) } catch {}
+  // The new room link is not enough on its own: every card needs its personal
+  // link. The outcome goes back to the caller to report, not into a catch.
+  let links: SubscriberLinkOutcome | undefined
+  try {
+    links = await ensureAllDocumentLinks(sub.id, { dataroomId: newRoom.dataroomId })
+  } catch {
+    links = undefined
+  }
 
-  return oldRoom ? { action: 'reassigned' } : { action: 'created' }
+  return oldRoom ? { action: 'reassigned', links } : { action: 'created', links }
+}
+
+export type LibraryAccess =
+  /** The level has no Data Room, so there is nothing of a room's to prepare. */
+  | { state: 'no_room' }
+  /** The subscriber holds no room link and none was to be created: not on Data Rooms. */
+  | { state: 'no_room_link' }
+  | { state: 'ready'; message: string }
+  | { state: 'incomplete'; message: string }
+  | { state: 'blocked'; message: string; reason?: NotEligibleReason }
+
+/**
+ * Makes sure a subscriber's Data Room library opens before anything tells them
+ * it is open: their room link, and a personal link -- checked with Papermark --
+ * for every document it lists.
+ *
+ * `createRoomLink` is for activation, which issues the room link when there is
+ * none. Without it (a resent sign-in email) a subscriber with no room link is
+ * left as they are: they are on the legacy library, with nothing of a room's to
+ * prepare.
+ *
+ * Never sends email. The caller decides what `incomplete` and `blocked` mean
+ * for the email it was about to send.
+ */
+export async function ensureSubscriberLibraryAccess(args: {
+  subscriberId: string
+  publicTier: string
+  assignedName: string
+  assignedEmail: string
+  termEnd: string | Date | null
+  createRoomLink: boolean
+  changedById: string
+  changedByName: string
+}): Promise<LibraryAccess> {
+  let room: Awaited<ReturnType<typeof resolveDataRoom>>
+  try {
+    room = await resolveDataRoom({ subscriberId: args.subscriberId, publicTier: args.publicTier })
+  } catch {
+    return { state: 'blocked', message: 'The Data Room for this level could not be looked up. Try again.' }
+  }
+  if (!room) return { state: 'no_room' }
+
+  let existing: Awaited<ReturnType<typeof getDataRoomLink>>
+  try {
+    existing = await getDataRoomLink({ subscriberId: args.subscriberId, dataroomId: room.dataroomId })
+  } catch {
+    return { state: 'blocked', message: 'The Data Room link could not be checked. Try again.' }
+  }
+
+  let note = ''
+  if (!existing) {
+    if (!args.createRoomLink) return { state: 'no_room_link' }
+
+    const minted = await createDataRoomLink({
+      dataroomId: room.dataroomId,
+      assignedName: args.assignedName,
+      assignedEmail: args.assignedEmail,
+      expiresAt: args.termEnd,
+    })
+    if (!minted.ok) {
+      return { state: 'blocked', message: `The Data Room link could not be created: ${minted.message}` }
+    }
+
+    try {
+      await saveDataRoomLink({
+        subscriberId: args.subscriberId,
+        dataroomId: room.dataroomId,
+        papermarkLinkId: minted.value.linkId,
+        linkUrl: minted.value.url,
+        assignedName: args.assignedName,
+        assignedEmail: args.assignedEmail,
+        watermarkEnabled: true,
+        watermarkText: subscriberWatermarkText(args.assignedEmail),
+        allowDownload: minted.value.settings.allow_download,
+        screenshotProtection: minted.value.settings.enable_screenshot_protection,
+        expiresAt: minted.value.settings.expires_at,
+      })
+    } catch {
+      // Minted but not recorded: withdrawn again, so no working room link is
+      // left that nothing tracks or revokes.
+      const withdrawn = await revokeDataRoomLink(minted.value.linkId)
+      return {
+        state: 'blocked',
+        message: withdrawn.ok
+          ? 'The new Data Room link could not be recorded, so it was withdrawn again. Try again.'
+          : 'The new Data Room link could not be recorded or withdrawn. Revoke it in Papermark by name, then try again.',
+      }
+    }
+
+    try {
+      await assignDataRoomToSubscriber(args.subscriberId, room.dataroomId)
+      await recordAssignment({
+        subscriberId: args.subscriberId,
+        newDataroomId: room.dataroomId,
+        newLinkId: minted.value.linkId,
+        reason: 'Auto-created on activation',
+        changedById: args.changedById,
+        changedByName: args.changedByName,
+      })
+    } catch {
+      return {
+        state: 'blocked',
+        message: 'The Data Room link was created, but its assignment could not be recorded. Try again.',
+      }
+    }
+    note = 'Data Room link created. '
+  }
+
+  let outcome: SubscriberLinkOutcome
+  try {
+    outcome = await ensureAllDocumentLinks(args.subscriberId, { verify: true, dataroomId: room.dataroomId })
+    if (outcome.state === 'not_eligible' && outcome.reason === 'no_room') {
+      // The room link exists but was never assigned: an earlier attempt stopped
+      // between the two. Finished here, so a retry cannot stall on it.
+      await assignDataRoomToSubscriber(args.subscriberId, room.dataroomId)
+      outcome = await ensureAllDocumentLinks(args.subscriberId, { verify: true, dataroomId: room.dataroomId })
+    }
+  } catch {
+    return { state: 'blocked', message: `${note}The personal document links could not be checked. Try again.` }
+  }
+
+  if (outcome.state === 'not_eligible') {
+    return { state: 'blocked', message: `${note}${outcome.message}`, reason: outcome.reason }
+  }
+  const message = `${note}${describePersonalLinks(outcome.report)}`
+  return outcome.report.complete ? { state: 'ready', message } : { state: 'incomplete', message }
 }
 
 /**

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/dal'
+import { portalTitleOverrideReady } from '@/lib/portal-title-schema'
 import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
 import DocumentForm, { type DocumentDraft } from './document-form'
@@ -136,6 +137,9 @@ export default async function EditDocumentPage({
     papermarkLink: row.papermark_link,
     sortOrder: row.sort_order,
     status: row.status,
+    portalTitleOverride: (await portalTitleOverrideReady(sql, { fresh: true }))
+      ? ((await sql`select portal_title_override from documents where id = ${id} limit 1`) as { portal_title_override: boolean }[])[0]?.portal_title_override === true
+      : null,
   }
 
   return (

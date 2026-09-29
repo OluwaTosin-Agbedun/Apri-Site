@@ -32,6 +32,8 @@ export type DocumentDraft = {
   papermarkLink: string
   sortOrder: number
   status: string
+  /** Keep this title in the subscriber portal instead of the Papermark name. Null until the migration runs. */
+  portalTitleOverride?: boolean | null
 }
 
 const field =
@@ -58,6 +60,26 @@ export default function DocumentForm({ draft }: { draft: DocumentDraft }) {
           <label htmlFor="title" className={label}>Title</label>
           <input id="title" name="title" defaultValue={draft.title} required className={field} />
           {err('title')}
+          {draft.id && (
+            <div className="mt-3">
+              <input type="hidden" name="portalTitleOverrideField" value="1" />
+              <label className="flex items-start gap-2 text-xs text-foreground/80">
+                <input
+                  type="checkbox"
+                  name="portalTitleOverride"
+                  defaultChecked={draft.portalTitleOverride === true}
+                  disabled={draft.portalTitleOverride === null || draft.portalTitleOverride === undefined}
+                  className="mt-0.5"
+                />
+                <span>
+                  Show this title to subscribers instead of the document&apos;s Papermark name.
+                  {draft.portalTitleOverride === null || draft.portalTitleOverride === undefined
+                    ? ' Available once the title-override migration has been run; until then subscribers see the Papermark name.'
+                    : ' Leave unticked to follow renames in Papermark.'}
+                </span>
+              </label>
+            </div>
+          )}
         </div>
         <div>
           <label htmlFor="slug" className={label}>Web address (slug)</label>

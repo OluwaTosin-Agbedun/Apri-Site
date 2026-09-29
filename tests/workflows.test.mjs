@@ -12,7 +12,7 @@ const read = (path) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8")
 
 test("subscriber activation requires level and term but not a library link", () => {
-  const source = read("src/app/actions/subscribers.ts")
+  const source = read("src/app/actions/subscribers.ts") + read("src/lib/subscriber-activation.ts")
   assert.match(source, /isLevel\(row\.level\)/)
   assert.match(source, /!row\.term_end/)
   assert.doesNotMatch(source, /!row\.library_link_url && !row\.papermark_folder_id/)
@@ -45,7 +45,8 @@ test("multi-seat access requires and preserves a valid seat count", () => {
 test("subscriber form orders access level before conditional seats and resets Individual", () => {
   const source = read("src/app/access-form.tsx")
   assert.ok(source.indexOf("Subscription access level") < source.indexOf("How many people need access?"))
-  assert.match(source, /subscriptionLevel !== 'Individual Access'/)
+  // Individual (and Professional, which names its people) show no seat count.
+  assert.match(source, /const showSeats = Boolean\(subscriptionLevel && !plan\)/)
   assert.match(source, /if \(value === 'Individual Access' \|\| !value\) setSeats\(''\)/)
 })
 

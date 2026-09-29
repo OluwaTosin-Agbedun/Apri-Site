@@ -1,7 +1,9 @@
 'use client'
 
-import { useActionState, useState } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import { requestAccess } from '@/app/actions/public'
+import { submitPublicSubscriptionRequest } from '@/app/actions/review-funnel'
+import { PLANS } from '@/lib/subscription-journey'
 import {
   PUBLIC_TIER_NAMES,
   tierDisplayName,
@@ -28,6 +30,8 @@ function Err({ messages }: { messages?: string[] }) {
   return <p className="mt-2 text-xs text-red-700">{messages[0]}</p>
 }
 
+const SOURCES = ['WhatsApp', 'Google', 'Facebook', 'X', 'LinkedIn', 'Referral', 'Other']
+
 export default function AccessForm({
   /**
    * Pre-selected when the visitor arrived by clicking a specific tier.
@@ -35,14 +39,32 @@ export default function AccessForm({
    * of the five names or empty.
    */
   defaultLevel = '',
+  utm = {},
 }: {
   defaultLevel?: string
+  /** Campaign attribution from the page URL, kept with a plan request. */
+  utm?: Record<string, string>
 }) {
-  const [state, action, pending] = useActionState(requestAccess, undefined)
+  const [enquiry, enquiryAction, enquiryPending] = useActionState(requestAccess, undefined)
+  const [planState, planAction, planPending] = useActionState(submitPublicSubscriptionRequest, {})
   const [subscriptionLevel, setSubscriptionLevel] = useState(defaultLevel)
+  const [referrerHost, setReferrerHost] = useState('')
+  useEffect(() => {
+    try {
+      setReferrerHost(document.referrer ? new URL(document.referrer).hostname : '')
+    } catch {}
+  }, [])
+  // Individual and Professional Access are priced plans: the same form, but it
+  // also collects what the agreement and invoice need and goes to the
+  // subscription-request workflow, which grants nothing until an agreement is
+  // signed and payment confirmed. The other levels stay a plain enquiry.
+  const plan = Object.values(PLANS).find((p) => p.tier === subscriptionLevel) ?? null
+  const state = plan ? undefined : enquiry
+  const action = plan ? planAction : enquiryAction
+  const pending = plan ? planPending : enquiryPending
   const [seats, setSeats] = useState('')
   const [emailValue, setEmailValue] = useState('')
-  const showSeats = Boolean(subscriptionLevel && subscriptionLevel !== 'Individual Access')
+  const showSeats = Boolean(subscriptionLevel && !plan)
   const emailDomainError =
     requiresWorkEmail(subscriptionLevel) && emailValue && isPersonalEmail(emailValue)
       ? WORK_EMAIL_MESSAGE
@@ -220,6 +242,73 @@ export default function AccessForm({
         </div>
       )}
 
+      {plan && (
+        <div className="space-y-5 border-t border-border pt-5">
+          <p className="text-sm text-foreground border border-border bg-background p-3">
+            <strong>{plan.label}</strong> — {plan.price}; {plan.users.charAt(0).toLowerCase() + plan.users.slice(1)}.
+          </p>
+          <input type="hidden" name="plan" value={plan.plan} />
+          <input type="hidden" name="referrerHost" value={referrerHost} />
+          {Object.entries(utm).map(([k, v]) => (
+            <input key={k} type="hidden" name={`utm_${k}`} value={v} />
+          ))}
+          <div>
+            <label htmlFor="source" className={labelClass}>How did you hear about APRI?</label>
+            <select id="source" name="source" required defaultValue="" className={`${field} appearance-none cursor-pointer`}>
+              <option value="" disabled>Select one</option>
+              {SOURCES.map((v) => <option key={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="phone" className={labelClass}>Phone number</label>
+            <input id="phone" name="phone" type="tel" autoComplete="tel" required maxLength={40} className={field} />
+          </div>
+          <div>
+            <label htmlFor="legalName" className={labelClass}>Organisation/legal billing name</label>
+            <input id="legalName" name="legalName" required maxLength={180} className={field} />
+          </div>
+          <div>
+            <label htmlFor="billingEmail" className={labelClass}>Billing email</label>
+            <input id="billingEmail" name="billingEmail" type="email" required maxLength={254} className={field} />
+          </div>
+          <div>
+            <label htmlFor="billingAddress" className={labelClass}>Billing address</label>
+            <textarea id="billingAddress" name="billingAddress" required maxLength={400} className={field} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="cityState" className={labelClass}>City/state</label>
+              <input id="cityState" name="cityState" required maxLength={120} className={field} />
+            </div>
+            <div>
+              <label htmlFor="country" className={labelClass}>Country</label>
+              <input id="country" name="country" required maxLength={100} className={field} />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="taxReference" className={labelClass}>Tax/VAT/reference (optional)</label>
+            <input id="taxReference" name="taxReference" maxLength={120} className={field} />
+          </div>
+          <fieldset className="space-y-3">
+            <legend className={labelClass}>
+              {plan.maxUsers === 1 ? 'Named subscriber' : 'Named subscribers (up to three)'}
+            </legend>
+            <p className="text-xs text-muted-foreground">
+              Each named person receives their own secure sign-in. Access cannot be shared.
+            </p>
+            {Array.from({ length: plan.maxUsers }, (_, i) => (
+              <div key={i} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input aria-label={`Name ${i + 1}`} placeholder={`Name ${i + 1}`} name={`userName${i}`} required={i === 0} maxLength={120} className={field} />
+                <input aria-label={`Email ${i + 1}`} placeholder={`Email ${i + 1}`} type="email" name={`userEmail${i}`} required={i === 0} maxLength={254} className={field} />
+              </div>
+            ))}
+          </fieldset>
+          <p className="text-xs text-muted-foreground">
+            No card details are collected. We send the subscription agreement and payment details after your request.
+          </p>
+        </div>
+      )}
+
       {/*
         Sits above the button and gates it. The links open in a new tab so a
         reader can check the terms without losing what they have typed.
@@ -264,6 +353,11 @@ export default function AccessForm({
           {state.message}
         </p>
       )}
+      {plan && planState?.message && (
+        <p className="text-sm text-red-700 border border-red-200 bg-red-50 p-3" role="alert">
+          {planState.message}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-4">
         <button
@@ -271,7 +365,7 @@ export default function AccessForm({
           disabled={pending}
           className="bg-accent text-white px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-accent-hover disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {pending ? 'Submitting…' : 'Request access'}
+          {pending ? 'Submitting…' : plan ? `Request ${plan.label}` : 'Request access'}
         </button>
         <p className="text-xs text-muted-foreground">
           We reply within one business day.

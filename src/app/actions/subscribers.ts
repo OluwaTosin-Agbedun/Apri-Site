@@ -83,19 +83,13 @@ import { fieldErrors, type FormState } from "@/lib/definitions"
 import { papermarkEmbedUrl } from "@/lib/papermark-embed"
 import { normalisePapermarkUrl } from "@/lib/papermark-embed"
 import {
-  resolveDataRoom,
-  getDataRoomLink,
-  saveDataRoomLink,
-  recordAssignment,
-  assignDataRoomToSubscriber,
-} from "@/lib/dataroom-dal"
-import { createDataRoomLink } from "@/lib/papermark-datarooms"
-import { subscriberWatermarkText } from "@/lib/papermark-dataroom-contract"
-import {
   reassignDataRoomOnLevelChange,
   updateDataRoomLinkExpiry,
   revokeAllDataRoomLinks,
+  ensureSubscriberLibraryAccess,
 } from "@/lib/dataroom-lifecycle"
+import { activateSubscriberRecord } from "@/lib/subscriber-activation"
+import { describePersonalLinks } from "@/lib/personal-links"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -209,6 +203,7 @@ export async function saveSubscriber(
   let previousPublicTier: string | null = null
   let previousTermEnd: string | null = null
   let outcome: LevelChangeOutcome = { direction: "none", revocationsQueued: 0 }
+  let linkNote = ""
 
   try {
     if (hasLegacyLibraryFields && d.libraryLinkUrl) {
@@ -298,14 +293,18 @@ export async function saveSubscriber(
 
       if (previousPublicTier !== d.publicTier && d.publicTier) {
         try {
-          await reassignDataRoomOnLevelChange({
+          const moved = await reassignDataRoomOnLevelChange({
             subscriberId: id,
             oldPublicTier: previousPublicTier,
             newPublicTier: d.publicTier,
             changedById: admin.id,
             changedByName: admin.name,
           })
-        } catch {}
+          linkNote = levelChangeLinkNote(moved)
+        } catch {
+          linkNote =
+            " The Data Room could not be updated for the new level. Check the Data Room panel on this page."
+        }
       }
 
       if (termEnd && termEnd !== previousTermEnd) {
@@ -330,8 +329,7 @@ export async function saveSubscriber(
   if (outcome.direction === "upgrade") {
     return {
       ok: true,
-      message:
-        "Saved. Access widened — any newly entitled editions will appear in Copies needed.",
+      message: `Saved. Access widened — any newly entitled editions will appear in Copies needed.${linkNote}`,
     }
   }
   if (outcome.revocationsQueued > 0) {
@@ -339,177 +337,37 @@ export async function saveSubscriber(
       ok: true,
       message: `Saved. ${outcome.revocationsQueued} link${
         outcome.revocationsQueued === 1 ? "" : "s"
-      } no longer covered by this level — listed under Revoke manually.`,
+      } no longer covered by this level — listed under Revoke manually.${linkNote}`,
     }
   }
 
-  return { ok: true, message: "Saved." }
+  return { ok: true, message: `Saved.${linkNote}` }
 }
+
+/** What a level change did to the new room's personal links, when it needs saying. */
+function levelChangeLinkNote(moved: Awaited<ReturnType<typeof reassignDataRoomOnLevelChange>>): string {
+  if (moved.action !== "reassigned" && moved.action !== "created") return ""
+  const links = moved.links
+  if (!links) {
+    return " The new Data Room's personal document links could not be checked. Use Check and repair document links on this page."
+  }
+  if (links.state === "not_eligible") return ` ${links.message}`
+  if (links.report.complete) return ""
+  return ` ${describePersonalLinks(links.report)} Use Check and repair document links on this page to retry.`
+}
+/**
+ * Activate one seat and send its welcome email.
+ *
+ * The work -- including the acquisition gate for a subscriber who came from
+ * an Individual or Professional subscription request -- is in
+ * activateSubscriberRecord (src/lib/subscriber-activation.ts), the one path
+ * every activation takes.
+ */
 export async function activateSubscriber(id: string): Promise<FormState> {
-  await requireAdmin()
-  if (!UUID.test(id)) return { message: "Unknown subscriber." }
-
-  let sql: ReturnType<typeof getSql>
-  try {
-    sql = getSql()
-  } catch {
-    return { message: "Subscriber storage is temporarily unavailable. Please try again." }
-  }
-
-  let rows: {
-    id: string
-    full_name: string | null
-    name: string
-    email: string
-    level: string | null
-    public_tier: string
-    seats: number
-    term_end: string | null
-    status: string
-    library_link_url: string | null
-    papermark_folder_id: string | null
-  }[]
-  try {
-    rows = (await sql`
-      select id, full_name, name, email, level, public_tier, seats, term_end, status, library_link_url, papermark_folder_id
-      from subscribers where id = ${id} limit 1
-    `) as typeof rows
-  } catch {
-    return { message: "The subscriber could not be loaded for activation. Please try again." }
-  }
-
-  const row = rows[0]
-  if (!row) return { message: "That subscriber no longer exists." }
-
-  if (!row.public_tier) {
-    return { message: "Set Subscription access level before activating." }
-  }
-  if (!isLevel(row.level)) {
-    return {
-      message: "Save a valid Subscription access level before activating.",
-    }
-  }
-  if (!row.term_end) {
-    return { message: "Set a term end date before activating this seat." }
-  }
-  if (row.library_link_url && !papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
-    return { message: "Replace the private library link with a valid Papermark share link before activating." }
-  }
-  try {
-    if (row.papermark_folder_id) {
-      const folderDuplicates = await sql`
-        select 1 from subscribers where papermark_folder_id=${row.papermark_folder_id} and id<>${id} and lower(status)='active'
-        union all select 1 from briefing_requests where papermark_folder_id=${row.papermark_folder_id} and lower(status)='active' limit 1`
-      if (folderDuplicates.length) return { message:"That private folder is assigned to another active client." }
-    }
-    if (row.library_link_url) {
-      const duplicates = await sql`
-        select 1 from subscribers
-        where library_link_url = ${row.library_link_url} and id <> ${id}
-        union all
-        select 1 from briefing_requests where private_link_url = ${row.library_link_url}
-        limit 1
-      `
-      if (duplicates.length > 0) {
-        return {
-          message:
-            "That private Papermark link is assigned to another client. Give this subscriber a unique link before activating.",
-        }
-      }
-    }
-  } catch {
-    return { message: "Activation checks could not be completed. Please try again." }
-  }
-  if (new Date(row.term_end) < startOfToday()) {
-    return {
-      message:
-        "That term end date is in the past. Extend it before activating.",
-    }
-  }
-
-  let token: string
-  try {
-    await sql`
-      update subscribers
-      set status = 'active',
-          term_start = coalesce(term_start, current_date),
-          updated_at = now()
-      where id = ${id}
-    `
-    token = await issueToken(id)
-  } catch {
-    refresh()
-    return {
-      message:
-        "The subscriber was not fully activated. Refresh the page and use Activate or Resend sign-in link again.",
-    }
-  }
-
-  let drNote = ""
-  try {
-    const room = await resolveDataRoom({ subscriberId: id, publicTier: row.public_tier })
-    if (room) {
-      const existingLink = await getDataRoomLink({ subscriberId: id, dataroomId: room.dataroomId })
-      if (!existingLink) {
-        const drResult = await createDataRoomLink({
-          dataroomId: room.dataroomId,
-          assignedName: row.full_name || row.name,
-          assignedEmail: row.email,
-          expiresAt: row.term_end,
-        })
-        if (drResult.ok) {
-          await saveDataRoomLink({
-            subscriberId: id,
-            dataroomId: room.dataroomId,
-            papermarkLinkId: drResult.value.linkId,
-            linkUrl: drResult.value.url,
-            assignedName: row.full_name || row.name,
-            assignedEmail: row.email,
-            watermarkEnabled: true,
-            watermarkText: subscriberWatermarkText(row.email),
-            allowDownload: drResult.value.settings.allow_download,
-            screenshotProtection: drResult.value.settings.enable_screenshot_protection,
-            expiresAt: drResult.value.settings.expires_at,
-          })
-          await assignDataRoomToSubscriber(id, room.dataroomId)
-          const admin = await requireAdmin()
-          await recordAssignment({
-            subscriberId: id,
-            newDataroomId: room.dataroomId,
-            newLinkId: drResult.value.linkId,
-            reason: "Auto-created on activation",
-            changedById: admin.id,
-            changedByName: admin.name,
-          })
-          drNote = " Data Room link created."
-        }
-      }
-    }
-  } catch {}
-
-  let mailed = true
-  try {
-    await sendWelcome({
-      subscriberId: id,
-      email: row.email,
-      fullName: row.full_name || row.name || "",
-      publicTier: row.public_tier,
-      termEnd: row.term_end,
-      token,
-    })
-  } catch {
-    mailed = false
-  }
-
+  const admin = await requireAdmin()
+  const result = await activateSubscriberRecord({ subscriberId: id, admin, welcome: "send" })
   refresh()
-  const granted = levelLabel(row.level, row.seats)
-
-  return {
-    ok: true,
-    message: mailed
-      ? `Seat activated at ${granted}, and the welcome email has been sent.${drNote}`
-      : `Seat activated at ${granted}, but the welcome email could not be sent. Check the email configuration.${drNote}`,
-  }
+  return { ok: result.state === "activated", message: result.message }
 }
 
 /** Permanently remove one subscriber and their dependent portal access records. */
@@ -532,7 +390,7 @@ export async function deleteSubscriber(id: string, confirmationEmail: string): P
 }
 
 export async function resendSignInLink(id: string): Promise<FormState> {
-  await requireAdmin()
+  const admin = await requireAdmin()
   if (!UUID.test(id)) return { message: "Unknown subscriber." }
 
   let rows: {
@@ -560,6 +418,31 @@ export async function resendSignInLink(id: string): Promise<FormState> {
     return { message: "Only an active seat can be sent a sign-in link." }
   }
 
+  // This is the welcome email again -- "your library is open" -- so it follows
+  // activation's rule: it goes out only once every personal link is ready.
+  // That also makes it the retry for a welcome that activation held. A
+  // subscriber who is not on Data Rooms, or whose term has ended, is sent the
+  // link as before: there is nothing of a room's to prepare for them.
+  const access = await ensureSubscriberLibraryAccess({
+    subscriberId: id,
+    publicTier: row.public_tier,
+    assignedName: row.full_name || row.name,
+    assignedEmail: row.email,
+    termEnd: row.term_end,
+    createRoomLink: false,
+    changedById: admin.id,
+    changedByName: admin.name,
+  })
+  if (
+    access.state === "incomplete" ||
+    (access.state === "blocked" && access.reason !== "term_ended")
+  ) {
+    refresh()
+    return {
+      message: `The sign-in email was not sent because the library is not ready yet. ${access.message} Try again once the links are ready, or use Check and repair document links on this page.`,
+    }
+  }
+
   try {
     const token = await issueToken(id)
     await sendWelcome({
@@ -576,9 +459,12 @@ export async function resendSignInLink(id: string): Promise<FormState> {
     }
   }
 
+  refresh()
   return {
     ok: true,
-    message: `A fresh sign-in link has been sent to ${row.email}.`,
+    message: `A fresh sign-in link has been sent to ${row.email}.${
+      access.state === "ready" ? ` ${access.message}` : ""
+    }`,
   }
 }
 export async function setPublicationAccess(

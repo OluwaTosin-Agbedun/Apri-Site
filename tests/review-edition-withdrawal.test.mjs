@@ -726,7 +726,12 @@ describe("a withdrawn edition leaves every public and grant path", () => {
 
   it("the homepage never falls back from an explicit no-replacement decision", () => {
     const b = body(read(PUBLICATIONS), "getReviewLibrary")
-    const offeredQuery = b.slice(b.indexOf("? await sql`"), b.indexOf("`\n      : perEdition"))
+    // Located line-ending-agnostically, and required to be found: a missed
+    // marker would otherwise slice to the end of the function.
+    const start = b.indexOf("? await sql`")
+    const end = b.search(/`\r?\n\s*: perEdition/)
+    assert.ok(start > 0 && end > start, "the offered-edition query must be located")
+    const offeredQuery = b.slice(start, end)
     assert.match(offeredQuery, /where e\.complimentary_featured/)
     assert.doesNotMatch(offeredQuery, /distinct on \(e\.series\)|where[^`]*is_latest/)
   })

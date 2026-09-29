@@ -55,75 +55,80 @@ export default async function PublicationsPage() {
               </div>
             </div>
 
-            {(["MIN", "AIU", "PLM"] as const).map((series) => {
-              const labels = {
-                MIN: "Monthly Intelligence Notes",
-                AIU: "Athena Intelligence Updates",
-                PLM: "Political Landscape Monitors",
-              }
-              const cards = archive.filter((item) => item.slotKey === series)
-              if (!cards.length) return null
-              return (
-                <div key={series} className="mb-12">
-                  <h3 className="eyebrow mb-5 pb-3 border-b border-hairline block">
-                    {labels[series]}
-                  </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {cards.map((card) => (
-                <article
-                  key={card.id}
-                  className="border border-border bg-card/30 p-6 sm:p-8 flex flex-col"
-                >
-                  <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-3">
-                    {card.publicationType}
-                  </span>
+            {/* One column per series on wider screens -- MIN, AIU, PLM -- with
+                each series' current and earlier editions stacked in its own
+                column; everything stacks on a phone. Only editions the query
+                returned are shown: a series with none has no column, rather
+                than a withdrawn edition filling the gap. */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-start">
+              {(["MIN", "AIU", "PLM"] as const).map((series) => {
+                const labels = {
+                  MIN: "Monthly Intelligence Notes",
+                  AIU: "Athena Intelligence Updates",
+                  PLM: "Political Landscape Monitors",
+                }
+                const cards = archive.filter((item) => item.slotKey === series)
+                if (!cards.length) return null
+                return (
+                  <div key={series} className="flex flex-col gap-6 min-w-0">
+                    <h3 className="eyebrow pb-3 border-b border-hairline block">
+                      {labels[series]}
+                    </h3>
+                    {cards.map((card) => (
+                      <article
+                        key={card.id}
+                        className="border border-border bg-card/30 p-6 sm:p-8 flex flex-col"
+                      >
+                        <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-3">
+                          {card.publicationType}
+                        </span>
 
-                  <h3 className="font-serif text-lg text-foreground">
-                    {card.pubTitle}
-                  </h3>
+                        <h3 className="font-serif text-lg text-foreground break-words">
+                          {card.pubTitle}
+                        </h3>
                         {(card.editionLabel || card.editionDate) && (
                           <p className="text-xs text-muted-foreground mt-2">
                             {card.editionLabel || card.editionDate}
                           </p>
                         )}
 
-                  <p className="text-sm text-foreground/70 leading-relaxed mt-4 flex-1">
-                    {card.description}
-                  </p>
+                        <p className="text-sm text-foreground/70 leading-relaxed mt-4 flex-1">
+                          {card.description}
+                        </p>
 
-                  <div className="mt-5 flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>{card.frequency}</span>
-                    {card.audience && (
-                      <>
-                        <span className="text-border">|</span>
-                        <span>{card.audience}</span>
-                      </>
-                    )}
-                  </div>
+                        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>{card.frequency}</span>
+                          {card.audience && (
+                            <>
+                              <span className="text-border">|</span>
+                              <span>{card.audience}</span>
+                            </>
+                          )}
+                        </div>
 
-                  <div className="mt-6 pt-5 border-t border-border/50">
-                    <p className="text-[0.7rem] text-muted-foreground leading-relaxed mb-4">
-                      Verified email access is required. Documents are
-                      confidential and not for redistribution.
-                    </p>
-                    <TrackedAccessLink
-                      href={card.secureUrl}
-                      eventType="review_access_clicked"
-                      slotKey={card.slotKey}
-                      publicationId={card.id}
-                      papermarkDocumentId={card.papermarkDocumentId}
-                      newTab
-                      className="inline-flex items-center bg-foreground text-background px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
-                    >
-                      Access review copy
-                    </TrackedAccessLink>
+                        <div className="mt-6 pt-5 border-t border-border/50">
+                          <p className="text-[0.7rem] text-muted-foreground leading-relaxed mb-4">
+                            Verified email access is required. Documents are
+                            confidential and not for redistribution.
+                          </p>
+                          <TrackedAccessLink
+                            href={card.secureUrl}
+                            eventType="review_access_clicked"
+                            slotKey={card.slotKey}
+                            publicationId={card.id}
+                            papermarkDocumentId={card.papermarkDocumentId}
+                            newTab
+                            className="inline-flex items-center bg-foreground text-background px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors"
+                          >
+                            Access review copy
+                          </TrackedAccessLink>
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                </article>
-              ))}
-                </div>
-              </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </section>
         )}
 

@@ -525,10 +525,15 @@ test('dataroom-lifecycle.ts uses subscriberWatermarkText', () => {
   assert.doesNotMatch(src, /watermarkText\(/)
 })
 
-test('subscribers action uses subscriberWatermarkText', () => {
+test('subscribers action issues its room link with the Subscriber Edition watermark', () => {
   const src = read('src/app/actions/subscribers.ts')
-  assert.match(src, /subscriberWatermarkText/)
   assert.doesNotMatch(src, /watermarkText\(/)
+  // Activation's room link is created by ensureSubscriberLibraryAccess, which
+  // applies subscriberWatermarkText to it.
+  assert.match(src, /ensureSubscriberLibraryAccess\(/)
+  const lifecycle = read('src/lib/dataroom-lifecycle.ts')
+  const fn = lifecycle.slice(lifecycle.indexOf('export async function ensureSubscriberLibraryAccess'))
+  assert.match(fn, /watermarkText: subscriberWatermarkText\(args\.assignedEmail\)/)
 })
 
 test('datarooms action uses subscriberWatermarkText', () => {

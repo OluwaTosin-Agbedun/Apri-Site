@@ -124,6 +124,17 @@ export async function requestAccess(
 
   const requestedTier = String(formData.get("subscriptionLevel") ?? "")
 
+  // Individual and Professional Access go through the subscription-request
+  // workflow, which activates nothing until an agreement is signed and payment
+  // confirmed. This older path creates a pending subscriber directly, so it
+  // does not take them -- whatever is posted to it.
+  if (requestedTier === "Individual Access" || requestedTier === "Professional Team Access") {
+    return {
+      message:
+        "Individual and Professional Access are requested with the plan details in this form. Please reload the page and choose the plan again.",
+    }
+  }
+
   /**
    * Seats: one submitted value, one enforced value, and nothing in between.
    *

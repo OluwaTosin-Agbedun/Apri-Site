@@ -60,6 +60,19 @@ export function sendReviewAccess(email: string, name: string, url: string) {
     html: `<p>Dear ${esc(name)},</p><p><a href="${esc(url)}">Access APRI Review Library</a></p><p>Access is personal, confidential and not for redistribution.</p>`,
   })
 }
+/**
+ * Asks someone who requested a subscription from the public Subscription
+ * Access page to confirm the address it was made with. Until they do, the
+ * request cannot be activated: anyone could have typed their address.
+ */
+export function sendSubscriptionConfirmation(email: string, name: string, url: string) {
+  return send({
+    from: `APRI <${from}>`,
+    to: email,
+    subject: "Confirm your APRI subscription request",
+    html: `<p>Dear ${esc(name)},</p><p>Please confirm your email address so APRI can prepare your subscription agreement and payment details.</p><p><a href="${esc(url)}">Confirm Email</a></p><p>If you did not request an APRI subscription, you can ignore this email.</p>`,
+  })
+}
 export function sendSubscriptionMessages(d: {
   email: string
   name: string

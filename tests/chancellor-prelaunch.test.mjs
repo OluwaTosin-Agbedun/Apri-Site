@@ -218,11 +218,19 @@ test('S9: access page tier cards use tierDisplayName', () => {
 // Section 10 – Form: phone and notes fields removed
 // ---------------------------------------------------------------------------
 
-test('S10: public access form has no phone field', () => {
+test('S10: the public enquiry has no phone field; only a priced plan request asks for one', () => {
+  // The general enquiry keeps S10. Individual and Professional Access requests
+  // need a phone number for the agreement and invoice, so it appears only
+  // inside the plan section of the form.
   const form = read('src/app/access-form.tsx')
-  assert.doesNotMatch(form, /name="phone"/)
-  assert.doesNotMatch(form, /type="tel"/)
-  assert.doesNotMatch(form, /htmlFor="phone"/)
+  const planStart = form.indexOf('{plan && (\n') >= 0 ? form.indexOf('{plan && (\n') : form.indexOf('{plan && (\r\n')
+  assert.ok(planStart > 0, 'the plan section exists')
+  const planEnd = form.indexOf('\n      )}', planStart)
+  const outside = form.slice(0, planStart) + form.slice(planEnd)
+  assert.doesNotMatch(outside, /name="phone"/)
+  assert.doesNotMatch(outside, /type="tel"/)
+  assert.doesNotMatch(outside, /htmlFor="phone"/)
+  assert.match(form.slice(planStart, planEnd), /name="phone"/)
 })
 
 test('S10: public access form has no "Anything we should know?" field', () => {

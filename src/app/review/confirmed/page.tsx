@@ -9,12 +9,25 @@ export default async function Confirmed({
 }: {
   searchParams: Promise<{ result?: string }>
 }) {
-  const ok = (await searchParams).result === "confirmed"
+  const result = (await searchParams).result
+  const ok = result === "confirmed"
   return (
     <div className="min-h-screen">
       <SiteHeader />
       <main className="max-w-3xl mx-auto px-6 py-24">
-        {ok ? (
+        {result === "subscription" ? (
+          <div className="space-y-5">
+            <h1 className="font-serif text-4xl">
+              Your email has been confirmed.
+            </h1>
+            <p>
+              Thank you for your APRI subscription request. We will send your
+              subscription agreement and payment details shortly. Your secure
+              subscriber access will be activated once the agreement has been
+              completed and payment confirmed.
+            </p>
+          </div>
+        ) : ok ? (
           <div className="space-y-5">
             <h1 className="font-serif text-4xl">
               Your email has been confirmed.

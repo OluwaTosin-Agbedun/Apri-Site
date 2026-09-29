@@ -398,6 +398,42 @@ export function humaniseFilename(raw: string): string {
     .trim() || raw
 }
 
+/**
+ * The title a paid subscriber sees for a Data Room document: its current
+ * Papermark name, as last synced.
+ *
+ * Papermark is where editors rename documents, so its name is the one kept up
+ * to date. Only presentation is tidied -- a trailing ".pdf" and underscores --
+ * and nothing is removed: edition numbers, years in brackets and every word
+ * stay exactly as the editor named them. (`humaniseFilename` strips a trailing
+ * "(2026)" as if it were a duplicate-upload counter, which is why it is not
+ * used for display.)
+ */
+export function syncedDisplayTitle(name: string): string {
+  return name
+    .trim()
+    .replace(/\.pdf$/i, '')
+    .replace(/_+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Which title a paid Data Room document shows: the synced Papermark name,
+ * unless an administrator has explicitly marked the editorial title as an
+ * intentional override. A stored editorial title alone is not an override --
+ * sync generates one from the filename, and it must not outlive a rename.
+ */
+export function portalDocumentTitle(args: {
+  syncedName: string
+  editorialTitle: string | null
+  editorialTitleIsOverride: boolean
+}): string {
+  const editorial = args.editorialTitle?.trim() ?? ''
+  if (args.editorialTitleIsOverride && editorial) return editorial
+  return syncedDisplayTitle(args.syncedName) || editorial || 'Untitled document'
+}
+
 /** A series code at the very start of a name, separator required. */
 function leadingCode(value: string): string | null {
   const match = value.trim().toUpperCase().match(/^([A-Z]{3})[-_\s]/)

@@ -45,7 +45,24 @@ function schemaStatements() {
   return statements
 }
 
-async function buildSchema(db) {
+/**
+ * A fresh in-memory database at the repository's schema, for tests that need
+ * their own -- an upgrade test builds one without the newest migrations,
+ * seeds it, then applies them. `skipMigrations` names files to leave out.
+ */
+export async function createSchemaDatabase({ skipMigrations = [] } = {}) {
+  const db = new PGlite()
+  await db.exec(`set timezone = 'UTC'`)
+  await buildSchema(db, { skipMigrations })
+  return db
+}
+
+/** Applies one migration file as a psql-style script would. */
+export async function applyMigration(db, file) {
+  await db.exec(read(`db/migrations/${file}`))
+}
+
+async function buildSchema(db, { skipMigrations = [] } = {}) {
   for (const statement of schemaStatements()) {
     const code = statement.replace(/--.*$/gm, '').trim()
     if (!code) continue
@@ -62,7 +79,9 @@ async function buildSchema(db) {
   // Every migration, retried until all have applied: filename order alone is
   // not a working order (a migration can need a table from one that sorts
   // after it), so each pass applies what it can.
-  let pending = readdirSync(join(ROOT, 'db/migrations')).filter((f) => f.endsWith('.sql')).sort()
+  let pending = readdirSync(join(ROOT, 'db/migrations'))
+    .filter((f) => f.endsWith('.sql') && !skipMigrations.includes(f))
+    .sort()
   while (pending.length) {
     const failed = []
     let lastError = ''

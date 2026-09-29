@@ -328,16 +328,21 @@ function DataRoomCard({ document, featured = false }: { document: DataRoomDocume
           </TrackedAccessLink>
         </div>
       </div>
+      {/* Only a view Papermark recorded for this subscriber counts. Opening the
+          card is a click, not a view, and is never shown here. */}
+      {document.viewedBySubscriber && (
+        <p className="mt-3 text-right text-[0.7rem] text-muted-foreground">Viewed</p>
+      )}
     </div>
   )
 }
 
+/** A download Papermark recorded for this subscriber and this exact document. */
 function ActivityStatus({ document }: { document: DataRoomDocument }) {
-  if (!document.viewedBySubscriber && !document.downloadedBySubscriber) return null
+  if (!document.downloadedBySubscriber) return null
   return (
     <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
-      {document.viewedBySubscriber && <span className="inline-flex" title="Viewed by you" aria-label="Viewed by you"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg></span>}
-      {document.downloadedBySubscriber && <span className="inline-flex" title="Downloaded by you" aria-label="Downloaded by you"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16" /></svg></span>}
+      <span className="inline-flex" title="Downloaded by you" aria-label="Downloaded by you"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16" /></svg></span>
     </span>
   )
 }
@@ -426,6 +431,7 @@ function PublicationRow({ item }: { item: Item }) {
         <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border">
           Access being prepared — we will email you when it is ready.
         </p>
+        <LegacyViewed item={item} />
       </div>
     )
   }
@@ -460,13 +466,21 @@ function PublicationRow({ item }: { item: Item }) {
           &rarr;
         </span>
       </div>
+      <LegacyViewed item={item} />
     </a>
   )
 }
 
+/** A download Papermark recorded for this subscriber. */
 function LegacyActivityStatus({ item }: { item: Item }) {
-  if (!item.viewedBySubscriber && !item.downloadedBySubscriber) return null
-  return <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">{item.viewedBySubscriber && <span title="Viewed by you" aria-label="Viewed by you">◉</span>}{item.downloadedBySubscriber && <span title="Downloaded by you" aria-label="Downloaded by you">↓</span>}</span>
+  if (!item.downloadedBySubscriber) return null
+  return <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground"><span title="Downloaded by you" aria-label="Downloaded by you">↓</span></span>
+}
+
+/** "Viewed", bottom right, only for a view Papermark recorded for this subscriber. */
+function LegacyViewed({ item }: { item: Item }) {
+  if (!item.viewedBySubscriber) return null
+  return <p className="mt-3 text-right text-[0.7rem] text-muted-foreground">Viewed</p>
 }
 
 function LockedLibrary({ name }: { name: string }) {

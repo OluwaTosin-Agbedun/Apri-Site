@@ -3,6 +3,23 @@ import { revalidatePath } from "next/cache"
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import { sendReviewManagerNotification } from "@/lib/review-email"
+import type { FormState } from "@/lib/definitions"
+import { levelForPublicTier } from "@/lib/entitlements"
+import {
+  PLANS,
+  activationGate,
+  activationComplete,
+  describeActivation,
+  laterStatus,
+  milestoneStatus,
+  type SeatOutcome,
+} from "@/lib/subscription-journey"
+import {
+  subscriptionActivationReady,
+  requesterConfirmed,
+  SUBSCRIPTION_MIGRATION_PENDING,
+} from "@/lib/subscription-schema"
+import { activateSubscriberRecord } from "@/lib/subscriber-activation"
 
 const UUID = /^[0-9a-f-]{36}$/i
 const base = () => {
@@ -46,112 +63,315 @@ export async function retryReviewNotification(formData: FormData) {
   revalidatePath(`/admin/review-requests/${id}`)
 }
 
-export async function saveCommercialMilestones(formData: FormData) {
+const day = (v: unknown): string | null =>
+  v instanceof Date ? v.toISOString().slice(0, 10) : v ? String(v).slice(0, 10) : null
+
+/**
+ * Record the agreement, invoice and payment milestones of one subscription
+ * request, each with its date and reference.
+ *
+ * Milestones only move forward: a blank field keeps what is already recorded
+ * rather than erasing it, a signature needs the agreement sent first and a
+ * payment needs the invoice first, and no milestone date may be in the
+ * future. Every milestone newly recorded or changed is written to the
+ * prospect's append-only activity history. Recording a payment grants nothing
+ * on its own: activation is a separate, gated step.
+ */
+export async function saveCommercialMilestones(
+  prospectId: string,
+  _state: FormState,
+  formData: FormData,
+): Promise<FormState> {
   const admin = await requireOwner()
-  const id = String(formData.get("id") || "")
-  if (!UUID.test(id)) throw new Error("Invalid prospect")
-  const sql = getSql(),
-    rows =
-      (await sql`select r.*,p.status from review_subscription_requests r join review_prospects p on p.id=r.prospect_id where r.prospect_id=${id}::uuid`) as Record<string, string | null>[]
+  if (!UUID.test(prospectId)) return { message: "Unknown request." }
+  const sql = getSql()
+  const rows = (await sql`
+    select r.*, p.status from review_subscription_requests r
+    join review_prospects p on p.id = r.prospect_id
+    where r.prospect_id = ${prospectId}::uuid
+  `) as Record<string, unknown>[]
   const before = rows[0]
-  if (!before) throw new Error("Subscription request not found")
-  const date = (key: string) => {
-    const v = String(formData.get(key) || "")
-    return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null
+  if (!before) return { message: "No subscription request is recorded for this prospect." }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const problems: string[] = []
+  const date = (field: string, label: string, allowFuture = false) => {
+    const raw = String(formData.get(field) ?? "").trim()
+    if (!raw) return null
+    const valid = /^\d{4}-\d{2}-\d{2}$/.test(raw) && !Number.isNaN(Date.parse(`${raw}T00:00:00Z`))
+    if (!valid) problems.push(`${label} is not a real date.`)
+    else if (!allowFuture && raw > today) problems.push(`${label} cannot be in the future.`)
+    return valid ? raw : null
   }
-  // Completed commercial milestones are monotonic. An omitted field may not
-  // erase a fact already recorded by another owner session.
-  const sent = date("agreementSent") || before.agreement_sent_at,
-    signed = date("agreementSigned") || before.agreement_signed_at,
-    invoice = date("invoiceSent") || before.invoice_sent_at,
-    paid = date("paymentConfirmed") || before.payment_confirmed_at
-  if (signed && !sent)
-    throw new Error("Agreement sent must be recorded before signing")
-  if (paid && !invoice)
-    throw new Error("Invoice sent must be recorded before payment confirmation")
-  const next = paid
-    ? "Payment Confirmed"
-    : invoice
-      ? "Invoice Sent"
-      : signed
-        ? "Agreement Signed"
-        : sent
-          ? "Agreement Sent"
-          : "Subscription Requested"
-  const order = [
-    "Review Requested", "Email Verified", "Review Access Sent", "Subscription Requested",
-    "Agreement Sent", "Agreement Signed", "Invoice Sent", "Payment Confirmed",
-    "Access Activated", "Active Subscriber",
+  const text = (field: string) => String(formData.get(field) ?? "").trim().slice(0, 120) || null
+
+  const sent = date("agreementSent", "Agreement sent") ?? day(before.agreement_sent_at)
+  const signed = date("agreementSigned", "Agreement signed") ?? day(before.agreement_signed_at)
+  const invoice = date("invoiceSent", "Invoice issued") ?? day(before.invoice_sent_at)
+  const paid = date("paymentConfirmed", "Payment confirmed") ?? day(before.payment_confirmed_at)
+  const termStart = date("termStart", "Subscription start", true) ?? day(before.subscription_starts_at)
+  const termEnd = date("termEnd", "Subscription end", true) ?? day(before.subscription_ends_at)
+  if (problems.length) return { message: problems.join(" ") }
+  if (signed && !sent) return { message: "Record the date the agreement was sent before recording its signature." }
+  if (signed && sent && signed < sent) return { message: "The agreement cannot be signed before it was sent." }
+  if (paid && !invoice) return { message: "Record the invoice before confirming payment." }
+  if (paid && invoice && paid < invoice) return { message: "Payment cannot be confirmed before the invoice was issued." }
+  if (termStart && termEnd && termEnd < termStart) return { message: "The subscription must end after it starts." }
+
+  const docusign = text("docusignReference") ?? ((before.docusign_reference as string | null) || null)
+  const invoiceRef = text("invoiceReference") ?? ((before.invoice_reference as string | null) || null)
+  const paymentRef = text("paymentReference") ?? ((before.payment_reference as string | null) || null)
+  const notes = String(formData.get("notes") ?? "").trim().slice(0, 2000) || null
+
+  const next = laterStatus(
+    String(before.status ?? ""),
+    milestoneStatus({ agreementSentAt: sent, agreementSignedAt: signed, invoiceSentAt: invoice, paymentConfirmedAt: paid }),
+  )
+
+  await sql`
+    update review_subscription_requests set
+      docusign_reference = ${docusign},
+      agreement_sent_at = ${sent}::date,
+      agreement_signed_at = ${signed}::date,
+      invoice_reference = ${invoiceRef},
+      invoice_sent_at = ${invoice}::date,
+      payment_reference = ${paymentRef},
+      payment_confirmed_at = ${paid}::date,
+      subscription_starts_at = ${termStart}::date,
+      subscription_ends_at = ${termEnd}::date,
+      internal_notes = ${notes},
+      updated_at = now()
+    where prospect_id = ${prospectId}::uuid
+  `
+
+  // One history entry per milestone recorded or changed, with its reference.
+  const changes: { event: string; was: string | null; now: string | null; detail: string }[] = [
+    {
+      event: "agreement_sent",
+      was: day(before.agreement_sent_at),
+      now: sent,
+      detail: `Agreement sent on ${sent}${docusign ? ` (agreement reference ${docusign})` : ""}`,
+    },
+    { event: "agreement_signed", was: day(before.agreement_signed_at), now: signed, detail: `Agreement signed on ${signed}` },
+    {
+      event: "invoice_issued",
+      was: day(before.invoice_sent_at),
+      now: invoice,
+      detail: `Invoice issued on ${invoice}${invoiceRef ? ` (reference ${invoiceRef})` : ""}`,
+    },
+    {
+      event: "payment_confirmed",
+      was: day(before.payment_confirmed_at),
+      now: paid,
+      detail: `Payment confirmed on ${paid}${paymentRef ? ` (reference ${paymentRef})` : ""}`,
+    },
+    {
+      event: "term_recorded",
+      was: `${day(before.subscription_starts_at)}|${day(before.subscription_ends_at)}`,
+      now: termStart && termEnd ? `${termStart}|${termEnd}` : null,
+      detail: `Subscription term ${termStart} to ${termEnd}`,
+    },
   ]
-  if (order.indexOf(next) < order.indexOf(before.status || "")) {
-    throw new Error("Status transitions cannot move a prospect backwards.")
+  for (const change of changes) {
+    if (change.now && change.now !== change.was) {
+      await sql`
+        insert into review_prospect_events (prospect_id, event_type, from_status, to_status, detail, actor_admin_id)
+        values (${prospectId}::uuid, ${change.event}, ${String(before.status)}, ${next}, ${change.detail}, ${admin.id}::uuid)
+      `
+    }
   }
-  await sql`update review_subscription_requests set docusign_reference=${
-    String(formData.get("docusignReference") || "")
-      .trim()
-      .slice(0, 120) || null
-  },agreement_sent_at=${sent}::date,agreement_signed_at=${signed}::date,invoice_reference=${
-    String(formData.get("invoiceReference") || "")
-      .trim()
-      .slice(0, 120) || null
-  },invoice_sent_at=${invoice}::date,payment_reference=${
-    String(formData.get("paymentReference") || "")
-      .trim()
-      .slice(0, 120) || null
-  },payment_confirmed_at=${paid}::date,papermark_access_prepared_at=${
-    formData.get("papermarkPrepared") === "on" ? new Date() : before.papermark_access_prepared_at
-  },subscription_starts_at=${date("termStart")}::date,subscription_ends_at=${date("termEnd")}::date,internal_notes=${
-    String(formData.get("notes") || "")
-      .trim()
-      .slice(0, 2000) || null
-  },updated_at=now() where prospect_id=${id}::uuid`
   if (next !== before.status) {
-    await sql`update review_prospects set status=${next},updated_at=now() where id=${id}::uuid`
-    await sql`insert into review_prospect_events(prospect_id,event_type,from_status,to_status,detail,actor_admin_id) values(${id}::uuid,'commercial_milestone',${before.status},${next},'Commercial milestones updated',${admin.id}::uuid)`
+    await sql`update review_prospects set status = ${next}, updated_at = now() where id = ${prospectId}::uuid`
   }
-  revalidatePath(`/admin/review-requests/${id}`)
+  revalidatePath(`/admin/review-requests/${prospectId}`)
+  revalidatePath("/admin/review-requests")
+  return { ok: true, message: `Milestones saved. Status: ${next}.` }
 }
 
-export async function activateReviewSubscription(formData: FormData) {
+/**
+ * Activate an Individual or Professional subscription request.
+ *
+ * Refused unless the agreement is signed AND payment confirmed (with the other
+ * checks in activationGate). Then each named person gets their own subscriber
+ * record -- linked to this request, at the plan's tier -- and is activated
+ * through the same path as the Subscribers page: status, Data Room library
+ * with Papermark-confirmed personal links, and only then their own welcome
+ * email with its sign-in link.
+ *
+ * Safe to repeat. People this request already created are recognised, not
+ * duplicated; anyone already welcomed is not emailed again; an existing
+ * subscriber who did not come from this request is never changed. The request
+ * is marked activated only when every named person's access is ready.
+ */
+export async function activateSubscriptionRequest(prospectId: string, _state: FormState): Promise<FormState> {
   const admin = await requireOwner()
-  const id = String(formData.get("id") || "")
-  if (!UUID.test(id)) throw new Error("Invalid prospect")
-  const sql = getSql(),
-    rows =
-      (await sql`select r.*,p.verified_at,p.status from review_subscription_requests r join review_prospects p on p.id=r.prospect_id where r.prospect_id=${id}::uuid`) as Record<string, unknown>[]
-  const r = rows[0]
-  if (!r) throw new Error("Subscription request not found")
-  const users = r.authorised_users as { name: string; email: string }[]
-  const expected = r.plan === "Individual" ? 1 : 3
-  if (
-    !r.verified_at ||
-    !r.agreement_sent_at ||
-    !r.agreement_signed_at ||
-    !r.invoice_sent_at ||
-    !r.payment_confirmed_at ||
-    !r.papermark_access_prepared_at ||
-    !r.subscription_starts_at ||
-    !r.subscription_ends_at ||
-    !Array.isArray(users) ||
-    users.length < 1 ||
-    users.length > expected ||
-    (r.plan === "Individual" && users.length !== 1)
-  )
-    throw new Error(
-      "Activation blocked: verification, agreement, invoice, payment, named users, Papermark preparation and subscription term are all required.",
-    )
-  const tier =
-    r.plan === "Individual" ? "Individual Access" : "Professional Team Access"
-  const activeCollision = (await sql`
-    select email from subscribers where lower(status)='active'
-      and lower(email) = any(${users.map((user) => user.email.toLowerCase())}::text[])
-    limit 1
-  `) as { email: string }[]
-  if (activeCollision[0]) throw new Error("Activation preparation stopped: an authorised email already belongs to an active subscriber. Existing active subscribers are never overwritten or regressed.")
-  for (const user of users) {
-    await sql`insert into subscribers(full_name,name,email,organization,client_type,public_tier,subscription_level,level,seats,term_start,term_end,status,invoice_ref,note) values(${user.name},${user.name},${user.email.toLowerCase()},${String(r.legal_billing_name)},'subscriber',${tier},${tier},'L1',1,${String(r.subscription_starts_at)}::date,${String(r.subscription_ends_at)}::date,'pending',${String(r.invoice_reference || "")},${`Activated from review prospect ${id}`}) on conflict ((lower(email))) do update set full_name=excluded.full_name,name=excluded.name,organization=excluded.organization,public_tier=excluded.public_tier,subscription_level=excluded.subscription_level,level='L1',term_start=excluded.term_start,term_end=excluded.term_end,invoice_ref=excluded.invoice_ref where lower(subscribers.status)<>'active'`
+  if (!UUID.test(prospectId)) return { message: "Unknown request." }
+  const sql = getSql()
+  if (!(await subscriptionActivationReady(sql, { fresh: true }))) {
+    return { message: SUBSCRIPTION_MIGRATION_PENDING }
   }
-  await sql`insert into review_prospect_events(prospect_id,event_type,from_status,to_status,detail,actor_admin_id) values(${id}::uuid,'subscriber_records_prepared',${String(r.status)},${String(r.status)},'Named pending subscriber records prepared; final activation remains in the existing Subscribers workflow',${admin.id}::uuid)`
-  revalidatePath(`/admin/review-requests/${id}`)
+
+  const rows = (await sql`
+    select r.*, p.status, (p.verified_at is not null) as prospect_verified
+    from review_subscription_requests r
+    join review_prospects p on p.id = r.prospect_id
+    where r.prospect_id = ${prospectId}::uuid
+  `) as Record<string, unknown>[]
+  const r = rows[0]
+  if (!r) return { message: "No subscription request is recorded for this prospect." }
+
+  const gate = activationGate(
+    {
+      plan: String(r.plan ?? ""),
+      requesterConfirmed: requesterConfirmed(r),
+      agreementSentAt: day(r.agreement_sent_at),
+      agreementSignedAt: day(r.agreement_signed_at),
+      invoiceSentAt: day(r.invoice_sent_at),
+      paymentConfirmedAt: day(r.payment_confirmed_at),
+      termStart: day(r.subscription_starts_at),
+      termEnd: day(r.subscription_ends_at),
+      authorisedUsers: r.authorised_users,
+    },
+    new Date().toISOString().slice(0, 10),
+  )
+  if (!gate.ok) {
+    return { message: `Activation is blocked. Still needed: ${gate.missing.join("; ")}. Nothing was changed.` }
+  }
+
+  const requestId = String(r.id)
+  const status = String(r.status ?? "")
+  const tier = PLANS[gate.plan].tier
+  const level = levelForPublicTier(tier)
+  if (!level) return { message: `The ${tier} tier is not configured. Nothing was changed.` }
+  const termStart = day(r.subscription_starts_at)
+  const termEnd = day(r.subscription_ends_at)
+  const organisation = String(r.legal_billing_name ?? "")
+  const invoiceRef = String(r.invoice_reference ?? "")
+
+  const outcomes: SeatOutcome[] = []
+  for (const user of gate.users) {
+    const found = (await sql`
+      select id, status, client_type, subscription_request_id
+      from subscribers where lower(email) = ${user.email}
+      limit 1
+    `) as { id: string; status: string; client_type: string; subscription_request_id: string | null }[]
+    const existing = found[0]
+    let subscriberId: string | null = null
+
+    if (!existing) {
+      const created = (await sql`
+        insert into subscribers (
+          full_name, name, email, organization, client_type, public_tier, subscription_level,
+          level, seats, term_start, term_end, status, invoice_ref, subscription_request_id, note
+        ) values (
+          ${user.name}, ${user.name}, ${user.email}, ${organisation}, 'subscriber',
+          ${tier}, ${tier}, ${level}, 1, ${termStart}::date, ${termEnd}::date,
+          'pending', ${invoiceRef}, ${requestId}::uuid, ${`${PLANS[gate.plan].label} subscription request`}
+        )
+        on conflict ((lower(email))) do nothing
+        returning id
+      `) as { id: string }[]
+      subscriberId = created[0]?.id ?? null
+      if (!subscriberId) {
+        outcomes.push({ ...user, state: "blocked", reason: "a record for this email appeared while activating; activate again." })
+        continue
+      }
+    } else if (existing.subscription_request_id === requestId) {
+      subscriberId = existing.id
+    } else if (existing.subscription_request_id) {
+      outcomes.push({
+        ...user,
+        state: "blocked",
+        reason: "this email belongs to a subscriber from another subscription request, who was not changed.",
+      })
+      continue
+    } else if (existing.status.toLowerCase() === "active") {
+      outcomes.push({
+        ...user,
+        state: "blocked",
+        reason: "this email already belongs to an active subscriber, who was not changed. Resolve it on their Subscribers page.",
+      })
+      continue
+    } else if (existing.client_type !== "subscriber") {
+      outcomes.push({ ...user, state: "blocked", reason: "this email belongs to an engagement client record, which was not changed." })
+      continue
+    } else {
+      // An inactive record not linked to any request -- for example one
+      // prepared before this workflow -- is taken on for this request.
+      const adopted = (await sql`
+        update subscribers set
+          full_name = ${user.name}, name = ${user.name}, organization = ${organisation},
+          public_tier = ${tier}, subscription_level = ${tier}, level = ${level}, seats = 1,
+          term_start = ${termStart}::date, term_end = ${termEnd}::date,
+          invoice_ref = ${invoiceRef}, subscription_request_id = ${requestId}::uuid,
+          updated_at = now()
+        where id = ${existing.id}::uuid and subscription_request_id is null and lower(status) <> 'active'
+        returning id
+      `) as { id: string }[]
+      subscriberId = adopted[0]?.id ?? null
+      if (!subscriberId) {
+        outcomes.push({ ...user, state: "blocked", reason: "the existing record for this email changed while activating; activate again." })
+        continue
+      }
+    }
+
+    // Welcomed already by this request? Then never again.
+    const welcomed = (await sql`
+      select 1 from review_prospect_events
+      where prospect_id = ${prospectId}::uuid and event_type = 'subscriber_welcomed' and detail = ${subscriberId}
+      limit 1
+    `) as unknown[]
+    const result = await activateSubscriberRecord({
+      subscriberId,
+      admin,
+      welcome: welcomed.length > 0 ? "skip" : "send",
+    })
+    if (result.state === "activated" && result.welcome === "sent") {
+      await sql`
+        insert into review_prospect_events (prospect_id, event_type, from_status, to_status, detail, actor_admin_id)
+        values (${prospectId}::uuid, 'subscriber_welcomed', ${status}, ${status}, ${subscriberId}, ${admin.id}::uuid)
+      `
+    }
+    if (result.state === "activated" && result.welcome !== "failed") {
+      outcomes.push({ ...user, state: "activated", welcome: result.welcome === "sent" ? "sent" : "already_sent" })
+    } else if (result.state === "activated") {
+      outcomes.push({
+        ...user,
+        state: "held",
+        reason: "the welcome email could not be sent. Check the email configuration, then activate again.",
+      })
+    } else if (result.state === "held") {
+      outcomes.push({ ...user, state: "held", reason: result.message })
+    } else {
+      outcomes.push({ ...user, state: "blocked", reason: result.message })
+    }
+  }
+
+  const complete = activationComplete(outcomes, gate.users.length)
+  const summary = describeActivation(outcomes, gate.users.length)
+  const next = complete ? laterStatus(status, "Access Activated") : status
+  if (complete) {
+    await sql`
+      update review_subscription_requests
+      set activated_at = coalesce(activated_at, now()),
+          papermark_access_prepared_at = coalesce(papermark_access_prepared_at, now()),
+          updated_at = now()
+      where id = ${requestId}::uuid
+    `
+    if (next !== status) {
+      await sql`update review_prospects set status = ${next}, updated_at = now() where id = ${prospectId}::uuid`
+    }
+  }
+  // Names and outcomes only: never a link, token or document address.
+  await sql`
+    insert into review_prospect_events (prospect_id, event_type, from_status, to_status, detail, actor_admin_id)
+    values (
+      ${prospectId}::uuid, ${complete ? "access_activated" : "activation_incomplete"}, ${status}, ${next},
+      ${summary.slice(0, 1800)}, ${admin.id}::uuid
+    )
+  `
+  revalidatePath(`/admin/review-requests/${prospectId}`)
+  revalidatePath("/admin/review-requests")
   revalidatePath("/admin/subscribers")
+  return { ok: complete, message: summary }
 }

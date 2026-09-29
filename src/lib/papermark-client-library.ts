@@ -9,11 +9,12 @@ import {
 import {
   categoriseDataRoomDocument,
   documentBadge,
-  humaniseFilename,
+  portalDocumentTitle,
   portalTypeLabel,
   type PortalCategoryKey,
 } from "./papermark-dataroom-contract"
 import { getDocumentLinkByDocRowId } from "./dataroom-dal"
+import { portalTitleOverrideReady } from "./portal-title-schema"
 
 export type SyncedClientDocument = {
   id: string
@@ -93,7 +94,7 @@ export async function getDataRoomDocumentsForSubscriber(
   if (!link) return null
 
   const rows = (await sql`
-    select dd.id, dd.papermark_document_id, dd.dataroom_document_id,
+    select dd.id, dd.papermark_document_id, dd.dataroom_document_id, dd.publication_id,
            dd.title, dd.category, dd.folder_path, dd.num_pages, dd.content_type,
            dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
            d.title as ed_title, d.kicker as ed_kicker, d.summary as ed_summary,
@@ -102,9 +103,11 @@ export async function getDataRoomDocumentsForSubscriber(
            exists (select 1 from document_views v
              where v.subscriber_id = ${subscriberId}::uuid
                and (v.publication_id = d.id or (v.publication_id is null and v.papermark_document_id = dd.papermark_document_id))) as viewed_by_subscriber,
+           -- Downloads are confirmed by Papermark per document, so the icon
+           -- is shown only for a download of this exact document.
            exists (select 1 from document_download_events de
              where de.subscriber_id = ${subscriberId}::uuid
-               and (de.publication_id = d.id or (de.publication_id is null and de.papermark_document_id = dd.papermark_document_id))) as downloaded_by_subscriber
+               and de.papermark_document_id = dd.papermark_document_id) as downloaded_by_subscriber
     from papermark_dataroom_documents dd
     left join documents d on d.id = dd.publication_id
     where dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
@@ -114,6 +117,7 @@ export async function getDataRoomDocumentsForSubscriber(
     id: string
     papermark_document_id: string
     dataroom_document_id: string | null
+    publication_id: string | null
     title: string
     category: string | null
     folder_path: string | null
@@ -133,6 +137,7 @@ export async function getDataRoomDocumentsForSubscriber(
   }[]
 
   const previousVisit = options.previousVisit ?? null
+  const overrides = await titleOverrides(sql, rows.map((r) => r.publication_id))
 
   const documents: DataRoomDocument[] = rows.map((row) => {
     const cat = categoriseDataRoomDocument({
@@ -145,7 +150,7 @@ export async function getDataRoomDocumentsForSubscriber(
       papermarkDocumentId: row.papermark_document_id,
       dataroomDocumentId: row.dataroom_document_id,
       title: row.title,
-      displayTitle: row.ed_title || humaniseFilename(row.title),
+      displayTitle: portalDocumentTitle({ syncedName: row.title, editorialTitle: row.ed_title, editorialTitleIsOverride: row.publication_id !== null && overrides.has(row.publication_id) }),
       category: cat,
       categoryLabel: portalTypeLabel(cat),
       numPages: row.ed_page_count ?? row.num_pages,
@@ -219,7 +224,7 @@ export async function getDataRoomDocumentForSubscriber(
   if (!link) return null
 
   const rows = (await sql`
-    select dd.id, dd.papermark_document_id, dd.dataroom_document_id,
+    select dd.id, dd.papermark_document_id, dd.dataroom_document_id, dd.publication_id,
            dd.title, dd.category, dd.folder_path, dd.num_pages, dd.content_type,
            dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
            d.title as ed_title, d.kicker as ed_kicker, d.summary as ed_summary,
@@ -235,6 +240,7 @@ export async function getDataRoomDocumentForSubscriber(
     id: string
     papermark_document_id: string
     dataroom_document_id: string | null
+    publication_id: string | null
     title: string
     category: string | null
     folder_path: string | null
@@ -253,6 +259,7 @@ export async function getDataRoomDocumentForSubscriber(
 
   const row = rows[0]
   if (!row) return null
+  const overrides = await titleOverrides(sql, [row.publication_id])
 
   const docLink = await getDocumentLinkByDocRowId({
     subscriberId,
@@ -270,7 +277,7 @@ export async function getDataRoomDocumentForSubscriber(
       papermarkDocumentId: row.papermark_document_id,
       dataroomDocumentId: row.dataroom_document_id,
       title: row.title,
-      displayTitle: row.ed_title || humaniseFilename(row.title),
+      displayTitle: portalDocumentTitle({ syncedName: row.title, editorialTitle: row.ed_title, editorialTitleIsOverride: row.publication_id !== null && overrides.has(row.publication_id) }),
       category: cat,
       categoryLabel: portalTypeLabel(cat),
       numPages: row.ed_page_count ?? row.num_pages,
@@ -295,6 +302,23 @@ export async function getDataRoomDocumentForSubscriber(
     papermarkLinkId: docLink?.papermarkLinkId ?? null,
     allowDownload: docLink?.allowDownload ?? link.allow_download,
   }
+}
+
+/**
+ * The publications whose editorial title an administrator has explicitly kept
+ * in place of the Papermark name. Empty until the override migration has run.
+ */
+async function titleOverrides(
+  sql: ReturnType<typeof getSql>,
+  publicationIds: (string | null)[],
+): Promise<Set<string>> {
+  const ids = [...new Set(publicationIds.filter((id): id is string => Boolean(id)))]
+  if (ids.length === 0 || !(await portalTitleOverrideReady(sql))) return new Set()
+  const rows = (await sql`
+    select id from documents
+    where portal_title_override = true and id = any(${ids}::uuid[])
+  `) as { id: string }[]
+  return new Set(rows.map((r) => r.id))
 }
 
 /** Group Data Room documents by portal category. */

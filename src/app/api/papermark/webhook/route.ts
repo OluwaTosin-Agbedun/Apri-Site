@@ -9,6 +9,7 @@ import {
 } from '@/lib/view-attribution'
 import { getSql } from '@/lib/db'
 import { notifyNewDataRoomDocuments } from '@/lib/dataroom-notifications'
+import { prepareRoomLinks } from '@/lib/document-links'
 
 export const dynamic = 'force-dynamic'
 
@@ -307,6 +308,11 @@ async function handleDocumentEvent(
       updated_at = now()
   `
 
+  // The document is now present in the room, so every subscriber of the room
+  // is shown its card -- and the card only opens through that subscriber's own
+  // link. Prepared before any notification, for this one document.
+  const links = await prepareRoomLinks(dataroomId, { papermarkDocumentId: documentId })
+
   if (/created/i.test(eventType)) {
     // Notification is a side effect; a mail failure must not lose the document
     // record or cause Papermark to retry an event we have already stored.
@@ -315,7 +321,16 @@ async function handleDocumentEvent(
     } catch {}
   }
 
-  return { stored: 1 }
+  if (!links.complete) {
+    // Not delivered until every subscriber can open it. Failing the event makes
+    // Papermark deliver it again; the retry repeats nothing that succeeded and
+    // prepares only what is still missing. Counts only -- no names or links.
+    throw new Error(
+      `Personal document links are not ready for every subscriber of this Data Room (${links.report.failed + links.report.unconfirmed + links.errors} not ready).`,
+    )
+  }
+
+  return { stored: 1, personalLinksCreated: links.report.created }
 }
 
 // ---------------------------------------------------------------------------

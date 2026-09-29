@@ -2,9 +2,25 @@ import "server-only"
 import { getSql } from "./db"
 import { sendEditionAlert } from "./subscriber-email"
 import { recordClientEvent } from "./client-engagement"
+import { ensureAllDocumentLinks } from "./document-links"
+
+/**
+ * Automatic new-document emails stay off unless DATAROOM_NEW_DOCUMENT_EMAILS
+ * is set to "enabled".
+ *
+ * Until this change the sender below could never send: it read its queries'
+ * columns under names the queries did not return, so its first claim failed
+ * before any email went out, and the webhook swallowed the error. Correcting
+ * that would start emailing real subscribers, which is the owner's decision to
+ * make, not a side effect of a fix -- so it waits for this setting.
+ */
+export function newDocumentEmailsEnabled(): boolean {
+  return process.env.DATAROOM_NEW_DOCUMENT_EMAILS === "enabled"
+}
 
 type NewDocument = {
   dataroomDocumentId: string
+  papermarkDocumentId: string
   dataroomId: string
   title: string
   versionKey: string
@@ -15,6 +31,7 @@ type EligibleRecipient = {
   email: string
   fullName: string
   linkUrl: string | null
+  hasRoomLink: boolean
 }
 
 /**
@@ -35,16 +52,24 @@ type EligibleRecipient = {
  *    a unique constraint) *before* the email is sent. If two processes race on
  *    the same (subscriber, document, version), only the one whose insert succeeds
  *    sends the email; the loser's insert is a no-op and no email goes out.
+ *
+ * And one guard against an email nobody can act on: a subscriber on Data Rooms
+ * is told about a document only once their personal link to it exists. It is
+ * prepared here if it is missing; if it still cannot be, their notification is
+ * held -- not claimed -- so a later run inside the window can still send it.
  */
-export async function notifyNewDataRoomDocuments(dataroomId: string): Promise<{ sent: number; skipped: number }> {
+export async function notifyNewDataRoomDocuments(
+  dataroomId: string,
+): Promise<{ sent: number; skipped: number; held: number }> {
+  if (!newDocumentEmailsEnabled()) return { sent: 0, skipped: 0, held: 0 }
   const sql = getSql()
 
   // Find documents that are new, eligible and within the time window.
   // No document-level "already notified" filter — dedup is per-subscriber
   // inside the loop, so every eligible subscriber gets their chance.
   const newDocs = (await sql`
-    select dd.id as dataroom_document_id, dd.papermark_dataroom_id as dataroom_id,
-      dd.title, dd.version_key
+    select dd.id as "dataroomDocumentId", dd.papermark_document_id as "papermarkDocumentId",
+      dd.papermark_dataroom_id as "dataroomId", dd.title, dd.version_key as "versionKey"
     from papermark_dataroom_documents dd
     where dd.papermark_dataroom_id = ${dataroomId}
       and dd.is_present = true
@@ -52,19 +77,20 @@ export async function notifyNewDataRoomDocuments(dataroomId: string): Promise<{ 
       and dd.first_seen_at > now() - interval '1 hour'
   `) as NewDocument[]
 
-  if (newDocs.length === 0) return { sent: 0, skipped: 0 }
+  if (newDocs.length === 0) return { sent: 0, skipped: 0, held: 0 }
 
   const publicTierRow = (await sql`
     select public_tier from papermark_level_rooms
     where papermark_dataroom_id = ${dataroomId} limit 1
   `) as { public_tier: string }[]
 
-  if (!publicTierRow[0]) return { sent: 0, skipped: 0 }
+  if (!publicTierRow[0]) return { sent: 0, skipped: 0, held: 0 }
 
   const recipients = (await sql`
-    select s.id as subscriber_id, s.email,
-      coalesce(nullif(s.full_name, ''), s.name) as full_name,
-      dl.link_url
+    select s.id as "subscriberId", s.email,
+      coalesce(nullif(s.full_name, ''), s.name) as "fullName",
+      dl.link_url as "linkUrl",
+      (dl.id is not null) as "hasRoomLink"
     from subscribers s
     left join papermark_dataroom_links dl
       on dl.subscriber_id = s.id
@@ -80,9 +106,17 @@ export async function notifyNewDataRoomDocuments(dataroomId: string): Promise<{ 
 
   let sent = 0
   let skipped = 0
+  let held = 0
 
   for (const doc of newDocs) {
     for (const recipient of recipients) {
+      // Only once the link it leads to exists. Held, not claimed, so a later
+      // run inside the window can still send it once the link is ready.
+      if (recipient.hasRoomLink && !(await personalLinkReady(recipient.subscriberId, doc))) {
+        held++
+        continue
+      }
+
       // Insert-before-send: claim the slot first. The unique index on
       // (subscriber_id, dataroom_document_id, version_key) means at most
       // one process wins. If the insert returns no row (conflict), skip.
@@ -123,10 +157,33 @@ export async function notifyNewDataRoomDocuments(dataroomId: string): Promise<{ 
     }
   }
 
-  return { sent, skipped }
+  return { sent, skipped, held }
 }
 
-export async function reconcileAllDataRooms(): Promise<{ rooms: number; sent: number; skipped: number }> {
+/** Whether a subscriber's personal link to one document exists, preparing it if not. */
+async function personalLinkReady(subscriberId: string, doc: NewDocument): Promise<boolean> {
+  try {
+    const outcome = await ensureAllDocumentLinks(subscriberId, {
+      dataroomId: doc.dataroomId,
+      papermarkDocumentId: doc.papermarkDocumentId,
+    })
+    return outcome.state === "prepared" && outcome.report.total === 1 && outcome.report.complete
+  } catch {
+    return false
+  }
+}
+
+export async function reconcileAllDataRooms(): Promise<{
+  rooms: number
+  sent: number
+  skipped: number
+  held: number
+  emailsEnabled: boolean
+}> {
+  if (!newDocumentEmailsEnabled()) {
+    return { rooms: 0, sent: 0, skipped: 0, held: 0, emailsEnabled: false }
+  }
+
   const sql = getSql()
 
   const rooms = (await sql`
@@ -135,12 +192,14 @@ export async function reconcileAllDataRooms(): Promise<{ rooms: number; sent: nu
 
   let totalSent = 0
   let totalSkipped = 0
+  let totalHeld = 0
 
   for (const room of rooms) {
     const result = await notifyNewDataRoomDocuments(room.papermark_dataroom_id)
     totalSent += result.sent
     totalSkipped += result.skipped
+    totalHeld += result.held
   }
 
-  return { rooms: rooms.length, sent: totalSent, skipped: totalSkipped }
+  return { rooms: rooms.length, sent: totalSent, skipped: totalSkipped, held: totalHeld, emailsEnabled: true }
 }

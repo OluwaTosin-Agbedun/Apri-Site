@@ -98,7 +98,9 @@ test("subscriber sessions preserve principal identity and reject malformed claim
 })
 
 test("activation persists Active before issuing and emailing a one-time token", () => {
-  const source = read("src/app/actions/subscribers.ts")
+  // The action delegates to activateSubscriberRecord, where the order lives.
+  assert.match(read("src/app/actions/subscribers.ts"), /activateSubscriberRecord\(\{ subscriberId: id, admin, welcome: "send" \}\)/)
+  const source = read("src/lib/subscriber-activation.ts")
   const activated = source.indexOf("set status = 'active'")
   const issued = source.indexOf("issueToken(id)", activated)
   const emailed = source.indexOf("sendWelcome", issued)
@@ -188,7 +190,7 @@ test("portal access is bound to the authenticated active subscriber and never fa
 // ---------------------------------------------------------------------------
 
 test("activation server action does not gate on library_link_url presence", () => {
-  const source = read("src/app/actions/subscribers.ts")
+  const source = read("src/app/actions/subscribers.ts") + read("src/lib/subscriber-activation.ts")
   assert.doesNotMatch(
     source,
     /!row\.library_link_url && !row\.papermark_folder_id/,
@@ -229,7 +231,7 @@ test("list page does not pass hasLibraryLink to SeatActions", () => {
 })
 
 test("existing library links are still validated if present", () => {
-  const source = read("src/app/actions/subscribers.ts")
+  const source = read("src/app/actions/subscribers.ts") + read("src/lib/subscriber-activation.ts")
   assert.match(
     source,
     /row\.library_link_url && !papermarkEmbedUrl/,

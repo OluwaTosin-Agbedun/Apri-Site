@@ -21,6 +21,7 @@ import {
   assignDataRoomToSubscriber,
   addSeat,
   removeSeat,
+  getLivePersonalLinkKeys,
 } from "@/lib/dataroom-dal"
 import {
   listDataRooms,
@@ -39,6 +40,14 @@ import {
   reconcileDownloadsFromViews,
   revokeAllDataRoomLinks,
 } from "@/lib/dataroom-lifecycle"
+import {
+  ensureAllDocumentLinks,
+  prepareRoomLinks,
+  describeRoomLinks,
+  type RoomLinkSummary,
+  type SubscriberLinkOutcome,
+} from "@/lib/document-links"
+import { describePersonalLinks } from "@/lib/personal-links"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -105,16 +114,37 @@ export async function deleteLevelRoomMapping(publicTier: string): Promise<FormSt
 
 export async function syncDataRoomForLevel(publicTier: string): Promise<FormState> {
   await requireAdmin()
-  if (!publicTier) return { message: "Missing level." }
+  const synced = await syncRoomForLevel(publicTier)
+  if (!synced.ok) return { message: synced.message }
+  // Not complete until every subscriber of the room can open every document.
+  return {
+    ok: synced.links.complete,
+    message: `${synced.message} ${describeRoomLinks(synced.links)}`,
+  }
+}
+
+type RoomSync =
+  | { ok: false; message: string }
+  | { ok: true; message: string; dataroomId: string; links: RoomLinkSummary }
+
+/**
+ * Brings a level's room up to date, then prepares a personal link for every
+ * document that each of its subscribers can now see.
+ *
+ * Not exported: every caller is a server action that has already authorised
+ * itself.
+ */
+async function syncRoomForLevel(publicTier: string): Promise<RoomSync> {
+  if (!publicTier) return { ok: false, message: "Missing level." }
 
   const mappings = await getLevelRoomMappings()
   const mapping = mappings.find((m) => m.publicTier === publicTier)
-  if (!mapping) return { message: "No Data Room mapped for this level." }
+  if (!mapping) return { ok: false, message: "No Data Room mapped for this level." }
 
   const docsResult = await listDataRoomDocuments(mapping.dataroomId)
   if (!docsResult.ok) {
     await updateLevelRoomSyncState(publicTier, docsResult.message)
-    return { message: docsResult.message }
+    return { ok: false, message: docsResult.message }
   }
 
   const documents = docsResult.value.map((d) => ({
@@ -146,6 +176,10 @@ export async function syncDataRoomForLevel(publicTier: string): Promise<FormStat
   const { autoCreatePublicationsForRoom } = await import("@/lib/dataroom-dal")
   const pubCounts = await autoCreatePublicationsForRoom(mapping.dataroomId, publicTier)
 
+  // A document is not delivered by appearing in the room: each subscriber
+  // needs their own link to it before the card in their library opens.
+  const links = await prepareRoomLinks(mapping.dataroomId)
+
   refresh()
   const parts = [
     `${documents.length} documents (${counts.added} new, ${counts.updated} updated, ${counts.removed} removed)`,
@@ -160,6 +194,8 @@ export async function syncDataRoomForLevel(publicTier: string): Promise<FormStat
   return {
     ok: true,
     message: `Synced: ${parts.join('. ')}.`,
+    dataroomId: mapping.dataroomId,
+    links,
   }
 }
 
@@ -215,19 +251,30 @@ export async function createSubscriberDataRoomLink(subscriberId: string): Promis
 
   if (!result.ok) return { message: result.message }
 
-  await saveDataRoomLink({
-    subscriberId: sub.id,
-    dataroomId: room.dataroomId,
-    papermarkLinkId: result.value.linkId,
-    linkUrl: result.value.url,
-    assignedName: sub.full_name,
-    assignedEmail: sub.email,
-    watermarkEnabled: true,
-    watermarkText: subscriberWatermarkText(sub.email),
-    allowDownload: result.value.settings.allow_download,
-    screenshotProtection: result.value.settings.enable_screenshot_protection,
-    expiresAt: result.value.settings.expires_at,
-  })
+  try {
+    await saveDataRoomLink({
+      subscriberId: sub.id,
+      dataroomId: room.dataroomId,
+      papermarkLinkId: result.value.linkId,
+      linkUrl: result.value.url,
+      assignedName: sub.full_name,
+      assignedEmail: sub.email,
+      watermarkEnabled: true,
+      watermarkText: subscriberWatermarkText(sub.email),
+      allowDownload: result.value.settings.allow_download,
+      screenshotProtection: result.value.settings.enable_screenshot_protection,
+      expiresAt: result.value.settings.expires_at,
+    })
+  } catch {
+    // Minted but not recorded: withdrawn again, so no working link is left
+    // that nothing tracks or revokes.
+    const withdrawn = await revokeDataRoomLink(result.value.linkId)
+    return {
+      message: withdrawn.ok
+        ? "The Data Room link could not be recorded, so it was withdrawn again. Try again."
+        : "The Data Room link could not be recorded or withdrawn. Revoke it in Papermark by name, then try again.",
+    }
+  }
 
   await assignDataRoomToSubscriber(sub.id, room.dataroomId)
 
@@ -240,8 +287,17 @@ export async function createSubscriberDataRoomLink(subscriberId: string): Promis
     changedByName: admin.name,
   })
 
+  // The room link alone opens no document in the viewer: each card needs the
+  // subscriber's own link. Nothing is emailed from here.
+  const links = await ensureAllDocumentLinks(sub.id, { dataroomId: room.dataroomId })
+
   refresh()
-  return { ok: true, message: "Data Room link created and assigned." }
+  return {
+    ok: true,
+    message: `Data Room link created and assigned. ${
+      links.state === "prepared" ? describePersonalLinks(links.report) : links.message
+    }`,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -400,28 +456,39 @@ export async function removeSubscriberSeat(seatId: string): Promise<FormState> {
 // Prepare document links (owner-only backfill)
 // ---------------------------------------------------------------------------
 
+/**
+ * Check and repair one subscriber's personal document links.
+ *
+ * The safe retry for one person: every stored link is read back from
+ * Papermark, a revoked or misdirected one is replaced, a wrong expiry is
+ * corrected and a missing one is created. Idempotent -- running it again
+ * changes nothing that is already right -- and it never sends email, including
+ * a welcome that activation held back; Resend sign-in link sends that.
+ */
 export async function prepareDocumentLinks(subscriberId: string): Promise<FormState> {
   await requireOwner()
   if (!UUID.test(subscriberId)) return { message: "Unknown subscriber." }
 
-  const { ensureAllDocumentLinks } = await import("@/lib/document-links")
-  const result = await ensureAllDocumentLinks(subscriberId)
+  let outcome: SubscriberLinkOutcome
+  try {
+    outcome = await ensureAllDocumentLinks(subscriberId, { verify: true })
+  } catch {
+    return { message: "The personal document links could not be checked. Try again shortly." }
+  }
 
   refresh()
-  if (result.errors > 0 && result.created === 0) {
-    return { message: `Could not create document links. ${result.errors} error${result.errors === 1 ? "" : "s"}.` }
-  }
-  return {
-    ok: true,
-    message: [
-      result.created > 0 ? `${result.created} document link${result.created === 1 ? "" : "s"} created.` : null,
-      result.skipped > 0 ? `${result.skipped} already existed.` : null,
-      result.errors > 0 ? `${result.errors} failed.` : null,
-      result.created === 0 && result.skipped === 0 && result.errors === 0 ? "No documents need links." : null,
-    ].filter(Boolean).join(" "),
-  }
+  if (outcome.state === "not_eligible") return { message: outcome.message }
+  return { ok: outcome.report.complete, message: describePersonalLinks(outcome.report) }
 }
 
+/**
+ * Prepare document links for every subscriber of one level's Data Room.
+ *
+ * Creates what is missing and corrects expiries the database shows to be
+ * wrong. It does not read every stored link back from Papermark -- that is one
+ * call per link -- so it never calls a link confirmed; Check and repair on a
+ * subscriber's page does. Never sends email.
+ */
 export async function prepareDocumentLinksForLevel(publicTier: string): Promise<FormState> {
   await requireOwner()
   if (!(PUBLIC_TIER_NAMES as readonly string[]).includes(publicTier)) return { message: "Unknown subscription level." }
@@ -429,46 +496,27 @@ export async function prepareDocumentLinksForLevel(publicTier: string): Promise<
   const room = await resolveDataRoom({ publicTier })
   if (!room) return { message: `No Data Room mapped for ${publicTier}.` }
 
-  const { getActiveSubscriberIdsForRoom } = await import("@/lib/dataroom-dal")
-  const subscriberIds = await getActiveSubscriberIdsForRoom(room.dataroomId)
-  if (subscriberIds.length === 0) return { ok: true, message: "No active subscribers with a live link for this level." }
-
-  const { ensureAllDocumentLinks } = await import("@/lib/document-links")
-
-  let totalCreated = 0
-  let totalSkipped = 0
-  let totalFailed = 0
-  let processed = 0
-
-  for (const subId of subscriberIds) {
-    try {
-      const result = await ensureAllDocumentLinks(subId)
-      totalCreated += result.created
-      totalSkipped += result.skipped
-      totalFailed += result.errors
-      processed++
-    } catch {
-      totalFailed++
-    }
-  }
-
+  const summary = await prepareRoomLinks(room.dataroomId)
   refresh()
-
-  if (totalFailed > 0 && totalCreated === 0) {
-    return {
-      message: `Could not create document links for ${subscriberIds.length} subscriber${subscriberIds.length === 1 ? "" : "s"}. ${totalFailed} error${totalFailed === 1 ? "" : "s"}.`,
-    }
+  if (summary.subscribers === 0) {
+    return { ok: true, message: "No active subscribers with a live link for this level." }
   }
+
+  const totalCreated = summary.report.created + summary.report.repaired
+  const totalSkipped = summary.report.stored
+  const totalFailed = summary.report.failed + summary.report.unconfirmed + summary.errors
+  const processed = summary.outcomes.length
+
+  const counts = [
+    `${processed} subscriber${processed === 1 ? "" : "s"} processed.`,
+    totalCreated > 0 ? `${totalCreated} link${totalCreated === 1 ? "" : "s"} created or repaired.` : null,
+    totalSkipped > 0 ? `${totalSkipped} already prepared.` : null,
+    totalFailed > 0 ? `${totalFailed} not ready.` : null,
+  ].filter(Boolean).join(" ")
 
   return {
-    ok: true,
-    message: [
-      `${processed} subscriber${processed === 1 ? "" : "s"} processed.`,
-      totalCreated > 0 ? `${totalCreated} link${totalCreated === 1 ? "" : "s"} created.` : null,
-      totalSkipped > 0 ? `${totalSkipped} already existed.` : null,
-      totalFailed > 0 ? `${totalFailed} failed.` : null,
-      totalCreated === 0 && totalSkipped === 0 && totalFailed === 0 ? "All documents already have links." : null,
-    ].filter(Boolean).join(" "),
+    ok: summary.complete,
+    message: summary.complete ? counts : `${counts} ${describeRoomLinks(summary)}`,
   }
 }
 
@@ -833,41 +881,55 @@ export async function recordPortalDownloadClick(
 // ---------------------------------------------------------------------------
 
 export async function syncAndNotify(publicTier: string): Promise<FormState> {
-  const admin = await requireOwner()
+  await requireOwner()
   if (!publicTier) return { message: "Missing level." }
 
-  const syncResult = await syncDataRoomForLevel(publicTier)
-  if (!syncResult?.ok) return syncResult
-
-  const mappings = await getLevelRoomMappings()
-  const mapping = mappings.find((m) => m.publicTier === publicTier)
-  if (!mapping) return syncResult
+  const synced = await syncRoomForLevel(publicTier)
+  if (!synced.ok) return { message: synced.message }
+  const syncMessage = `${synced.message} ${describeRoomLinks(synced.links)}`
 
   const sql = getSql()
 
   const newDocs = (await sql`
-    select dd.id as doc_id, dd.title, dd.version_key
+    select dd.id as doc_id, dd.papermark_document_id, dd.title, dd.version_key
     from papermark_dataroom_documents dd
-    where dd.papermark_dataroom_id = ${mapping.dataroomId}
+    where dd.papermark_dataroom_id = ${synced.dataroomId}
       and dd.is_present = true
       and dd.first_seen_at > now() - interval '7 days'
-  `) as { doc_id: string; title: string; version_key: string }[]
+  `) as { doc_id: string; papermark_document_id: string; title: string; version_key: string }[]
 
   if (newDocs.length === 0) {
-    return { ok: true, message: `${syncResult.message} No new documents to notify about.` }
+    return { ok: synced.links.complete, message: `${syncMessage} No new documents to notify about.` }
   }
 
   const subscribers = (await sql`
-    select s.id, s.full_name, s.email
+    select s.id, s.full_name, s.email,
+           exists (
+             select 1 from papermark_dataroom_links l
+             where l.subscriber_id = s.id
+               and l.papermark_dataroom_id = ${synced.dataroomId}
+               and l.revoke_state = 'live'
+           ) as has_room_link
     from subscribers s
     where s.client_type = 'subscriber'
       and lower(s.status) = 'active'
       and s.public_tier = ${publicTier}
-  `) as { id: string; full_name: string; email: string }[]
+  `) as { id: string; full_name: string; email: string; has_room_link: boolean }[]
+
+  // A notification for a document the subscriber cannot open yet would send
+  // them to a card that says the viewer is unavailable, so it waits for the
+  // link. Nothing is marked as notified for a pair that waits, so a later run
+  // can still notify it once the link exists.
+  const ready = await getLivePersonalLinkKeys(newDocs.map((d) => d.papermark_document_id))
 
   let notified = 0
+  let held = 0
   for (const sub of subscribers) {
     for (const doc of newDocs) {
+      if (sub.has_room_link && !ready.has(`${sub.id}:${doc.papermark_document_id}`)) {
+        held++
+        continue
+      }
       try {
         await sql`
           insert into papermark_document_notifications
@@ -882,9 +944,13 @@ export async function syncAndNotify(publicTier: string): Promise<FormState> {
   }
 
   refresh()
+  const heldNote =
+    held > 0
+      ? ` ${held} held back until the subscriber's personal link is ready; run this again after preparing the links.`
+      : ""
   return {
-    ok: true,
-    message: `${syncResult.message} ${notified} notification${notified === 1 ? "" : "s"} queued for ${subscribers.length} subscriber${subscribers.length === 1 ? "" : "s"}.`,
+    ok: synced.links.complete && held === 0,
+    message: `${syncMessage} ${notified} notification${notified === 1 ? "" : "s"} queued for ${subscribers.length} subscriber${subscribers.length === 1 ? "" : "s"}.${heldNote}`,
   }
 }
 
@@ -966,10 +1032,14 @@ export async function migrateSubscriberToDataRoom(
     changedByName: admin.name,
   })
 
+  const links = await ensureAllDocumentLinks(sub.id, { dataroomId: room.dataroomId })
+
   refresh()
   return {
     ok: true,
-    message: `Migrated to Data Room. Legacy library link preserved as fallback.`,
+    message: `Migrated to Data Room. Legacy library link preserved as fallback. ${
+      links.state === "prepared" ? describePersonalLinks(links.report) : links.message
+    }`,
   }
 }
 

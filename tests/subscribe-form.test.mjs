@@ -20,7 +20,10 @@ test('multi-seat access requires and saves a valid count', () => {
 
 test('the form hides seats until a non-Individual level and clears stale seats', () => {
   const source = read('src/app/access-form.tsx')
-  assert.match(source, /subscriptionLevel && subscriptionLevel !== 'Individual Access'/)
+  // Seats show only for levels that are not a priced plan: Individual Access
+  // is one person, and Professional Access names its people instead.
+  assert.match(source, /const showSeats = Boolean\(subscriptionLevel && !plan\)/)
+  assert.match(source, /const plan = Object\.values\(PLANS\)\.find\(\(p\) => p\.tier === subscriptionLevel\) \?\? null/)
   assert.match(source, /if \(value === 'Individual Access' \|\| !value\) setSeats\(''\)/)
   assert.ok(source.indexOf('Subscription access level') < source.indexOf('How many people need access?'))
 })

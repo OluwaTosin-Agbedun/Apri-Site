@@ -17,6 +17,7 @@ import {
   type ReviewLinkSettings,
 } from './papermark-dataroom-contract'
 import { papermarkExpiresAt } from './papermark-contract'
+import type { PapermarkLinkRead } from './personal-links'
 
 /**
  * The Papermark Data Room service.
@@ -425,6 +426,40 @@ export async function createDocumentLink(args: {
     }
     return { linkId: link.id, url, settings }
   }, 'Creating the personal document link')
+}
+
+/**
+ * Reads one subscriber's personal document link back from Papermark.
+ *
+ * A 404 -- and only a 404 -- is reported as gone, the rule a withdrawal uses
+ * too: Papermark revokes by soft-deleting, and any other failure says nothing
+ * about the link. The message never includes the link id, because the id is
+ * what opens the document.
+ */
+export async function readSubscriberDocumentLink(linkId: string): Promise<PapermarkLinkRead> {
+  const id = linkId.trim()
+  if (!id) return { state: 'unknown', message: 'No Papermark link is stored for this document.' }
+
+  const result = await attempt(
+    () => papermarkRequest<DataRoomLink>(`/v1/links/${encodeURIComponent(id)}`),
+    'Checking the personal document link',
+  )
+  if (result.ok) {
+    const link = result.value
+    if (!link || typeof link !== 'object') {
+      return { state: 'unknown', message: 'Papermark returned an unreadable link.' }
+    }
+    return {
+      state: 'found',
+      documentId: link.document_id ?? null,
+      dataroomId: link.dataroom_id ?? null,
+      targetType: link.target_type ?? null,
+      // Absent is not the same as "never expires": only a reported null is.
+      expiresAt: 'expires_at' in link ? (link.expires_at ?? null) : undefined,
+    }
+  }
+  if (result.status === 404) return { state: 'gone' }
+  return { state: 'unknown', message: result.message }
 }
 
 // ---------------------------------------------------------------------------

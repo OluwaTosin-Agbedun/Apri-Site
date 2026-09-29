@@ -6,7 +6,7 @@ import { getReachMonths } from "@/lib/provisioning"
 import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
 import SeatActions from "../seat-actions"
 import DataRoomPanel from "@/components/DataRoomPanel"
-import { resolveDataRoom, getDataRoomLink } from "@/lib/dataroom-dal"
+import { resolveDataRoom, getDataRoomLink, getPersonalLinkStatus } from "@/lib/dataroom-dal"
 import { portalSignInUrl } from "@/lib/app-url"
 import { decidePortalLinkCopy } from "@/lib/portal-link-copy"
 import CopyPortalLink from "./copy-portal-link"
@@ -143,6 +143,21 @@ export default async function EditSubscriberPage({
     ? await getDataRoomLink({ subscriberId: row.id, dataroomId: room.dataroomId })
     : null
 
+  // What the database records, labelled as such on the page: a stored link is
+  // not called working until Check and repair has confirmed it with Papermark.
+  const linkStatus = drLink ? await getPersonalLinkStatus(row.id) : null
+  const personalLinks =
+    linkStatus && linkStatus.hasRoomLink
+      ? {
+          total: linkStatus.documents.length,
+          linked: linkStatus.documents.filter((d) => d.linked).length,
+          missing: linkStatus.documents.filter((d) => !d.linked).map((d) => d.title || "Untitled document"),
+          expiryIssues: linkStatus.documents
+            .filter((d) => d.expiryProblem)
+            .map((d) => d.title || "Untitled document"),
+        }
+      : null
+
   const status = row.status.toLowerCase()
 
   // This subscriber's own latest access email that Resend accepted, and
@@ -243,6 +258,8 @@ export default async function EditSubscriberPage({
           uniqueViewers: drLink.uniqueViewers,
           lastActivityAt: drLink.lastActivityAt,
         } : null}
+        personalLinks={personalLinks}
+        canRepair={admin.role === "owner"}
       />
 
       <SubscriberForm draft={draft} />

@@ -1,6 +1,7 @@
 import 'server-only'
 import { getSql } from './db'
 import { PUBLIC_TIERS } from './entitlements'
+import { expiryProblem } from './personal-links'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -757,27 +758,180 @@ export async function getLiveDocumentLinksForSubscriber(
   return rows.map(mapDocLinkRow)
 }
 
-export async function getDocumentsNeedingLinks(args: {
-  subscriberId: string
-  dataroomId: string
-}): Promise<{ papermarkDocumentId: string; title: string }[]> {
+// ---------------------------------------------------------------------------
+// Personal document links: what a provisioning run reads and writes
+// ---------------------------------------------------------------------------
+
+/** Every document a subscriber of this room is shown: the room's present documents. */
+export async function getRoomDocumentsForLinks(
+  dataroomId: string,
+): Promise<{ papermarkDocumentId: string; title: string }[]> {
   const sql = getSql()
   const rows = (await sql`
-    select dd.papermark_document_id, dd.title
+    select papermark_document_id, title
+    from papermark_dataroom_documents
+    where papermark_dataroom_id = ${dataroomId}
+      and is_present = true
+    order by first_seen_at, title
+  `) as { papermark_document_id: string; title: string | null }[]
+  return rows.map((r) => ({ papermarkDocumentId: r.papermark_document_id, title: r.title ?? '' }))
+}
+
+export type LivePersonalLink = {
+  rowId: string
+  papermarkDocumentId: string
+  papermarkLinkId: string
+  assignedName: string
+  assignedEmail: string
+  expiresAt: Date | string | null
+}
+
+/** One subscriber's live personal link rows, with the expiry as stored. */
+export async function getLivePersonalLinks(subscriberId: string): Promise<LivePersonalLink[]> {
+  if (!UUID.test(subscriberId)) return []
+  const sql = getSql()
+  const rows = (await sql`
+    select id, papermark_document_id, papermark_link_id,
+           assigned_name, assigned_email, expires_at
+    from papermark_subscriber_document_links
+    where subscriber_id = ${subscriberId}::uuid
+      and revoke_state = 'live'
+  `) as {
+    id: string
+    papermark_document_id: string
+    papermark_link_id: string
+    assigned_name: string
+    assigned_email: string
+    expires_at: Date | string | null
+  }[]
+  return rows.map((r) => ({
+    rowId: r.id,
+    papermarkDocumentId: r.papermark_document_id,
+    papermarkLinkId: r.papermark_link_id,
+    assignedName: r.assigned_name,
+    assignedEmail: r.assigned_email,
+    expiresAt: r.expires_at,
+  }))
+}
+
+/** Records the expiry a live link was corrected to in Papermark. */
+export async function setPersonalLinkExpiry(rowId: string, expiresAt: string | null): Promise<void> {
+  if (!UUID.test(rowId)) return
+  const sql = getSql()
+  await sql`
+    update papermark_subscriber_document_links
+    set expires_at = ${expiresAt}::timestamptz, updated_at = now()
+    where id = ${rowId}::uuid and revoke_state = 'live'
+  `
+}
+
+/**
+ * Which (subscriber, document) pairs of these documents have a live personal
+ * link, as `subscriberId:papermarkDocumentId` keys. Used to hold back a
+ * notification until the link it points to exists.
+ */
+export async function getLivePersonalLinkKeys(papermarkDocumentIds: string[]): Promise<Set<string>> {
+  if (papermarkDocumentIds.length === 0) return new Set()
+  const sql = getSql()
+  const rows = (await sql`
+    select subscriber_id, papermark_document_id
+    from papermark_subscriber_document_links
+    where revoke_state = 'live'
+      and papermark_document_id = any(${papermarkDocumentIds})
+  `) as { subscriber_id: string; papermark_document_id: string }[]
+  return new Set(rows.map((r) => `${r.subscriber_id}:${r.papermark_document_id}`))
+}
+
+export type PersonalLinkStatus = {
+  dataroomId: string | null
+  hasRoomLink: boolean
+  documents: { title: string; linked: boolean; expiryProblem: string | null }[]
+}
+
+/**
+ * The Admin view of one subscriber's personal links, from the database alone.
+ *
+ * It says which documents have a stored link, which have none and which
+ * stored links record an expiry that does not match the subscription. It does
+ * not say a link works: only a check with Papermark can, and the Admin page
+ * labels it that way.
+ */
+export async function getPersonalLinkStatus(subscriberId: string): Promise<PersonalLinkStatus | null> {
+  if (!UUID.test(subscriberId)) return null
+  const sql = getSql()
+  const subs = (await sql`
+    select coalesce(s.papermark_dataroom_override, s.papermark_dataroom_id) as dataroom_id,
+           to_char(s.term_end, 'YYYY-MM-DD') as term_end_date,
+           exists (
+             select 1 from papermark_dataroom_links l
+             where l.subscriber_id = s.id
+               and l.papermark_dataroom_id = coalesce(s.papermark_dataroom_override, s.papermark_dataroom_id)
+               and l.revoke_state = 'live'
+           ) as has_room_link
+    from subscribers s
+    where s.id = ${subscriberId}::uuid and s.client_type = 'subscriber'
+    limit 1
+  `) as { dataroom_id: string | null; term_end_date: string | null; has_room_link: boolean }[]
+  const sub = subs[0]
+  if (!sub) return null
+  if (!sub.dataroom_id) return { dataroomId: null, hasRoomLink: false, documents: [] }
+
+  const rows = (await sql`
+    select dd.title, dl.id as link_row_id, dl.expires_at
     from papermark_dataroom_documents dd
-    where dd.papermark_dataroom_id = ${args.dataroomId}
+    left join papermark_subscriber_document_links dl
+      on dl.subscriber_id = ${subscriberId}::uuid
+     and dl.papermark_document_id = dd.papermark_document_id
+     and dl.revoke_state = 'live'
+    where dd.papermark_dataroom_id = ${sub.dataroom_id}
       and dd.is_present = true
+    order by dd.title
+  `) as { title: string | null; link_row_id: string | null; expires_at: Date | string | null }[]
+
+  return {
+    dataroomId: sub.dataroom_id,
+    hasRoomLink: sub.has_room_link === true,
+    documents: rows.map((r) => ({
+      title: r.title ?? '',
+      linked: Boolean(r.link_row_id),
+      expiryProblem: r.link_row_id ? expiryProblem(r.expires_at, sub.term_end_date) : null,
+    })),
+  }
+}
+
+/**
+ * Per Data Room: how many documents active subscribers holding a live room
+ * link can see but have no personal link for, and how many subscribers that
+ * affects. A room with no gaps is absent from the map.
+ */
+export async function getPersonalLinkGaps(): Promise<Map<string, { missing: number; subscribers: number }>> {
+  const sql = getSql()
+  const rows = (await sql`
+    select dd.papermark_dataroom_id as dataroom_id,
+           count(*)::int as missing,
+           count(distinct s.id)::int as subscribers
+    from subscribers s
+    join papermark_dataroom_documents dd
+      on dd.papermark_dataroom_id = coalesce(s.papermark_dataroom_override, s.papermark_dataroom_id)
+     and dd.is_present = true
+    where s.client_type = 'subscriber'
+      and lower(s.status) = 'active'
+      and (s.term_end is null or s.term_end >= current_date)
+      and exists (
+        select 1 from papermark_dataroom_links l
+        where l.subscriber_id = s.id
+          and l.papermark_dataroom_id = dd.papermark_dataroom_id
+          and l.revoke_state = 'live'
+      )
       and not exists (
         select 1 from papermark_subscriber_document_links dl
-        where dl.subscriber_id = ${args.subscriberId}::uuid
+        where dl.subscriber_id = s.id
           and dl.papermark_document_id = dd.papermark_document_id
           and dl.revoke_state = 'live'
       )
-  `) as { papermark_document_id: string; title: string }[]
-  return rows.map((r) => ({
-    papermarkDocumentId: r.papermark_document_id,
-    title: r.title,
-  }))
+    group by dd.papermark_dataroom_id
+  `) as { dataroom_id: string; missing: number; subscribers: number }[]
+  return new Map(rows.map((r) => [r.dataroom_id, { missing: r.missing, subscribers: r.subscribers }]))
 }
 
 function mapDocLinkRow(r: Record<string, unknown>): DocumentLinkRecord {

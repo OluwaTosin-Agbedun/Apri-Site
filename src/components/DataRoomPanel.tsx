@@ -6,7 +6,16 @@ import {
   createSubscriberDataRoomLink,
   revokeSubscriberDataRoomLink,
   refreshDataRoomLinkAnalytics,
+  prepareDocumentLinks,
 } from "@/app/actions/datarooms"
+
+/** What the database records about one subscriber's personal document links. */
+export type PersonalLinkSummary = {
+  total: number
+  linked: number
+  missing: string[]
+  expiryIssues: string[]
+}
 
 type LinkRecord = {
   id: string
@@ -26,17 +35,31 @@ export default function DataRoomPanel({
   dataroomName,
   dataroomId,
   link,
+  personalLinks,
+  canRepair,
 }: {
   subscriberId: string
   dataroomName: string | null
   dataroomId: string | null
   link: LinkRecord | null
+  personalLinks: PersonalLinkSummary | null
+  canRepair: boolean
 }) {
   const router = useRouter()
   const [creating, startCreate] = useTransition()
   const [revoking, startRevoke] = useTransition()
   const [refreshing, startRefresh] = useTransition()
+  const [repairing, startRepair] = useTransition()
   const [message, setMessage] = useState("")
+
+  function handleRepair() {
+    setMessage("")
+    startRepair(async () => {
+      const result = await prepareDocumentLinks(subscriberId)
+      setMessage(result?.message ?? "")
+      router.refresh()
+    })
+  }
 
   function handleCreate() {
     setMessage("")
@@ -108,6 +131,54 @@ export default function DataRoomPanel({
               </p>
             </div>
           </div>
+
+          {personalLinks && (
+            <div className="pt-3 border-t border-border">
+              <p className="text-xs text-muted-foreground">Personal document links</p>
+              {personalLinks.total === 0 ? (
+                <p className="text-sm text-foreground">No documents are synced into this Data Room yet.</p>
+              ) : personalLinks.missing.length === 0 && personalLinks.expiryIssues.length === 0 ? (
+                <p className="text-sm text-foreground">
+                  All {personalLinks.total} documents have a stored personal link. Stored links are
+                  confirmed with Papermark only when Check and repair runs.
+                </p>
+              ) : (
+                <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 p-3 mt-1" role="status">
+                  <p>
+                    {personalLinks.linked} of {personalLinks.total} documents have a stored personal link.
+                    The subscriber cannot open the others.
+                  </p>
+                  {personalLinks.missing.length > 0 && (
+                    <p className="mt-2">
+                      Missing: {personalLinks.missing.slice(0, 5).join("; ")}
+                      {personalLinks.missing.length > 5 ? `; and ${personalLinks.missing.length - 5} more` : ""}
+                    </p>
+                  )}
+                  {personalLinks.expiryIssues.length > 0 && (
+                    <p className="mt-2">
+                      Expiry does not match the subscription: {personalLinks.expiryIssues.slice(0, 5).join("; ")}
+                      {personalLinks.expiryIssues.length > 5 ? `; and ${personalLinks.expiryIssues.length - 5} more` : ""}
+                    </p>
+                  )}
+                </div>
+              )}
+              {canRepair ? (
+                <button
+                  type="button"
+                  onClick={handleRepair}
+                  disabled={repairing}
+                  className="mt-3 border border-border px-4 py-2 text-xs hover:bg-black/5 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {repairing ? "Checking with Papermark..." : "Check and repair document links"}
+                </button>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  An owner can check and repair these links. Resend sign-in link also prepares any that
+                  are missing before it sends.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-3 pt-3 border-t border-border">
             <button

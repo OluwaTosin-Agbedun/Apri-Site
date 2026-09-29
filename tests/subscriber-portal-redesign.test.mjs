@@ -49,12 +49,11 @@ test("activity comes only from confirmed Papermark view and download rows scoped
   assert.match(dal, /papermark_document_id = dd\.papermark_document_id/)
 
   const portal = read("src/app/portal/page.tsx")
-  assert.match(portal, /aria-label="Viewed by you"/)
+  // "Viewed" is small text at the bottom right, shown only for a recorded view.
+  assert.match(portal, /\{document\.viewedBySubscriber && \(\s*<p className="mt-3 text-right text-\[0\.7rem\] text-muted-foreground">Viewed<\/p>/)
+  // The download icon only for a recorded download.
   assert.match(portal, /aria-label="Downloaded by you"/)
-  assert.match(
-    portal,
-    /if \(!document\.viewedBySubscriber && !document\.downloadedBySubscriber\) return null/s,
-  )
+  assert.match(portal, /if \(!document\.downloadedBySubscriber\) return null/)
 })
 
 test("subscriber cards do not use review links or enable downloads", () => {

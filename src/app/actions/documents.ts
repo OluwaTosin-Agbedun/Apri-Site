@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { requireAdmin, requireOwner } from '@/lib/dal'
 import { getSql } from '@/lib/db'
 import { DocumentSchema, fieldErrors, type FormState } from '@/lib/definitions'
+import { portalTitleOverrideReady } from '@/lib/portal-title-schema'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STATUSES = ['draft', 'published', 'archived'] as const
@@ -193,8 +194,22 @@ export async function saveDocument(
     return { message: 'That web address (slug) is already in use.' }
   }
 
+  // Whether subscribers see this title instead of the Papermark name. Only an
+  // explicit tick sets it; saving the form otherwise leaves it off, so a title
+  // sync generated can never become an override by accident.
+  let overrideNote = ''
+  if (id && formData.has('portalTitleOverrideField')) {
+    if (await portalTitleOverrideReady(sql, { fresh: true })) {
+      const keep = formData.get('portalTitleOverride') === 'on'
+      await sql`update documents set portal_title_override = ${keep} where id = ${id}`
+    } else {
+      overrideNote = ' The title override is not available until its migration has been run.'
+    }
+  }
+
   refreshDocumentAdminPaths()
-  return { ok: true, message: 'Saved.' }
+  revalidatePath('/portal')
+  return { ok: true, message: `Saved.${overrideNote}` }
 }
 
 /** Auto-sync toggle. Ships disabled; stored for future scheduled use. */

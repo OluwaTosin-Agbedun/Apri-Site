@@ -32,7 +32,8 @@ test("subscriber Save accepts and normalises APRI and custom Papermark domains",
 })
 
 test("subscriber Save and activation turn expected storage errors into form messages", () => {
-  const source = read("src/app/actions/subscribers.ts")
+  // Activation's checks are in the shared function every activation takes.
+  const source = read("src/app/actions/subscribers.ts") + read("src/lib/subscriber-activation.ts")
   assert.match(source, /The subscriber could not be saved/)
   assert.match(source, /Subscriber storage is temporarily unavailable/)
   assert.match(source, /Activation checks could not be completed/)

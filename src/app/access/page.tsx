@@ -3,6 +3,7 @@ import SiteFooter from "@/components/SiteFooter"
 import AccessForm from "@/app/access-form"
 import { accessNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
 import { TIER_DESCRIPTIONS, tierDisplayName } from "@/lib/entitlements"
+import { PLANS } from "@/lib/subscription-journey"
 
 export const metadata = {
   title:
@@ -44,10 +45,21 @@ export default async function AccessPage({
   searchParams,
   // Next 16: searchParams is a promise.
 }: {
-  searchParams: Promise<{ level?: string | string[] }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = await searchParams
   const requested = Array.isArray(params.level) ? params.level[0] : params.level
+  // Campaign attribution travels with the plan buttons into the form below,
+  // and from there into the request.
+  const utm = Object.fromEntries(
+    ["source", "medium", "campaign", "term", "content"].map((k) => {
+      const raw = params[`utm_${k}`]
+      return [k, ((Array.isArray(raw) ? raw[0] : raw) ?? "").slice(0, 120)]
+    }),
+  )
+  const utmQuery = Object.entries(utm)
+    .map(([k, v]) => (v ? `&utm_${k}=${encodeURIComponent(v)}` : ""))
+    .join("")
   const defaultLevel =
     requested &&
     SUBSCRIPTION_LEVELS.some(
@@ -72,6 +84,48 @@ export default async function AccessPage({
           </p>
         </header>
 
+        {/*
+          The two plans with published prices. Each button opens the request
+          form with its plan selected; the request grants nothing by itself --
+          access follows a signed agreement and confirmed payment.
+        */}
+        <section id="plans" className="mb-16 scroll-mt-24">
+          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-10 tracking-tight">
+            Subscription Plans
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {(["Individual", "Professional"] as const).map((key) => {
+              const plan = PLANS[key]
+              return (
+                <article key={key} className="border border-border bg-card/30 p-8 sm:p-10 flex flex-col">
+                  <h3 className="font-serif text-2xl text-foreground">{plan.label}</h3>
+                  <p className="mt-3 text-lg text-foreground">{plan.price}</p>
+                  <p className="mt-1 text-sm text-foreground/70">{plan.users}.</p>
+                  <p className="mt-4 text-sm text-foreground/70 leading-relaxed flex-1">
+                    {TIER_DESCRIPTIONS[plan.tier] ?? ""}
+                  </p>
+                  <a
+                    className="btn-primary mt-8 self-start"
+                    href={`/access?level=${encodeURIComponent(plan.tier)}${utmQuery}#subscribe`}
+                  >
+                    Request {plan.label}
+                  </a>
+                </article>
+              )
+            })}
+          </div>
+          <p className="mt-6 text-sm text-muted-foreground leading-relaxed max-w-4xl">
+            Each named subscriber receives their own secure sign-in. We send the
+            subscription agreement and payment details after your request, and
+            access is activated once the agreement is completed and payment
+            confirmed. Already a subscriber?{" "}
+            <a className="text-accent hover:text-accent-hover transition-colors" href="/portal/sign-in">
+              Sign in to your library
+            </a>
+            .
+          </p>
+        </section>
+
         <section className="mb-16">
           <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-10 tracking-tight">
             Subscription Levels
@@ -89,7 +143,7 @@ export default async function AccessPage({
               return (
                 <a
                   key={storedName}
-                  href={`/access?level=${encodeURIComponent(storedName)}#subscribe`}
+                  href={`/access?level=${encodeURIComponent(storedName)}${utmQuery}#subscribe`}
                   className="group panel-interactive block p-8 sm:p-10 lg:p-12"
                 >
                   <div className="flex items-baseline gap-4 mb-3">
@@ -137,7 +191,7 @@ export default async function AccessPage({
             business day to agree terms and issue your access.
           </p>
 
-          <AccessForm defaultLevel={defaultLevel} />
+          <AccessForm defaultLevel={defaultLevel} utm={utm} />
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-4xl">

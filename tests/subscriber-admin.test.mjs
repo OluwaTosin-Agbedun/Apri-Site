@@ -44,7 +44,7 @@ test('Papermark and APRI custom-domain links are normalized and validated', () =
 })
 
 test('activation reports each exact missing requirement', () => {
-  const action = read('src/app/actions/subscribers.ts')
+  const action = read('src/app/actions/subscribers.ts') + read('src/lib/subscriber-activation.ts')
   const controls = read('src/app/admin/subscribers/seat-actions.tsx')
   assert.match(action, /Set Subscription access level before activating/)
   assert.match(action, /Set a term end date before activating/)

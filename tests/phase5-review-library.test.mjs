@@ -395,10 +395,21 @@ describe('library enable validation', () => {
 // 18. Three-column responsive layout
 // ---------------------------------------------------------------------------
 
-test('publications page groups the archive by series', () => {
+test('publications page shows MIN, AIU and PLM as three columns on desktop, stacking on mobile', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /\(\["MIN", "AIU", "PLM"\] as const\)\.map\(\(series\) =>/)
-  assert.match(src, /grid grid-cols-1 md:grid-cols-2/)
+  const section = src.slice(src.indexOf('<section id="review-publications"'), src.indexOf('</section>'))
+  // One grid, three columns from md up, one column below it.
+  assert.match(section, /<div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-start">/)
+  assert.doesNotMatch(section, /md:grid-cols-2/)
+  // Each column is one series, in MIN, AIU, PLM order, holding all its editions.
+  assert.match(section, /\(\["MIN", "AIU", "PLM"\] as const\)\.map\(\(series\) =>/)
+  assert.match(section, /const cards = archive\.filter\(\(item\) => item\.slotKey === series\)\s*if \(!cards\.length\) return null/)
+  assert.match(section, /\{cards\.map\(\(card\) => \(/)
+  // Every card keeps its own secure link and edition details.
+  assert.match(section, /href=\{card\.secureUrl\}/)
+  assert.match(section, /\{card\.editionLabel \|\| card\.editionDate\}/)
+  // The separate complimentary review request stays below the listing.
+  assert.ok(src.indexOf('Request Complimentary Review Access') > src.indexOf('</section>'))
 })
 
 // ---------------------------------------------------------------------------

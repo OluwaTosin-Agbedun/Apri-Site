@@ -588,10 +588,14 @@ describe('instrumented surfaces', () => {
     const labels = [...src.matchAll(/title="Downloaded by you"/g)]
     assert.ok(labels.length > 0)
     for (const m of labels) {
-      assert.match(src.slice(Math.max(0, m.index - 200), m.index), /\.downloadedBySubscriber && <span/)
+      const before = src.slice(Math.max(0, m.index - 400), m.index)
+      assert.match(before, /if \(!(document|item)\.downloadedBySubscriber\) return null/)
     }
-    // ...which comes only from a recorded download event.
-    assert.match(read('src/lib/papermark-client-library.ts'), /exists \(select 1 from document_download_events de/)
+    // ...which comes only from a recorded download event, for this exact document.
+    assert.match(
+      read('src/lib/papermark-client-library.ts'),
+      /exists \(select 1 from document_download_events de\s+where de\.subscriber_id = \$\{subscriberId\}::uuid\s+and de\.papermark_document_id = dd\.papermark_document_id\) as downloaded_by_subscriber/,
+    )
     assert.match(read('src/lib/subscriber-dal.ts'), /select 1 from document_download_events de/)
   })
 })

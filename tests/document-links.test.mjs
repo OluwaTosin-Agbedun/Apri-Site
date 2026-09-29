@@ -659,14 +659,18 @@ test('client library: single-doc query LEFT JOINs documents table', () => {
   assert.match(fn, /left join documents d on d\.id = dd\.publication_id/i)
 })
 
-test('client library: displayTitle falls back to humanised filename', () => {
+test('client library: every Data Room title comes from the synced Papermark name', () => {
   const src = read('src/lib/papermark-client-library.ts')
-  assert.match(src, /displayTitle: row\.ed_title \|\| humaniseFilename\(row\.title\)/)
+  const uses = src.match(/displayTitle: portalDocumentTitle\(\{ syncedName: row\.title, editorialTitle: row\.ed_title,/g) ?? []
+  assert.equal(uses.length, 2, 'the library and the viewer both use it')
+  // A stored editorial title no longer wins on its own: sync generates one.
+  assert.doesNotMatch(src, /row\.ed_title \|\|/)
+  assert.doesNotMatch(src, /humaniseFilename/)
 })
 
-test('client library: imports humaniseFilename from contract module', () => {
+test('client library: imports portalDocumentTitle from the contract module', () => {
   const src = read('src/lib/papermark-client-library.ts')
-  assert.match(src, /import[\s\S]*humaniseFilename[\s\S]*from ['"]\.\/papermark-dataroom-contract['"]/)
+  assert.match(src, /import[\s\S]*portalDocumentTitle[\s\S]*from ['"]\.\/papermark-dataroom-contract['"]/)
 })
 
 // ---------------------------------------------------------------------------

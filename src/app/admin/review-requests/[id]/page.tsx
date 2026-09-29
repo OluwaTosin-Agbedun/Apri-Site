@@ -2,11 +2,10 @@ import { notFound } from "next/navigation"
 import AdminShell from "@/components/AdminShell"
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
-import {
-  activateReviewSubscription,
-  retryReviewNotification,
-  saveCommercialMilestones,
-} from "@/app/actions/review-admin"
+import { retryReviewNotification } from "@/app/actions/review-admin"
+import { PLANS, activationGate, parsePlan } from "@/lib/subscription-journey"
+import { requesterConfirmed, subscriptionActivationReady } from "@/lib/subscription-schema"
+import SubscriptionProcessing, { type ProcessingRequest } from "./subscription-processing"
 import { recipientListHash } from "@/lib/edition-recipients"
 import {
   loadActiveRecipientsByEdition,
@@ -85,6 +84,7 @@ export default async function Page({
   const requests =
     (await sql`select * from review_subscription_requests where prospect_id=${id}::uuid`) as Record<string, unknown>[]
   const r = requests[0]
+  const processing = r ? await processingFor(sql, p, r) : null
   return (
     <AdminShell
       admin={admin}
@@ -165,71 +165,7 @@ export default async function Page({
               </p>
             </section>
           )}
-          {r && (
-            <section className="border border-border p-6">
-              <h3 className="font-serif text-xl mb-4">
-                Agreement, invoice and payment
-              </h3>
-              <p className="text-sm mb-4">
-                {String(r.agreement_type)} · {String(r.plan)} Access
-              </p>
-              <form
-                action={saveCommercialMilestones}
-                className="grid sm:grid-cols-2 gap-4 text-sm"
-              >
-                <input type="hidden" name="id" value={id} />
-                {[
-                  ["docusignReference", "DocuSign envelope/reference", "text"],
-                  ["agreementSent", "Agreement sent date", "date"],
-                  ["agreementSigned", "Agreement signed date", "date"],
-                  ["invoiceReference", "Invoice reference", "text"],
-                  ["invoiceSent", "Invoice sent date", "date"],
-                  ["paymentReference", "Payment reference", "text"],
-                  ["paymentConfirmed", "Payment confirmed date", "date"],
-                  ["termStart", "Subscription starts", "date"],
-                  ["termEnd", "Subscription ends", "date"],
-                ].map(([n, l, t]) => (
-                  <label key={n}>
-                    {l}
-                    <input
-                      className="mt-1 w-full border border-border p-2"
-                      name={n}
-                      type={t}
-                      defaultValue={String(
-                        r[n.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)] ||
-                          "",
-                      ).slice(0, 10)}
-                    />
-                  </label>
-                ))}
-                <label className="sm:col-span-2 flex gap-2">
-                  <input
-                    type="checkbox"
-                    name="papermarkPrepared"
-                    defaultChecked={Boolean(r.papermark_access_prepared_at)}
-                  />
-                  Every named user has secure Papermark subscriber access
-                  prepared
-                </label>
-                <label className="sm:col-span-2">
-                  Internal notes
-                  <textarea
-                    name="notes"
-                    maxLength={2000}
-                    defaultValue={String(r.internal_notes || "")}
-                    className="mt-1 w-full border border-border p-2"
-                  />
-                </label>
-                <button className="btn-secondary">Save milestones</button>
-              </form>
-              <form action={activateReviewSubscription} className="mt-4">
-                <input type="hidden" name="id" value={id} />
-                <button className="btn-primary">
-                  Prepare named subscriber activation
-                </button>
-              </form>
-            </section>
-          )}
+          {processing && <SubscriptionProcessing request={processing} />}
         </div>
         <aside>
           <section className="border border-border p-6">
@@ -251,4 +187,109 @@ export default async function Page({
       </div>
     </AdminShell>
   )
+}
+
+const day = (v: unknown): string =>
+  v instanceof Date ? v.toISOString().slice(0, 10) : v ? String(v).slice(0, 10) : ""
+
+/**
+ * Everything the processing screen shows, computed here on the server: the
+ * gate is the same function the activation action enforces.
+ */
+async function processingFor(
+  sql: ReturnType<typeof getSql>,
+  p: Record<string, string | null>,
+  r: Record<string, unknown>,
+): Promise<ProcessingRequest> {
+  const plan = parsePlan(r.plan) ?? "Individual"
+  const migrationReady = await subscriptionActivationReady(sql, { fresh: true })
+  const confirmed = requesterConfirmed({ ...r, prospect_verified: Boolean(p.verified_at) })
+  const people = (Array.isArray(r.authorised_users) ? r.authorised_users : []) as { name: string; email: string }[]
+  const emails = people.map((u) => String(u.email).toLowerCase())
+  const records = emails.length
+    ? ((migrationReady
+        ? await sql`select id, lower(email) as email, lower(status) as status, subscription_request_id from subscribers where lower(email) = any(${emails}::text[])`
+        : await sql`select id, lower(email) as email, lower(status) as status, null::uuid as subscription_request_id from subscribers where lower(email) = any(${emails}::text[])`) as {
+        id: string
+        email: string
+        status: string
+        subscription_request_id: string | null
+      }[])
+    : []
+  const welcomed = new Set(
+    ((await sql`select detail from review_prospect_events where prospect_id = ${p.id}::uuid and event_type = 'subscriber_welcomed'`) as { detail: string }[]).map((e) => e.detail),
+  )
+  const gate = activationGate(
+    {
+      plan: String(r.plan ?? ""),
+      requesterConfirmed: confirmed,
+      agreementSentAt: day(r.agreement_sent_at) || null,
+      agreementSignedAt: day(r.agreement_signed_at) || null,
+      invoiceSentAt: day(r.invoice_sent_at) || null,
+      paymentConfirmedAt: day(r.payment_confirmed_at) || null,
+      termStart: day(r.subscription_starts_at) || null,
+      termEnd: day(r.subscription_ends_at) || null,
+      authorisedUsers: r.authorised_users,
+    },
+    new Date().toISOString().slice(0, 10),
+  )
+  const utm = (prefix: "first" | "latest") =>
+    [p[`${prefix}_utm_source`], p[`${prefix}_utm_medium`], p[`${prefix}_utm_campaign`], p[`${prefix}_utm_term`], p[`${prefix}_utm_content`]]
+      .filter(Boolean)
+      .join(" / ") || "None"
+  return {
+    prospectId: String(p.id),
+    planLabel: PLANS[plan].label,
+    price: PLANS[plan].price,
+    agreementType: String(r.agreement_type ?? PLANS[plan].agreement),
+    submittedVia: r.submitted_via === "access_page" ? "access_page" : "review_library",
+    requesterConfirmed: confirmed,
+    requester: { name: String(r.requester_name ?? ""), email: String(r.requester_email ?? ""), phone: String(r.phone ?? "") },
+    billing: {
+      legalName: String(r.legal_billing_name ?? ""),
+      email: String(r.billing_email ?? ""),
+      address: String(r.billing_address ?? ""),
+      cityState: String(r.city_state ?? ""),
+      country: String(r.country ?? ""),
+      tax: r.tax_reference ? String(r.tax_reference) : null,
+    },
+    attribution: {
+      declared: String(p.self_reported_source ?? "Unknown"),
+      attributed: String(p.attributed_source ?? "Unknown"),
+      firstUtm: utm("first"),
+      latestUtm: utm("latest"),
+    },
+    milestones: {
+      docusignReference: String(r.docusign_reference ?? ""),
+      agreementSent: day(r.agreement_sent_at),
+      agreementSigned: day(r.agreement_signed_at),
+      invoiceReference: String(r.invoice_reference ?? ""),
+      invoiceSent: day(r.invoice_sent_at),
+      paymentReference: String(r.payment_reference ?? ""),
+      paymentConfirmed: day(r.payment_confirmed_at),
+      termStart: day(r.subscription_starts_at),
+      termEnd: day(r.subscription_ends_at),
+      notes: String(r.internal_notes ?? ""),
+    },
+    gate: gate.ok ? { ok: true, missing: [] } : { ok: false, missing: gate.missing },
+    migrationReady,
+    activatedAt: r.activated_at ? day(r.activated_at) : null,
+    people: people.map((u) => {
+      const rec = records.find((x) => x.email === String(u.email).toLowerCase())
+      return {
+        name: String(u.name),
+        email: String(u.email),
+        record: !rec
+          ? ("none" as const)
+          : rec.subscription_request_id === r.id
+            ? ("this_request" as const)
+            : rec.subscription_request_id
+              ? ("other_request" as const)
+              : ("unlinked" as const),
+        status: rec?.status ?? null,
+        subscriberId: rec && rec.subscription_request_id === r.id ? rec.id : null,
+        welcomed: rec ? welcomed.has(rec.id) : false,
+      }
+    }),
+  }
 }
