@@ -511,25 +511,88 @@ describe("activation", () => {
   // The action delegates to the one function every activation takes.
   const fn = body(read("src/lib/subscriber-activation.ts"), "activateSubscriberRecord")
 
-  it("the Activate action goes through the shared activation", () => {
-    assert.match(body(read(SUBSCRIBERS), "activateSubscriber"), /activateSubscriberRecord\(\{ subscriberId: id, admin, welcome: "send" \}\)/)
+  it("the Activate action goes through the shared activation, and is ok only when nothing is left owed", () => {
+    const action = body(read(SUBSCRIBERS), "activateSubscriber")
+    assert.match(action, /activateSubscriberRecord\(\{ subscriberId: id, admin \}\)/)
+    assert.match(action, /ok: activationDone\(result\)/)
   })
 
-  it("prepares the library -- room link and every personal link -- before any sign-in token or email", () => {
+  it("prepares and verifies the library -- room link and every personal link -- before the seat is made active", () => {
     const access = fn.indexOf("ensureSubscriberLibraryAccess(")
-    assert.ok(access > 0)
+    const flip = fn.indexOf("set status = 'active'")
+    assert.ok(access > 0 && flip > access, "the library comes first")
     assert.match(fn.slice(access, access + 400), /createRoomLink: true/)
-    assert.ok(fn.indexOf("issueToken(") > access, "token issued after the links")
-    assert.ok(fn.indexOf("sendWelcome(") > access, "welcome sent after the links")
+    // A pending subscriber can be prepared, so activation never needs itself.
+    assert.match(fn.slice(access, access + 400), /allowPending: !wasActive/)
+    assert.ok(fn.indexOf("sendOnboardingEmails(") > flip, "emails only after the seat is active")
+    assert.doesNotMatch(fn, /issueToken\(|sendWelcome\(/, "activation itself never issues a link or sends")
   })
 
-  it("holds the welcome email when the library is not ready, with the reason", () => {
-    assert.match(
-      fn,
-      /if \(access\.state === 'incomplete' \|\| access\.state === 'blocked'\) \{\s*return \{ state: 'held', message: `Seat activated at \$\{granted\}, but \$\{heldWelcome\(access\)\}` \}\s*\}/,
-    )
-    // The held branch returns before any token is issued or email sent.
-    assert.ok(fn.indexOf("return { state: 'held', message: `Seat activated at ${granted}, but ${heldWelcome(access)}` }") < fn.indexOf("issueToken("))
+  it("every library state that is not verified returns before the status change, sending nothing", () => {
+    const flip = fn.indexOf("set status = 'active'")
+    for (const branch of [
+      "access.state === 'no_room_link'",
+      "no Data Room is mapped for ${row.public_tier}. Map one under Admin",
+      "this subscriber has no legacy library to open",
+      "return notReady(`${access.message} ${retryHint(access)}`)",
+    ]) {
+      const at = fn.indexOf(branch)
+      assert.ok(at > 0 && at < flip, `${branch} is handled before activation`)
+    }
+    assert.ok(fn.lastIndexOf("return notReady(") < flip)
+    assert.match(fn, /state: 'access_not_ready'/)
+  })
+
+  it("a request's subscriber with no Data Room mapping is held, never passed as a legacy library", () => {
+    assert.match(fn, /\} else if \(access\.state === 'no_room'\) \{\s*if \(gate\) \{[\s\S]*?return notReady\(/)
+    assert.ok(fn.indexOf("if (gate) {") < fn.indexOf("validatedLegacyLibrary(sql"))
+  })
+
+  it("a legacy library counts only when the portal would really open an entitled edition", () => {
+    const legacy = body(read("src/lib/subscriber-activation.ts"), "validatedLegacyLibrary")
+    assert.match(legacy, /pa\.subscriber_id = \$1 and pa\.revoke_state = 'live'/)
+    assert.match(legacy, /d\.status = 'published'/)
+    assert.match(legacy, /d\.visibility = any\(\$2::text\[\]\)/)
+    assert.match(legacy, /visibilitiesForLevel\(level\)/)
+    assert.match(legacy, /pa\.link_url like 'https:\/\/%'/)
+  })
+
+  it("a new activation is refused until onboarding tracking exists, changing nothing", () => {
+    const check = fn.indexOf("onboardingTrackingReady(sql, { fresh: true })")
+    assert.ok(check > 0 && check < fn.indexOf("ensureSubscriberLibraryAccess("))
+    assert.match(fn, /if \(!tracked\) return blocked\(`\$\{ONBOARDING_MIGRATION_PENDING\} Nothing was changed\.`\)/)
+  })
+
+  it("the onboarding rows exist before the seat is active, so no crash can lose them", () => {
+    const rows = fn.indexOf("await startOnboardingTracking(id)")
+    assert.ok(rows > 0 && rows < fn.indexOf("set status = 'active'"))
+  })
+
+  it("a subscriber already active is never sent a retrospective welcome, unless the request still owes it", () => {
+    assert.match(fn, /sendOnboardingEmails\(\{ subscriberId: id, start: !wasActive \|\| args\.onboardingOwed === true \}\)/)
+    const request = body(read("src/app/actions/review-admin.ts"), "activateSubscriptionRequest")
+    assert.match(request, /event_type = 'subscriber_welcomed' and detail = \$\{subscriberId\}/)
+    assert.match(request, /onboardingOwed: welcomedBefore\.length === 0/)
+  })
+
+  it("the seat is made active only at the tier and level that were verified", () => {
+    assert.match(fn, /and public_tier = \$\{row\.public_tier\}\s+and level is not distinct from \$\{row\.level\}\s+and lower\(status\) <> 'active'\s+returning id/)
+    assert.match(fn, /if \(flipped\.length === 0\) \{/)
+  })
+
+  it("a request's subscriber must carry exactly the plan's tier, level and one seat", () => {
+    const gate = body(read("src/lib/subscriber-activation.ts"), "acquisitionGate")
+    assert.match(gate, /row\.public_tier !== tier \|\| row\.level !== levelForPublicTier\(tier\) \|\| Number\(row\.seats\) !== 1/)
+  })
+
+  it("the public form never rewrites a record that belongs to a subscription request", () => {
+    assert.match(read("src/app/actions/public.ts"), /and \(to_jsonb\(subscribers\) ->> 'subscription_request_id'\) is null/)
+  })
+
+  it("not started counts as done only for someone already active", () => {
+    const src = read("src/lib/subscriber-activation.ts")
+    const done = src.slice(src.indexOf("export function activationDone"), src.indexOf("async function validatedLegacyLibrary"))
+    assert.match(done, /result\.onboarding\.state === 'not_started' && result\.wasActive/)
   })
 
   it("no longer swallows the Data Room step", () => {
@@ -538,17 +601,27 @@ describe("activation", () => {
 
   it("the library step verifies stored links with Papermark", () => {
     const fn2 = body(read(LIFECYCLE), "ensureSubscriberLibraryAccess")
-    assert.match(fn2, /ensureAllDocumentLinks\(args\.subscriberId, \{ verify: true, dataroomId: room\.dataroomId \}\)/)
+    assert.match(fn2, /const linkOptions = \{ verify: true, dataroomId: room\.dataroomId, allowPending: args\.allowPending === true \}/)
+    assert.match(fn2, /ensureAllDocumentLinks\(args\.subscriberId, linkOptions\)/)
     assert.match(fn2, /revokeDataRoomLink\(minted\.value\.linkId\)/, "an unrecorded room link is withdrawn")
   })
 })
 
 describe("resend sign-in link", () => {
   const fn = body(read(SUBSCRIBERS), "resendSignInLink")
-  it("sends the welcome only once the library is ready, without creating a room link", () => {
-    const access = fn.indexOf("ensureSubscriberLibraryAccess(")
-    assert.ok(access > 0 && access < fn.indexOf("issueToken("))
-    assert.match(fn, /createRoomLink: false/)
+  it("sends only the secure-access email, once the library is ready, without creating a room link", () => {
+    assert.match(fn, /const admin = await requireAdmin\(\)/)
+    const gate = fn.indexOf("libraryGate(id, admin)")
+    assert.ok(gate > 0 && gate < fn.indexOf("resendSecureAccessEmail(id)"))
+    assert.doesNotMatch(fn, /sendWelcome|sendOnboardingEmails|issueToken/)
+    assert.match(body(read(SUBSCRIBERS), "libraryGate"), /createRoomLink: false/)
+  })
+
+  it("the retry action is admin only, checks the library, and never starts onboarding retrospectively", () => {
+    const retry = body(read(SUBSCRIBERS), "retryOnboardingEmails")
+    assert.match(retry, /const admin = await requireAdmin\(\)/)
+    assert.ok(retry.indexOf("libraryGate(id, admin)") < retry.indexOf("sendOnboardingEmails("))
+    assert.match(retry, /sendOnboardingEmails\(\{ subscriberId: id, start: false \}\)/)
   })
 })
 
@@ -648,8 +721,17 @@ describe("who can be given a personal link", () => {
   const loader = body(src, "loadSubscriberForDocLinks")
   const ensure = body(src, "ensureAllDocumentLinks")
 
-  it("only an active subscriber, read from the database by id", () => {
-    assert.match(loader, /lower\(s\.status\) = 'active'/)
+  it("only an active subscriber, read from the database by id -- or a pending one only when activation asks", () => {
+    // Activation may prepare any seat not yet active -- pending, or a lapsed,
+    // suspended or declined seat being reactivated; nothing else may.
+    assert.match(loader, /and \(lower\(s\.status\) = 'active' or \$\{allowPending\}::boolean\)/)
+    assert.match(src, /async function loadSubscriberForDocLinks\([^)]*allowPending = false,/)
+    assert.match(ensure, /loadSubscriberForDocLinks\(subscriberId, options\.allowPending === true\)/)
+    // Only activation, which verifies before it activates, may prepare a pending subscriber.
+    for (const file of ["src/app/actions/subscribers.ts", "src/app/actions/datarooms.ts", "src/app/actions/review-admin.ts"]) {
+      assert.doesNotMatch(read(file), /allowPending/, `${file} never prepares a pending subscriber`)
+    }
+    assert.match(read("src/lib/subscriber-activation.ts"), /allowPending: !wasActive/)
     assert.match(loader, /s\.client_type = 'subscriber'/)
     assert.match(loader, /UUID\.test\(subscriberId\)/)
   })

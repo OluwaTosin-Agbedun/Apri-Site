@@ -327,12 +327,47 @@ describe('polling', () => {
     assert.doesNotMatch(codeOnly(src), /known\.size === 0 \|\| known\.has/)
   })
 
-  it('filters candidates strictly by the known set', () => {
-    assert.match(src, /allIds\.filter\(\(id\) => known\.has\(id\)\)/)
+  it("polls exactly the known links -- every one, never the account's link list", () => {
+    const fn = fnBody(src, 'collectPapermarkAnalytics')
+    assert.match(fn, /const candidates = orderFromCursor\(\[\.\.\.known\], cursor\)/)
+    // Listing the account's links capped the poll at 2000 and dropped the rest.
+    assert.doesNotMatch(codeOnly(fn), /listLinks\(/)
+    assert.match(fn, /listViewsForLink\(linkId, VIEW_PAGES_PER_LINK\)/)
   })
 
-  it('counts link ids Papermark returned that APRI does not know', () => {
-    assert.match(src, /unknownLinkIds = allIds\.length - candidates\.length/)
+  it('knows every link source, for the portal and the Complimentary Review', () => {
+    const fn = fnBody(src, 'knownLinkIds')
+    for (const table of [
+      'papermark_subscriber_document_links',
+      'papermark_dataroom_links',
+      'complimentary_review_items',
+      'publication_access',
+      'from subscribers',
+      'papermark_client_documents',
+      'review_publication_editions',
+    ]) {
+      assert.ok(fn.includes(table), `${table} is a link source`)
+    }
+    assert.match(fn, /withdrawal_link_id as id from review_publication_editions/)
+    assert.match(fn, /await editionWithdrawalReady\(sql\)/)
+  })
+
+  it('resumes where a budget-limited run stopped, and reports what it covered', () => {
+    const fn = fnBody(src, 'collectPapermarkAnalytics')
+    assert.match(fn, /const cursor = await readCursor\(\)/)
+    assert.match(fn, /await writeCursor\(allLinksCovered \? null : lastPolled\)/)
+    assert.match(fn, /linksChecked: linksPolled/)
+    assert.match(fn, /linksKnown: candidates\.length/)
+  })
+
+  it('ingests every view on a link once, whatever its age, and re-reads only recent ones', () => {
+    const fn = fnBody(src, 'collectPapermarkAnalytics')
+    assert.match(fn, /if \(!recent && settled\.has\(view\.id\)\) continue/)
+    assert.match(fnBody(src, 'settledViewIds'), /reader_type is not null and reader_type <> 'unknown'/)
+  })
+
+  it('counts link ids on stored views that APRI does not know', () => {
+    assert.match(fnBody(src, 'countUnknownViewLinks'), /!known\.has\(r\.id\)/)
   })
 
   it('upserts views by papermark_view_id', () => {
@@ -375,16 +410,19 @@ describe('polling', () => {
     assert.doesNotMatch(fn, /completion_pct = 0/)
   })
 
-  it('preserves the 60-second budget with headroom', () => {
+  it('preserves the 60-second budget with headroom, and never exceeds it', () => {
     assert.match(src, /MAX_DURATION_SECONDS = 60/)
     assert.match(src, /TIME_BUDGET_MS = \(MAX_DURATION_SECONDS - 12\) \* 1000/)
-    assert.match(src, /if \(Date\.now\(\) - startedAt > TIME_BUDGET_MS\) break/)
+    assert.match(src, /const budgetMs = Math\.min\(options\.timeBudgetMs \?\? TIME_BUDGET_MS, TIME_BUDGET_MS\)/)
+    assert.match(src, /if \(Date\.now\(\) - startedAt > budgetMs\) break/)
   })
 
   it('echoes no Papermark error detail that could carry the token', () => {
     const fn = fnBody(src, 'collectPapermarkAnalytics')
-    assert.match(fn, /Could not list links from Papermark\./)
     assert.match(src, /carries the bearer token/)
+    // A failed link is counted, never described.
+    assert.doesNotMatch(codeOnly(fn), /catch \((e|err|error)\)/)
+    assert.doesNotMatch(codeOnly(fn), /errors\.push\(/)
   })
 
   it('is server-only', () => {
@@ -393,8 +431,14 @@ describe('polling', () => {
 })
 
 describe('cron and manual sync share the collector', () => {
-  it('the cron route calls collectPapermarkAnalytics', () => {
-    assert.match(read(CRON), /collectPapermarkAnalytics\(\)/)
+  it('the cron route calls collectPapermarkAnalytics, leaving time for reconciliation', () => {
+    assert.match(read(CRON), /collectPapermarkAnalytics\(\{ timeBudgetMs: 28_000 \}\)/)
+  })
+
+  it('the cron secret is accepted from the Authorization header only, never the URL', () => {
+    const fn = fnBody(read(CRON), 'isAuthorised')
+    assert.match(fn, /request\.headers\.get\('authorization'\)/)
+    assert.doesNotMatch(codeOnly(fn), /searchParams/)
   })
 
   it('the owner action calls the same function', () => {
@@ -455,7 +499,11 @@ describe('click tracking endpoint', () => {
   it('accepts only recognised publications and slot keys', () => {
     assert.match(src, /slotKey: z\.enum\(\['MIN', 'AIU', 'PLM'\]\)/)
     assert.match(src, /Unknown publication/)
-    assert.match(fnBody(src, 'resolveTarget'), /where slot_key = \$\{slotKey\} and is_active = true/)
+    // A review click belongs to the published edition the card showed.
+    const fn = fnBody(src, 'resolveTarget')
+    assert.match(fn, /from review_publication_editions\s+where id = \$\{publicationId\}::uuid\s+and series = \$\{slotKey\}\s+and publication_state = 'published'/)
+    assert.match(fn, /if \(!publicationId\) return null/)
+    assert.doesNotMatch(codeOnly(fn), /secure_link_url/, 'the credential that opens a document is never read')
   })
 
   it('resolves Papermark ids server-side, not from the browser', () => {
@@ -742,9 +790,32 @@ describe('dashboard queries', () => {
     assert.match(src, /averageEngagedTime: numOrNull/)
   })
 
-  it('eligible subscribers is null for a review slot, not zero', () => {
+  it('eligible subscribers is null for a review edition, not zero', () => {
     const fn = fnBody(src, 'getPublicationRows')
-    assert.match(fn, /when rs\.slot_key is not null then null/)
+    assert.match(fn, /audience: 'complimentary_review',[\s\S]{0,200}eligibleSubscribers: null/)
+  })
+
+  it('eligible subscribers counts only in-term subscribers whose level reaches the document', () => {
+    const fn = fnBody(src, 'getPublicationRows')
+    assert.match(fn, /and \(s\.term_end is null or s\.term_end >= current_date\)\s+and s\.level in \('L1','L2','L3','L4'\)\s+and substring\(s\.level from 2\)::int >= substring\(d\.visibility from 2\)::int/)
+  })
+
+  it('reads review editions from the edition table, not the retired slots', () => {
+    const fn = fnBody(src, 'getPublicationRows')
+    assert.match(fn, /from review_publication_editions e/)
+    assert.doesNotMatch(fn, /is_active = true/, 'no retired slot is forced into every period')
+    // A prospect's read is never counted on a paid row.
+    assert.match(fn, /v\.reader_type is distinct from 'complimentary_review'/)
+  })
+
+  it("leaves administrators' own reads out of the figures", () => {
+    for (const name of ['getOverviewMetrics', 'getPublicationRows', 'getReaderRows']) {
+      assert.match(fnBody(src, name), /not exists \(select 1 from admins a where lower\(a\.email\) = lower\((v|dv|de)\.viewer_email\)\)/)
+    }
+  })
+
+  it('active subscribers means active and inside their term', () => {
+    assert.match(fnBody(src, 'getOverviewMetrics'), /lower\(status\) = 'active'\s+and \(term_end is null or term_end >= current_date\)/)
   })
 
   it('the epoch sentinel becomes null rather than 1970', () => {
@@ -848,13 +919,18 @@ describe('historical repair', () => {
 
   it('reuses the canonical resolver', () => {
     assert.match(src, /from "@\/lib\/view-attribution"/)
-    assert.match(fnBody(src, 'previewAttributionRepair'), /await attribute\(/)
-    assert.match(fnBody(src, 'applyAttributionRepair'), /await attribute\(/)
+    assert.match(fnBody(src, 'attributionFor'), /return attribute\(\{/)
+    assert.match(fnBody(src, 'previewAttributionRepair'), /await attributionFor\(row\)/)
+    assert.match(fnBody(src, 'applyAttributionRepair'), /await attributionFor\(row\)/)
   })
 
-  it('only considers rows with a genuinely missing field', () => {
-    const fn = fnBody(src, 'previewAttributionRepair')
-    assert.match(fn, /subscriber_id is null\s*\n?\s*or publication_id is null\s*\n?\s*or reader_type is null/)
+  it('only considers rows with a genuinely missing field, and reads every one page by page', () => {
+    const gen = src.slice(src.indexOf('async function* repairCandidates'), src.indexOf('function attributionFor'))
+    assert.match(gen, /\(subscriber_id is null and briefing_request_id is null\s+and \(reader_type is null or reader_type = 'unknown'\)\)/)
+    assert.match(gen, /or \(publication_id is null and reader_type in \('subscriber', 'briefing'\)\)/)
+    assert.match(gen, /\(viewed_at, papermark_view_id\) </, 'keyset pagination, so no row is examined twice or skipped')
+    assert.match(fnBody(src, 'previewAttributionRepair'), /for await \(const row of repairCandidates\(sql, deadline\)\)/)
+    assert.match(fnBody(src, 'applyAttributionRepair'), /for await \(const row of repairCandidates\(sql, deadline\)\)/)
   })
 
   it('only proposes a field that is empty AND resolvable', () => {
@@ -867,12 +943,13 @@ describe('historical repair', () => {
     const fn = fnBody(src, 'applyAttributionRepair')
     assert.match(fn, /subscriber_id\s*=\s*coalesce\(subscriber_id,/)
     assert.match(fn, /publication_id\s*=\s*coalesce\(publication_id,/)
-    assert.match(fn, /reader_type\s*=\s*coalesce\(reader_type,/)
+    // The 'unknown' placeholder is not an attribution, so it may be filled; a real type stands.
+    assert.match(fn, /reader_type\s*=\s*case when reader_type is null or reader_type = 'unknown'\s+then \$\{attribution\.readerType\} else reader_type end/)
   })
 
   it('guards against a stale preview with a where clause', () => {
     const fn = fnBody(src, 'applyAttributionRepair')
-    assert.match(fn, /and \(subscriber_id is null or publication_id is null or reader_type is null\)/)
+    assert.match(fn, /and \(subscriber_id is null or publication_id is null\s+or reader_type is null or reader_type = 'unknown'\)/)
   })
 
   it('never touches the source column, so collector provenance is preserved', () => {

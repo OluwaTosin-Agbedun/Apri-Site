@@ -97,16 +97,20 @@ test("subscriber sessions preserve principal identity and reject malformed claim
   assert.match(source, /path: "\/"/)
 })
 
-test("activation persists Active before issuing and emailing a one-time token", () => {
+test("activation verifies the library, then tracks onboarding, then persists Active, then emails", () => {
   // The action delegates to activateSubscriberRecord, where the order lives.
-  assert.match(read("src/app/actions/subscribers.ts"), /activateSubscriberRecord\(\{ subscriberId: id, admin, welcome: "send" \}\)/)
+  assert.match(read("src/app/actions/subscribers.ts"), /activateSubscriberRecord\(\{ subscriberId: id, admin \}\)/)
   const source = read("src/lib/subscriber-activation.ts")
+  const verified = source.indexOf("ensureSubscriberLibraryAccess({")
+  const tracked = source.indexOf("await startOnboardingTracking(id)")
   const activated = source.indexOf("set status = 'active'")
-  const issued = source.indexOf("issueToken(id)", activated)
-  const emailed = source.indexOf("sendWelcome", issued)
-  assert.ok(activated >= 0)
-  assert.ok(issued > activated)
-  assert.ok(emailed > issued)
+  const emailed = source.indexOf("sendOnboardingEmails(", activated)
+  assert.ok(verified > 0)
+  assert.ok(tracked > verified)
+  assert.ok(activated > tracked)
+  assert.ok(emailed > activated)
+  // The sign-in link is issued only by the tracked secure-access step.
+  assert.doesNotMatch(source, /issueToken|sendWelcome/)
   assert.match(source, /public_tier/)
   assert.match(source, /term_end/)
 })

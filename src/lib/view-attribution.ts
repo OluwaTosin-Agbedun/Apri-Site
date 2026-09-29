@@ -1,6 +1,7 @@
 import 'server-only'
 import { getSql } from './db'
 import { normaliseEmail, type ReaderType } from './engagement-metrics'
+import { editionWithdrawalReady } from './edition-recipients-schema'
 
 /**
  * The one place that decides which reader and which publication a Papermark
@@ -35,6 +36,8 @@ export type AttributionMethod =
   | 'subscriber-document-link'
   | 'dataroom-link'
   | 'review-slot-link'
+  | 'review-edition-link'
+  | 'client-folder-link'
   | 'publication-access-link'
   | 'verified-email'
   | 'none'
@@ -68,9 +71,11 @@ const UNMATCHED: Omit<Attribution, 'publicationId' | 'viewerEmail'> = {
  *     document. Identifies both sides exactly.
  *  2. `papermark_dataroom_links` -- one link per subscriber or briefing client
  *     per Data Room.
- *  3. `complimentary_review_items.secure_link_id` -- a fixed review slot. The
+ *  3. a Complimentary Review link: an edition's current link, or the link it
+ *     had before it was withdrawn, then the retired fixed-slot links. The
  *     reader is a prospect, never a subscriber.
- *  4. legacy `publication_access.papermark_link_id`.
+ *  4. legacy `publication_access.papermark_link_id`, then a legacy
+ *     client-folder link (`papermark_client_documents`).
  *  5. the verified viewer address, only where the document and access type make
  *     the match unambiguous.
  *  6. otherwise unmatched, and kept.
@@ -132,12 +137,46 @@ export async function attribute(view: IncomingView): Promise<Attribution> {
     }
   }
 
-  // 3. A Complimentary Review slot link.
+  // 3. A Complimentary Review link.
   //
   // The reader is a prospect: the verified address is retained as their only
   // identity, and no subscriber is created, looked up or implied. Treating a
   // review reader as a subscriber would put an unpaid reader into the paid
   // figures and, worse, into entitlement logic.
+  //
+  // First the per-edition links the review library now uses -- the current
+  // link, or the one an edition had before it was withdrawn, whose earlier
+  // views still count. No publication id is taken from the document: the same
+  // Papermark file can also be a paid edition, and a prospect's read must not
+  // be counted as a paid one.
+  if (linkId) {
+    const withdrawal = await editionWithdrawalReady(sql)
+    const editions = (withdrawal
+      ? await sql`
+          select series from review_publication_editions
+          where secure_link_id = ${linkId} or withdrawal_link_id = ${linkId}
+          limit 1
+        `
+      : await sql`
+          select series from review_publication_editions
+          where secure_link_id = ${linkId}
+          limit 1
+        `) as { series: string | null }[]
+
+    if (editions[0]) {
+      return {
+        subscriberId: null,
+        briefingRequestId: null,
+        publicationId: null,
+        readerType: 'complimentary_review',
+        slotKey: editions[0].series,
+        matchedBy: 'review-edition-link',
+        viewerEmail: email,
+      }
+    }
+  }
+
+  // Then the retired fixed-slot links, for views from before the editions.
   if (linkId) {
     const rows = (await sql`
       select ri.slot_key, ri.publication_id, ri.papermark_document_id
@@ -180,6 +219,27 @@ export async function attribute(view: IncomingView): Promise<Attribution> {
         readerType: 'subscriber',
         slotKey: null,
         matchedBy: 'publication-access-link',
+        viewerEmail: email,
+      }
+    }
+
+    // A legacy client-folder document, served by the older portal: one link
+    // per document per client.
+    const folder = (await sql`
+      select subscriber_id, briefing_request_id, papermark_document_id
+      from papermark_client_documents
+      where papermark_link_id = ${linkId}
+      limit 1
+    `) as { subscriber_id: string | null; briefing_request_id: string | null; papermark_document_id: string | null }[]
+
+    if (folder[0] && (folder[0].subscriber_id || folder[0].briefing_request_id)) {
+      return {
+        subscriberId: folder[0].subscriber_id,
+        briefingRequestId: folder[0].briefing_request_id,
+        publicationId: (await publicationFromDocument(folder[0].papermark_document_id)) ?? documentPublicationId,
+        readerType: folder[0].subscriber_id ? 'subscriber' : 'briefing',
+        slotKey: null,
+        matchedBy: 'client-folder-link',
         viewerEmail: email,
       }
     }

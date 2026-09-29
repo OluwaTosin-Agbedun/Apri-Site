@@ -41,7 +41,10 @@ type LinkSubscriber = {
   hasRoomLink: boolean
 }
 
-async function loadSubscriberForDocLinks(subscriberId: string): Promise<LinkSubscriber | null> {
+async function loadSubscriberForDocLinks(
+  subscriberId: string,
+  allowPending = false,
+): Promise<LinkSubscriber | null> {
   if (!UUID.test(subscriberId)) return null
   const sql = getSql()
   const rows = (await sql`
@@ -57,7 +60,10 @@ async function loadSubscriberForDocLinks(subscriberId: string): Promise<LinkSubs
            ) as has_room_link
     from subscribers s
     where s.id = ${subscriberId} and s.client_type = 'subscriber'
-      and lower(s.status) = 'active'
+      -- Only activation passes allowPending, after every activation check has
+      -- passed: it prepares a seat that is not active yet -- pending, or a
+      -- lapsed, suspended or declined seat being reactivated.
+      and (lower(s.status) = 'active' or ${allowPending}::boolean)
     limit 1
   `) as {
     id: string
@@ -137,9 +143,13 @@ function notEligible(
  */
 export async function ensureAllDocumentLinks(
   subscriberId: string,
-  options: { verify?: boolean; dataroomId?: string; papermarkDocumentId?: string } = {},
+  options: { verify?: boolean; dataroomId?: string; papermarkDocumentId?: string; allowPending?: boolean } = {},
 ): Promise<SubscriberLinkOutcome> {
-  const sub = await loadSubscriberForDocLinks(subscriberId)
+  // `allowPending` is for activation only: the library is prepared and
+  // verified before the subscriber is made active, so activation never
+  // reports a library it has not checked -- and never needs the subscriber to
+  // be active before their links can be prepared.
+  const sub = await loadSubscriberForDocLinks(subscriberId, options.allowPending === true)
   if (!sub) return notEligible(subscriberId, '', 'not_active')
   if (!sub.dataroomId) return notEligible(sub.id, sub.fullName, 'no_room')
   if (options.dataroomId && options.dataroomId !== sub.dataroomId) {

@@ -19,7 +19,7 @@ import {
   requesterConfirmed,
   SUBSCRIPTION_MIGRATION_PENDING,
 } from "@/lib/subscription-schema"
-import { activateSubscriberRecord } from "@/lib/subscriber-activation"
+import { activateSubscriberRecord, activationDone } from "@/lib/subscriber-activation"
 
 const UUID = /^[0-9a-f-]{36}$/i
 const base = () => {
@@ -278,6 +278,15 @@ export async function activateSubscriptionRequest(prospectId: string, _state: Fo
       }
     } else if (existing.subscription_request_id === requestId) {
       subscriberId = existing.id
+      // Re-assert what the request pays for on a record not yet active, in
+      // case it was edited while it waited.
+      await sql`
+        update subscribers set
+          public_tier = ${tier}, subscription_level = ${tier}, level = ${level}, seats = 1,
+          term_start = ${termStart}::date, term_end = ${termEnd}::date, updated_at = now()
+        where id = ${existing.id}::uuid and subscription_request_id = ${requestId}::uuid
+          and lower(status) <> 'active'
+      `
     } else if (existing.subscription_request_id) {
       outcomes.push({
         ...user,
@@ -315,32 +324,26 @@ export async function activateSubscriptionRequest(prospectId: string, _state: Fo
       }
     }
 
-    // Welcomed already by this request? Then never again.
-    const welcomed = (await sql`
+    // Each named subscriber's two onboarding emails are tracked on their own
+    // record, so running this again resumes only what is still owed. Someone
+    // this request activated under the previous flow without a welcome (it
+    // was held) is still owed their onboarding; someone it welcomed is not.
+    const welcomedBefore = (await sql`
       select 1 from review_prospect_events
       where prospect_id = ${prospectId}::uuid and event_type = 'subscriber_welcomed' and detail = ${subscriberId}
       limit 1
     `) as unknown[]
-    const result = await activateSubscriberRecord({
-      subscriberId,
-      admin,
-      welcome: welcomed.length > 0 ? "skip" : "send",
-    })
-    if (result.state === "activated" && result.welcome === "sent") {
-      await sql`
-        insert into review_prospect_events (prospect_id, event_type, from_status, to_status, detail, actor_admin_id)
-        values (${prospectId}::uuid, 'subscriber_welcomed', ${status}, ${status}, ${subscriberId}, ${admin.id}::uuid)
-      `
-    }
-    if (result.state === "activated" && result.welcome !== "failed") {
-      outcomes.push({ ...user, state: "activated", welcome: result.welcome === "sent" ? "sent" : "already_sent" })
+    const result = await activateSubscriberRecord({ subscriberId, admin, onboardingOwed: welcomedBefore.length === 0 })
+    if (result.state === "activated" && activationDone(result)) {
+      const fresh =
+        result.onboarding.state === "ran" &&
+        [result.onboarding.report.welcome, result.onboarding.report.secureAccess].some(
+          (s) => s.step === "accepted" && s.when === "now",
+        )
+      outcomes.push({ ...user, state: "activated", emails: fresh ? "now" : "earlier" })
     } else if (result.state === "activated") {
-      outcomes.push({
-        ...user,
-        state: "held",
-        reason: "the welcome email could not be sent. Check the email configuration, then activate again.",
-      })
-    } else if (result.state === "held") {
+      outcomes.push({ ...user, state: "emails_pending", reason: result.onboarding.message })
+    } else if (result.state === "access_not_ready") {
       outcomes.push({ ...user, state: "held", reason: result.message })
     } else {
       outcomes.push({ ...user, state: "blocked", reason: result.message })

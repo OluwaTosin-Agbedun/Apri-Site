@@ -48,7 +48,10 @@ export async function GET(request: Request) {
 
   const startedAt = Date.now()
 
-  const collection = await collectPapermarkAnalytics()
+  // Half the invocation for the poll, so the reconciliation below -- which
+  // withdraws lapsed access -- always has time to run. The poll resumes where
+  // it stopped on the next run.
+  const collection = await collectPapermarkAnalytics({ timeBudgetMs: 28_000 })
 
   // Reconciliation runs alongside the poll: a copy nobody made is the failure
   // no permission check catches, so it is checked on the same schedule as the
@@ -134,15 +137,15 @@ async function reconcile(): Promise<{
 }
 
 /**
- * Accepts the secret from the Authorization header or a query parameter,
- * compared in constant time so the endpoint cannot be used as an oracle.
+ * Accepts the secret from the Authorization header only (how Vercel Cron sends
+ * it), compared in constant time so the endpoint cannot be used as an oracle.
+ * Never from the query string: a URL is written to request logs, and a secret
+ * in a log is a leaked secret.
  */
 function isAuthorised(request: Request, expected: string): boolean {
   const header = request.headers.get('authorization') ?? ''
   const bearer = header.startsWith('Bearer ') ? header.slice(7) : ''
-  const query = new URL(request.url).searchParams.get('secret') ?? ''
-
-  return constantTimeEquals(bearer, expected) || constantTimeEquals(query, expected)
+  return constantTimeEquals(bearer, expected)
 }
 
 function constantTimeEquals(a: string, b: string): boolean {

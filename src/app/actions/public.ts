@@ -234,6 +234,10 @@ export async function requestAccess(
         updated_at = now()
       where lower(email) = ${email}
         and lower(status) in ('pending', 'declined')
+        -- A record prepared from a subscription request is the request's: its
+        -- tier and seats are what was agreed and paid for. (Read through
+        -- to_jsonb so this also holds before that column exists.)
+        and (to_jsonb(subscribers) ->> 'subscription_request_id') is null
     `
   }
 

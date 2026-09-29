@@ -165,7 +165,7 @@ export async function sendPublishAlert(publicationId: string): Promise<AlertOutc
 
   for (const person of withCopies) {
     try {
-      await sendEditionAlert({
+      const outcome = await sendEditionAlert({
         email: person.email,
         fullName: person.fullName,
         title: pub.title,
@@ -174,7 +174,9 @@ export async function sendPublishAlert(publicationId: string): Promise<AlertOutc
         summary: pub.summary || pub.description,
         linkUrl: person.linkUrl,
       })
-      sent++
+      // Only a message the provider accepted counts as sent.
+      if (outcome.status === 'accepted') sent++
+      else failed++
     } catch {
       // One bad address must not stop the rest of the run.
       failed++
@@ -263,7 +265,9 @@ export async function releaseHeldAlert(
   if (!row?.link_url?.startsWith('https://')) return false
 
   try {
-    await sendEditionAlert({
+    // One key per subscriber and edition, so retrying a hold whose send did
+    // not settle is recognised by the provider instead of sending it twice.
+    const outcome = await sendEditionAlert({
       email: row.email,
       fullName: row.full_name || '',
       title: row.title,
@@ -271,7 +275,9 @@ export async function releaseHeldAlert(
       editionDate: normaliseDate(row.edition_date),
       summary: row.summary || row.description,
       linkUrl: row.link_url,
-    })
+    }, `held-alert:${subscriberId}:${publicationId}`)
+    // A hold is released only for a message the provider accepted.
+    if (outcome.status !== 'accepted') return false
   } catch {
     return false
   }

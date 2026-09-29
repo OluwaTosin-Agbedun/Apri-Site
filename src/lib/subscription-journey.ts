@@ -150,33 +150,45 @@ export function activationGate(facts: RequestFacts, today: string): GateResult {
 // ---------------------------------------------------------------------------
 
 export type SeatOutcome =
-  /** Active, library ready, welcome sent now or on an earlier run. */
-  | { email: string; name: string; state: "activated"; welcome: "sent" | "already_sent" }
-  /** Active, but the library is not ready, so the welcome is held. */
+  /**
+   * Active, library verified, and both onboarding emails accepted by the
+   * provider -- in this run (`now`) or an earlier one (`earlier`).
+   */
+  | { email: string; name: string; state: "activated"; emails: "now" | "earlier" }
+  /** Active, library verified, but an onboarding email still needs a retry. */
+  | { email: string; name: string; state: "emails_pending"; reason: string }
+  /** Not activated because their library could not be verified. Nothing was sent. */
   | { email: string; name: string; state: "held"; reason: string }
   /** Could not be activated: nothing was changed for this person. */
   | { email: string; name: string; state: "blocked"; reason: string }
 
-/** Activation is complete only when every named subscriber's access is ready. */
+/**
+ * Activation is complete only when every named subscriber is active with a
+ * verified library and both onboarding emails accepted by the provider.
+ */
 export function activationComplete(outcomes: readonly SeatOutcome[], expected: number): boolean {
   return outcomes.length === expected && expected > 0 && outcomes.every((o) => o.state === "activated")
 }
 
 export function describeActivation(outcomes: readonly SeatOutcome[], expected: number): string {
   if (activationComplete(outcomes, expected)) {
-    const fresh = outcomes.filter((o) => o.state === "activated" && o.welcome === "sent").length
+    const fresh = outcomes.filter((o) => o.state === "activated" && o.emails === "now").length
     return `Access activated for all ${expected} named subscriber${expected === 1 ? "" : "s"}${
-      fresh ? `; ${fresh} welcome email${fresh === 1 ? "" : "s"} sent` : ""
+      fresh
+        ? `; welcome and secure-access emails accepted by the email provider for ${fresh} (delivery is confirmed separately)`
+        : ""
     }.`
   }
   const lines = outcomes.map((o) =>
     o.state === "activated"
-      ? `${o.name}: activated.`
-      : o.state === "held"
-        ? `${o.name}: activated, but the welcome email is held -- ${o.reason}`
-        : `${o.name}: not activated -- ${o.reason}`,
+      ? `${o.name}: activated; onboarding emails accepted.`
+      : o.state === "emails_pending"
+        ? `${o.name}: access is ready, but the onboarding emails need retrying -- ${o.reason}`
+        : o.state === "held"
+          ? `${o.name}: access not ready -- ${o.reason}`
+          : `${o.name}: not activated -- ${o.reason}`,
   )
-  return `Activation is not complete. ${lines.join(" ")} Fix what is listed, then activate again: people already activated are not emailed twice.`
+  return `Activation is not complete. ${lines.join(" ")} Fix what is listed, then activate again: an email the provider already accepted is never sent twice.`
 }
 
 /** The status ladder a prospect moves up. It never moves down. */

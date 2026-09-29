@@ -124,10 +124,13 @@ export async function POST(request: Request) {
 /**
  * Resolves the click target from APRI's own tables.
  *
- * A slot key resolves through `complimentary_review_items`, which is also where
- * the review link id lives. Nothing here reads or returns `secure_link_url` —
- * the event stores which publication was clicked, not the credential that opens
- * it.
+ * A review click (a series key) resolves to the published edition the card
+ * showed -- the card sends that edition's id -- and records the edition's
+ * Papermark document and link id, which is how the dashboard credits it. The
+ * retired fixed-slot table is not consulted: its links are no longer served,
+ * so crediting a click to it would put a current reader on a withdrawn copy.
+ * Nothing here reads or returns `secure_link_url` -- the event stores which
+ * publication was clicked, not the credential that opens it.
  */
 async function resolveTarget(
   sql: ReturnType<typeof getSql>,
@@ -141,14 +144,16 @@ async function resolveTarget(
   papermarkLinkId: string | null
 } | null> {
   if (slotKey) {
+    if (!publicationId) return null
     const rows = (await sql`
-      select slot_key, publication_id, papermark_document_id, secure_link_id
-      from complimentary_review_items
-      where slot_key = ${slotKey} and is_active = true
+      select series, papermark_document_id, secure_link_id
+      from review_publication_editions
+      where id = ${publicationId}::uuid
+        and series = ${slotKey}
+        and publication_state = 'published'
       limit 1
     `) as {
-      slot_key: string
-      publication_id: string | null
+      series: string
       papermark_document_id: string | null
       secure_link_id: string | null
     }[]
@@ -156,8 +161,10 @@ async function resolveTarget(
     const row = rows[0]
     if (!row) return null
     return {
-      publicationId: row.publication_id,
-      slotKey: row.slot_key,
+      // An edition is not a row in `documents`, so no publication id: the
+      // edition is identified by its Papermark document and link.
+      publicationId: null,
+      slotKey: row.series,
       papermarkDocumentId: row.papermark_document_id,
       papermarkLinkId: row.secure_link_id,
     }

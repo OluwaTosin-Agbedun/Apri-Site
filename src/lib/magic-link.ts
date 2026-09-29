@@ -29,16 +29,25 @@ export { hashToken } from "./magic-token"
  * Any token already outstanding for this subscriber is consumed first, so a
  * fresh request invalidates an older link rather than leaving several valid
  * doors open at once.
+ *
+ * `revokeOutstanding: false` is for an automatic onboarding send: it must not
+ * invalidate a link that may already be in the subscriber's inbox. The new
+ * link still expires on its own schedule.
  */
-export async function issueToken(subscriberId: string): Promise<string> {
+export async function issueToken(
+  subscriberId: string,
+  options: { revokeOutstanding?: boolean } = {},
+): Promise<string> {
   const sql = getSql()
   const token = randomBytes(TOKEN_BYTES).toString("base64url")
 
-  await sql`
-    update auth_tokens
-    set consumed_at = now()
-    where subscriber_id = ${subscriberId} and consumed_at is null
-  `
+  if (options.revokeOutstanding !== false) {
+    await sql`
+      update auth_tokens
+      set consumed_at = now()
+      where subscriber_id = ${subscriberId} and consumed_at is null
+    `
+  }
 
   await sql`
     insert into auth_tokens (subscriber_id, token_hash, expires_at)
@@ -50,6 +59,35 @@ export async function issueToken(subscriberId: string): Promise<string> {
   `
 
   return token
+}
+
+/**
+ * Revokes one issued token -- one whose email the provider refused, so it
+ * never reached anybody. Every other outstanding link is left alone.
+ */
+export async function revokeIssuedToken(token: string): Promise<void> {
+  const sql = getSql()
+  await sql`
+    update auth_tokens set consumed_at = now()
+    where token_hash = ${hashToken(token)} and consumed_at is null
+  `
+}
+
+/**
+ * Revokes a subscriber's outstanding links issued BEFORE `keepToken` -- used
+ * once an explicit resend's new link has been accepted by the provider, so an
+ * older link stops working only after its replacement is on its way. A link
+ * issued after it (the subscriber asking on the sign-in page meanwhile) is
+ * left alone, so overlapping sends never leave them with no working link.
+ */
+export async function revokeOtherTokens(subscriberId: string, keepToken: string): Promise<void> {
+  const sql = getSql()
+  await sql`
+    update auth_tokens set consumed_at = now()
+    where subscriber_id = ${subscriberId} and consumed_at is null
+      and token_hash <> ${hashToken(keepToken)}
+      and created_at < (select k.created_at from auth_tokens k where k.token_hash = ${hashToken(keepToken)})
+  `
 }
 
 /**

@@ -59,7 +59,9 @@ export async function syncPapermarkAnalyticsNow(): Promise<ManualSyncResult> {
   return {
     ok: true,
     message:
-      `Checked ${summary.linksChecked} links: ${summary.viewsFound} views found, ` +
+      `Polled ${summary.linksChecked} of ${summary.linksKnown} known links` +
+      (summary.allLinksCovered ? '' : ' (the next run resumes with the rest)') +
+      `: ${summary.viewsFound} views read, ` +
       `${summary.newViews} new, ${summary.downloadsRecorded} downloads recorded, ` +
       `${summary.unmatched} unmatched, ${summary.failures} failures.`,
     linksChecked: summary.linksChecked,
@@ -97,7 +99,75 @@ export type RepairPreview = {
   rows: RepairCandidateRow[]
 }
 
-const REPAIR_BATCH = 200
+const REPAIR_PAGE = 200
+
+/** Stays inside the server action's time limit; a repeat click resumes. */
+const REPAIR_BUDGET_MS = 40_000
+
+type RepairRow = {
+  papermark_view_id: string
+  viewed_at: string
+  subscriber_id: string | null
+  publication_id: string | null
+  reader_type: string | null
+  papermark_link_id: string | null
+  papermark_document_id: string | null
+  viewer_email: string | null
+  cursor_at: string
+}
+
+/**
+ * The rows a repair can still learn something about -- read page by page, so
+ * every one is examined rather than the same newest batch each time:
+ *
+ *  - a view with no reader at all (no subscriber or briefing client, and no
+ *    reader type or only the 'unknown' placeholder), and
+ *  - a subscriber or briefing view with no publication.
+ *
+ * A Complimentary Review view has no subscriber and no publication id by
+ * design, so it is complete and is not a candidate.
+ */
+async function* repairCandidates(sql: ReturnType<typeof getSql>, deadline: number): AsyncGenerator<RepairRow> {
+  let after: { viewedAt: string; id: string } | null = null
+  while (Date.now() < deadline) {
+    const page = (await sql`
+      select papermark_view_id, viewed_at, viewed_at::text as cursor_at, subscriber_id, publication_id,
+             reader_type, papermark_link_id, papermark_document_id, viewer_email
+      from document_views
+      where (
+          (subscriber_id is null and briefing_request_id is null
+           and (reader_type is null or reader_type = 'unknown'))
+          or (publication_id is null and reader_type in ('subscriber', 'briefing'))
+        )
+        and (${after?.viewedAt ?? null}::timestamptz is null
+             or (viewed_at, papermark_view_id) < (${after?.viewedAt ?? null}::timestamptz, ${after?.id ?? ''}))
+      order by viewed_at desc, papermark_view_id desc
+      limit ${REPAIR_PAGE}
+    `) as RepairRow[]
+    if (page.length === 0) return
+    for (const row of page) yield row
+    const last = page[page.length - 1]!
+    // The database's own text form keeps microseconds, so no row is skipped.
+    after = { viewedAt: last.cursor_at, id: last.papermark_view_id }
+    if (page.length < REPAIR_PAGE) return
+  }
+}
+
+function attributionFor(row: RepairRow) {
+  return attribute({
+    papermarkViewId: row.papermark_view_id,
+    papermarkLinkId: row.papermark_link_id,
+    papermarkDocumentId: row.papermark_document_id,
+    viewerEmail: row.viewer_email,
+    viewedAt: row.viewed_at,
+    durationSeconds: null,
+    completionPct: null,
+    downloaded: false,
+    source: 'poll',
+  })
+}
+
+const unknownType = (value: string | null) => !value || value === 'unknown'
 
 /**
  * Shows what a repair would change, without changing anything.
@@ -106,53 +176,32 @@ const REPAIR_BATCH = 200
  * fields are ever proposed. A row that already has a subscriber keeps it even
  * if the resolver would now pick a different one: a stored attribution is
  * evidence from the time the view arrived, and silently rewriting it would
- * change historical figures with no record of why.
+ * change historical figures with no record of why. The 'unknown' placeholder
+ * is not an attribution, so it can be filled.
  */
 export async function previewAttributionRepair(): Promise<RepairPreview> {
   await requireOwner()
   const sql = getSql()
-
-  const rows = (await sql`
-    select papermark_view_id, viewed_at, subscriber_id, publication_id,
-           reader_type, papermark_link_id, papermark_document_id, viewer_email
-    from document_views
-    where subscriber_id is null
-       or publication_id is null
-       or reader_type is null
-    order by viewed_at desc
-    limit ${REPAIR_BATCH}
-  `) as {
-    papermark_view_id: string
-    viewed_at: string
-    subscriber_id: string | null
-    publication_id: string | null
-    reader_type: string | null
-    papermark_link_id: string | null
-    papermark_document_id: string | null
-    viewer_email: string | null
-  }[]
+  const deadline = Date.now() + REPAIR_BUDGET_MS
 
   const candidates: RepairCandidateRow[] = []
+  let examined = 0
+  let complete = true
 
-  for (const row of rows) {
-    const attribution = await attribute({
-      papermarkViewId: row.papermark_view_id,
-      papermarkLinkId: row.papermark_link_id,
-      papermarkDocumentId: row.papermark_document_id,
-      viewerEmail: row.viewer_email,
-      viewedAt: row.viewed_at,
-      durationSeconds: null,
-      completionPct: null,
-      downloaded: false,
-      source: 'poll',
-    })
+  for await (const row of repairCandidates(sql, deadline)) {
+    if (Date.now() > deadline) {
+      complete = false
+      break
+    }
+    examined++
+    const attribution = await attributionFor(row)
 
     // Only count a field as fillable when it is currently empty AND the
     // resolver has something to put there.
     const fills: string[] = []
     if (!row.subscriber_id && attribution.subscriberId) fills.push('subscriber')
     if (!row.publication_id && attribution.publicationId) fills.push('publication')
-    if (!row.reader_type && attribution.readerType !== 'unknown') fills.push('reader type')
+    if (unknownType(row.reader_type) && attribution.readerType !== 'unknown') fills.push('reader type')
 
     if (fills.length === 0) continue
 
@@ -170,22 +219,24 @@ export async function previewAttributionRepair(): Promise<RepairPreview> {
     })
   }
 
+  const scope = complete ? 'every incomplete row' : `${examined} incomplete rows (the rest on the next preview)`
   return {
     ok: true,
     message:
       candidates.length === 0
-        ? `Examined ${rows.length} incomplete rows. None can be resolved with the current link mappings.`
-        : `Examined ${rows.length} incomplete rows. ${candidates.length} can be filled in.`,
-    examined: rows.length,
+        ? `Examined ${scope}. None can be resolved with the current link mappings.`
+        : `Examined ${scope}. ${candidates.length} can be filled in.`,
+    examined,
     repairable: candidates.length,
     rows: candidates.slice(0, 50),
   }
 }
 
 /**
- * Applies the repair.
+ * Applies the repair to every incomplete row it can reach in the time limit.
  *
- * Every write is `coalesce(existing, new)`, so an existing attribution can only
+ * Every write only fills what is empty -- `coalesce(existing, new)`, with the
+ * 'unknown' placeholder counted as empty -- so an existing attribution can only
  * be added to, never replaced. That is enforced in SQL rather than in the
  * preview loop, so even a stale preview cannot cause an overwrite.
  */
@@ -196,46 +247,25 @@ export async function applyAttributionRepair(): Promise<{
 }> {
   await requireOwner()
   const sql = getSql()
+  const deadline = Date.now() + REPAIR_BUDGET_MS
 
-  const rows = (await sql`
-    select papermark_view_id, viewed_at, subscriber_id, publication_id,
-           reader_type, papermark_link_id, papermark_document_id, viewer_email
-    from document_views
-    where subscriber_id is null
-       or publication_id is null
-       or reader_type is null
-    order by viewed_at desc
-    limit ${REPAIR_BATCH}
-  `) as {
-    papermark_view_id: string
-    viewed_at: string
-    subscriber_id: string | null
-    publication_id: string | null
-    reader_type: string | null
-    papermark_link_id: string | null
-    papermark_document_id: string | null
-    viewer_email: string | null
-  }[]
-
+  let examined = 0
   let updated = 0
   let failures = 0
+  let complete = true
 
-  for (const row of rows) {
+  for await (const row of repairCandidates(sql, deadline)) {
+    if (Date.now() > deadline) {
+      complete = false
+      break
+    }
+    examined++
     try {
-      const attribution = await attribute({
-        papermarkViewId: row.papermark_view_id,
-        papermarkLinkId: row.papermark_link_id,
-        papermarkDocumentId: row.papermark_document_id,
-        viewerEmail: row.viewer_email,
-        viewedAt: row.viewed_at,
-        durationSeconds: null,
-        completionPct: null,
-        downloaded: false,
-        source: 'poll',
-      })
+      const attribution = await attributionFor(row)
 
       const hasSomething =
         attribution.subscriberId ||
+        attribution.briefingRequestId ||
         attribution.publicationId ||
         attribution.readerType !== 'unknown'
       if (!hasSomething) continue
@@ -246,12 +276,15 @@ export async function applyAttributionRepair(): Promise<{
           briefing_request_id = coalesce(briefing_request_id, ${attribution.briefingRequestId}),
           publication_id      = coalesce(publication_id, ${attribution.publicationId}),
           viewer_email        = coalesce(viewer_email, ${attribution.viewerEmail}),
-          reader_type         = coalesce(reader_type, ${attribution.readerType}),
-          attribution_method  = coalesce(attribution_method, ${attribution.matchedBy})
+          reader_type         = case when reader_type is null or reader_type = 'unknown'
+                                     then ${attribution.readerType} else reader_type end,
+          attribution_method  = case when attribution_method is null or attribution_method = 'none'
+                                     then ${attribution.matchedBy} else attribution_method end
         where papermark_view_id = ${row.papermark_view_id}
           -- Only touch a row that is still missing something, so a concurrent
           -- write cannot be clobbered by this one.
-          and (subscriber_id is null or publication_id is null or reader_type is null)
+          and (subscriber_id is null or publication_id is null
+               or reader_type is null or reader_type = 'unknown')
         returning papermark_view_id
       `) as { papermark_view_id: string }[]
 
@@ -266,7 +299,8 @@ export async function applyAttributionRepair(): Promise<{
   return {
     ok: failures === 0,
     message:
-      `Repaired ${updated} of ${rows.length} incomplete rows` +
+      `Repaired ${updated} of ${examined} incomplete rows examined` +
+      (complete ? ' (every incomplete row)' : '; run it again to continue with the rest') +
       (failures > 0 ? `; ${failures} failed and were left unchanged.` : '.') +
       ' Existing attributions were not modified.',
     updated,

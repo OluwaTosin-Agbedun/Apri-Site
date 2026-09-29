@@ -286,12 +286,16 @@ test("download handler resolves links through the canonical resolver", () => {
   assert.match(route, /from '@\/lib\/view-attribution'/)
   assert.doesNotMatch(route, /async function resolveLink/)
 
-  const resolver = read("src/lib/view-attribution.ts")
+  // Read inside the resolver itself, so a mention in a comment cannot satisfy it.
+  const source = read("src/lib/view-attribution.ts")
+  const resolver = source.slice(source.indexOf("export async function attribute("))
   const order = [
     "papermark_subscriber_document_links",
     "papermark_dataroom_links",
+    "review_publication_editions",
     "complimentary_review_items",
     "publication_access",
+    "papermark_client_documents",
   ]
   let last = -1
   for (const table of order) {
@@ -398,12 +402,16 @@ test("download handler resolves links through the canonical resolver", () => {
   assert.match(route, /from '@\/lib\/view-attribution'/)
   assert.doesNotMatch(route, /async function resolveLink/)
 
-  const resolver = read("src/lib/view-attribution.ts")
+  // Read inside the resolver itself, so a mention in a comment cannot satisfy it.
+  const source = read("src/lib/view-attribution.ts")
+  const resolver = source.slice(source.indexOf("export async function attribute("))
   const order = [
     "papermark_subscriber_document_links",
     "papermark_dataroom_links",
+    "review_publication_editions",
     "complimentary_review_items",
     "publication_access",
+    "papermark_client_documents",
   ]
   let last = -1
   for (const table of order) {

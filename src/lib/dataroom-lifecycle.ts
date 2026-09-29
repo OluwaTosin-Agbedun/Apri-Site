@@ -176,6 +176,8 @@ export async function ensureSubscriberLibraryAccess(args: {
   assignedEmail: string
   termEnd: string | Date | null
   createRoomLink: boolean
+  /** Activation only: prepare a subscriber who is not active yet. */
+  allowPending?: boolean
   changedById: string
   changedByName: string
 }): Promise<LibraryAccess> {
@@ -255,12 +257,13 @@ export async function ensureSubscriberLibraryAccess(args: {
 
   let outcome: SubscriberLinkOutcome
   try {
-    outcome = await ensureAllDocumentLinks(args.subscriberId, { verify: true, dataroomId: room.dataroomId })
+    const linkOptions = { verify: true, dataroomId: room.dataroomId, allowPending: args.allowPending === true }
+    outcome = await ensureAllDocumentLinks(args.subscriberId, linkOptions)
     if (outcome.state === 'not_eligible' && outcome.reason === 'no_room') {
       // The room link exists but was never assigned: an earlier attempt stopped
       // between the two. Finished here, so a retry cannot stall on it.
       await assignDataRoomToSubscriber(args.subscriberId, room.dataroomId)
-      outcome = await ensureAllDocumentLinks(args.subscriberId, { verify: true, dataroomId: room.dataroomId })
+      outcome = await ensureAllDocumentLinks(args.subscriberId, linkOptions)
     }
   } catch {
     return { state: 'blocked', message: `${note}The personal document links could not be checked. Try again.` }
@@ -402,9 +405,12 @@ export async function reconcileDownloadsFromViews(args: {
     const viewId = view.id
     if (!viewId) continue
 
+    // The webhook records the same download as 'dl-view:<id>'; that key is
+    // used here too, and the older 'dl-<id>' form is still recognised, so a
+    // download is one timeline row whichever path saw it first.
     const existing = await sql`
       select 1 from client_engagement_events
-      where webhook_event_id = ${'dl-' + viewId} limit 1
+      where webhook_event_id in (${'dl-view:' + viewId}, ${'dl-' + viewId}) limit 1
     `
     if (existing.length > 0) continue
 
@@ -416,7 +422,7 @@ export async function reconcileDownloadsFromViews(args: {
         (subscriber_id, briefing_request_id, event_type, webhook_event_id, occurred_at)
       values (
         ${subscriberId}::uuid, ${briefingId}::uuid,
-        'document_downloaded', ${'dl-' + viewId},
+        'document_downloaded', ${'dl-view:' + viewId},
         ${view.downloaded_at}::timestamptz
       )
       on conflict (webhook_event_id) where webhook_event_id is not null do nothing

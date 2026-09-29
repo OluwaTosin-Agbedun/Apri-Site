@@ -441,6 +441,20 @@ export function formatLagos(value: string | Date | null | undefined): string {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * The poll's link order: stable, starting after the link the previous run
+ * stopped at and wrapping around, so a run cut short by its time budget is
+ * followed by one that begins with the links it did not reach. Duplicates are
+ * dropped. No cursor, or one past the end, starts from the beginning.
+ */
+export function orderFromCursor(ids: readonly string[], cursor: string | null): string[] {
+  const sorted = [...new Set(ids.filter(Boolean))].sort()
+  if (!cursor) return sorted
+  const next = sorted.findIndex((id) => id > cursor)
+  if (next <= 0) return sorted
+  return [...sorted.slice(next), ...sorted.slice(0, next)]
+}
+
 export function normaliseEmail(value: string | null | undefined): string | null {
   if (!value) return null
   const trimmed = value.trim().toLowerCase()

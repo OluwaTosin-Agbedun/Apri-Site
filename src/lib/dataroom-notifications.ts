@@ -135,7 +135,7 @@ export async function notifyNewDataRoomDocuments(
       }
 
       try {
-        await sendEditionAlert({
+        const outcome = await sendEditionAlert({
           email: recipient.email,
           fullName: recipient.fullName,
           title: doc.title,
@@ -143,7 +143,18 @@ export async function notifyNewDataRoomDocuments(
           editionDate: null,
           summary: "",
           linkUrl: recipient.linkUrl?.startsWith("https://") ? recipient.linkUrl : null,
-        })
+        }, `dataroom-alert:${claimed[0]!.id}`)
+        if (outcome.status !== "accepted") {
+          // Not sent (or not known to be). A message the provider refused or
+          // that could not be sent at all releases its claim, so a later run
+          // can send it; one whose outcome is unknown keeps it, since it may
+          // already be in the inbox.
+          if (outcome.status !== "unknown") {
+            await sql`delete from papermark_document_notifications where id = ${claimed[0]!.id}::uuid`
+          }
+          skipped++
+          continue
+        }
 
         await recordClientEvent(
           { type: "subscriber", id: recipient.subscriberId },

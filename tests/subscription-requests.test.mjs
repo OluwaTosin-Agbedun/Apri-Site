@@ -252,10 +252,15 @@ describe("activation is gated on the server, on every path", () => {
     assert.match(fn, /'pending', \$\{invoiceRef\}, \$\{requestId\}::uuid/)
   })
 
-  it("nobody is welcomed twice, and completion needs everyone's access ready", () => {
+  it("each person's emails are tracked on their own record, and completion needs access and both emails", () => {
     const fn = body(read(ADMIN), "activateSubscriptionRequest")
-    assert.match(fn, /event_type = 'subscriber_welcomed' and detail = \$\{subscriberId\}/)
-    assert.match(fn, /welcome: welcomed\.length > 0 \? "skip" : "send"/)
+    assert.match(fn, /const result = await activateSubscriberRecord\(\{ subscriberId, admin, onboardingOwed: welcomedBefore\.length === 0 \}\)/)
+    // The old flow's welcome events are only read, to tell who is still owed onboarding; none is written.
+    assert.doesNotMatch(fn, /insert into review_prospect_events[^`]*subscriber_welcomed/)
+    assert.doesNotMatch(fn, /welcome: /, "no request-level welcome flag that could be set without a send")
+    assert.match(fn, /if \(result\.state === "activated" && activationDone\(result\)\)/)
+    assert.match(fn, /state: "emails_pending", reason: result\.onboarding\.message/)
+    assert.match(fn, /result\.state === "access_not_ready"/)
     assert.match(fn, /const complete = activationComplete\(outcomes, gate\.users\.length\)/)
     assert.match(fn, /if \(complete\) \{\s*await sql`\s*update review_subscription_requests\s*set activated_at = coalesce\(activated_at, now\(\)\)/)
     assert.match(fn, /return \{ ok: complete, message: summary \}/)

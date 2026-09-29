@@ -16,7 +16,7 @@ test("subscriber activation requires level and term but not a library link", () 
   assert.match(source, /isLevel\(row\.level\)/)
   assert.match(source, /!row\.term_end/)
   assert.doesNotMatch(source, /!row\.library_link_url && !row\.papermark_folder_id/)
-  assert.match(source, /issueToken\(id\)/)
+  assert.match(source, /sendOnboardingEmails\(\{ subscriberId: id, start: !wasActive \|\| args\.onboardingOwed === true \}\)/)
   assert.match(source, /already assigned to another client/)
 })
 

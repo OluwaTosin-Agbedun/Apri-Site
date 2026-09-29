@@ -65,8 +65,7 @@ import { revalidatePath } from "next/cache"
 import * as z from "zod"
 import { requireAdmin } from "@/lib/dal"
 import { getSql } from "@/lib/db"
-import { issueToken } from "@/lib/magic-link"
-import { sendWelcome } from "@/lib/subscriber-email"
+import { resendSecureAccessEmail, sendOnboardingEmails } from "@/lib/subscriber-onboarding"
 import { sendPublishAlert as sendAlert, previewAlert } from "@/lib/alerts"
 import {
   PUBLIC_TIER_NAMES,
@@ -88,7 +87,7 @@ import {
   revokeAllDataRoomLinks,
   ensureSubscriberLibraryAccess,
 } from "@/lib/dataroom-lifecycle"
-import { activateSubscriberRecord } from "@/lib/subscriber-activation"
+import { activateSubscriberRecord, activationDone } from "@/lib/subscriber-activation"
 import { describePersonalLinks } from "@/lib/personal-links"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -356,18 +355,82 @@ function levelChangeLinkNote(moved: Awaited<ReturnType<typeof reassignDataRoomOn
   return ` ${describePersonalLinks(links.report)} Use Check and repair document links on this page to retry.`
 }
 /**
- * Activate one seat and send its welcome email.
+ * Activate one seat: verify its library, make it active, then send its two
+ * onboarding emails.
  *
  * The work -- including the acquisition gate for a subscriber who came from
  * an Individual or Professional subscription request -- is in
  * activateSubscriberRecord (src/lib/subscriber-activation.ts), the one path
- * every activation takes.
+ * every activation takes. `ok` only when access is ready and no onboarding
+ * email is left owed.
  */
 export async function activateSubscriber(id: string): Promise<FormState> {
   const admin = await requireAdmin()
-  const result = await activateSubscriberRecord({ subscriberId: id, admin, welcome: "send" })
+  const result = await activateSubscriberRecord({ subscriberId: id, admin })
   refresh()
-  return { ok: result.state === "activated", message: result.message }
+  return { ok: activationDone(result), message: result.message }
+}
+
+/**
+ * Retry whatever onboarding email an active subscriber is still owed: the
+ * welcome if the provider never accepted it, then the secure-access email.
+ * An email already accepted is never sent again, and a subscriber whose
+ * onboarding never started (active before it was tracked) is sent nothing.
+ */
+export async function retryOnboardingEmails(id: string): Promise<FormState> {
+  const admin = await requireAdmin()
+  if (!UUID.test(id)) return { message: "Unknown subscriber." }
+
+  const gate = await libraryGate(id, admin)
+  if (gate) {
+    refresh()
+    return { message: `The onboarding emails were not sent because the library is not ready. ${gate}` }
+  }
+  let run: Awaited<ReturnType<typeof sendOnboardingEmails>>
+  try {
+    run = await sendOnboardingEmails({ subscriberId: id, start: false })
+  } catch {
+    return { message: "The onboarding emails could not be retried. Please try again." }
+  }
+  refresh()
+  return { ok: run.state === "ran" && run.report.complete, message: run.message }
+}
+
+/**
+ * The library check every email that says "your library is open" passes
+ * first. Returns why it is not ready, or null. A subscriber off Data Rooms, or
+ * whose term has ended, has no room to prepare.
+ */
+async function libraryGate(id: string, admin: { id: string; name: string }): Promise<string | null> {
+  let rows: { full_name: string | null; name: string; email: string; public_tier: string; term_end: string | null; status: string }[]
+  try {
+    rows = (await getSql()`
+      select full_name, name, email, public_tier, term_end, status
+      from subscribers where id = ${id} and client_type = 'subscriber' limit 1
+    `) as typeof rows
+  } catch {
+    return "The subscriber could not be loaded. Please try again."
+  }
+  const row = rows[0]
+  if (!row) return "That subscriber no longer exists."
+  if (row.status.toLowerCase() !== "active") return "Only an active seat can be sent onboarding or sign-in emails."
+  const access = await ensureSubscriberLibraryAccess({
+    subscriberId: id,
+    publicTier: row.public_tier,
+    assignedName: row.full_name || row.name,
+    assignedEmail: row.email,
+    termEnd: row.term_end,
+    createRoomLink: false,
+    changedById: admin.id,
+    changedByName: admin.name,
+  })
+  // No room link means they are still on the legacy library, which the
+  // portal serves them: nothing of a room's to prepare. Refused only when a
+  // room's links are incomplete or blocked.
+  if (access.state === "incomplete" || (access.state === "blocked" && access.reason !== "term_ended")) {
+    return `${access.message} Use Check and repair document links on this page, then try again.`
+  }
+  return null
 }
 
 /** Permanently remove one subscriber and their dependent portal access records. */
@@ -389,83 +452,31 @@ export async function deleteSubscriber(id: string, confirmationEmail: string): P
   return { ok: true, message: "Subscriber deleted from APRI. Revoke the Papermark link separately." }
 }
 
+/**
+ * Resend sign-in link: the secure-access email only -- never the welcome
+ * again. Claimed atomically, so a double-click sends one link; older links are
+ * revoked only once the provider has accepted the new one. See
+ * resendSecureAccessEmail in src/lib/subscriber-onboarding.ts.
+ */
 export async function resendSignInLink(id: string): Promise<FormState> {
   const admin = await requireAdmin()
   if (!UUID.test(id)) return { message: "Unknown subscriber." }
 
-  let rows: {
-    id: string
-    full_name: string | null
-    name: string
-    email: string
-    public_tier: string
-    term_end: string | null
-    status: string
-  }[]
-  try {
-    const sql = getSql()
-    rows = (await sql`
-      select id, full_name, name, email, public_tier, term_end, status
-      from subscribers where id = ${id} limit 1
-    `) as typeof rows
-  } catch {
-    return { message: "The subscriber sign-in link could not be prepared. Please try again." }
-  }
-
-  const row = rows[0]
-  if (!row) return { message: "That subscriber no longer exists." }
-  if (row.status.toLowerCase() !== "active") {
-    return { message: "Only an active seat can be sent a sign-in link." }
-  }
-
-  // This is the welcome email again -- "your library is open" -- so it follows
-  // activation's rule: it goes out only once every personal link is ready.
-  // That also makes it the retry for a welcome that activation held. A
-  // subscriber who is not on Data Rooms, or whose term has ended, is sent the
-  // link as before: there is nothing of a room's to prepare for them.
-  const access = await ensureSubscriberLibraryAccess({
-    subscriberId: id,
-    publicTier: row.public_tier,
-    assignedName: row.full_name || row.name,
-    assignedEmail: row.email,
-    termEnd: row.term_end,
-    createRoomLink: false,
-    changedById: admin.id,
-    changedByName: admin.name,
-  })
-  if (
-    access.state === "incomplete" ||
-    (access.state === "blocked" && access.reason !== "term_ended")
-  ) {
+  // The link opens the library, so it goes out only once the library is ready.
+  const gate = await libraryGate(id, admin)
+  if (gate) {
     refresh()
-    return {
-      message: `The sign-in email was not sent because the library is not ready yet. ${access.message} Try again once the links are ready, or use Check and repair document links on this page.`,
-    }
+    return { message: `The sign-in email was not sent because the library is not ready yet. ${gate}` }
   }
 
+  let result: Awaited<ReturnType<typeof resendSecureAccessEmail>>
   try {
-    const token = await issueToken(id)
-    await sendWelcome({
-      subscriberId: id,
-      email: row.email,
-      fullName: row.full_name || row.name || "",
-      publicTier: row.public_tier,
-      termEnd: row.term_end,
-      token,
-    })
+    result = await resendSecureAccessEmail(id)
   } catch {
-    return {
-      message: "Could not send the email. Check the email configuration.",
-    }
+    return { message: "The sign-in link could not be sent. Please try again." }
   }
-
   refresh()
-  return {
-    ok: true,
-    message: `A fresh sign-in link has been sent to ${row.email}.${
-      access.state === "ready" ? ` ${access.message}` : ""
-    }`,
-  }
+  return { ok: result.ok, message: result.message }
 }
 export async function setPublicationAccess(
   subscriberId: string,

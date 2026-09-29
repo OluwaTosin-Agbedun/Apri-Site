@@ -1,9 +1,13 @@
 import "server-only"
+import { randomUUID } from "node:crypto"
 import { Resend } from "resend"
 import { seriesLabel, tierDisplayName } from "./entitlements"
 import { emailNotice } from "./delivery"
-import { APRI_PRODUCTION_URL, portalVerificationUrl } from "./app-url"
+import { APRI_PRODUCTION_URL, portalSignInUrl, portalVerificationUrl } from "./app-url"
 import { recordClientEvent, type ClientPrincipal } from "./client-engagement"
+import { deliverEmail, fingerprint, type EmailOutcome } from "./email-delivery"
+
+export type { EmailOutcome } from "./email-delivery"
 
 /**
  * Transactional email for the subscriber portal.
@@ -13,8 +17,12 @@ import { recordClientEvent, type ClientPrincipal } from "./client-engagement"
  * a Cc, a Bcc or a shared recipient. Every message here goes to exactly one
  * named seat.
  *
- * Degrades quietly: with no RESEND_API_KEY the send is skipped and the caller
- * carries on, so a missing key never breaks a page.
+ * Every send returns what the provider actually said (see email-delivery.ts):
+ * accepted with its message id, not configured, refused, or unknown. None of
+ * them throws for an expected failure, and none of them reports a message as
+ * sent that the provider did not accept. Each carries an idempotency key, so a
+ * retry of the same message is recognised by the provider rather than sent
+ * twice.
  */
 
 let _resend: Resend | null = null
@@ -25,6 +33,17 @@ function getResend(): Resend | null {
   return _resend
 }
 
+type Message = Parameters<Resend["emails"]["send"]>[0]
+
+/** Hands one message to the provider under an idempotency key and reports what happened. */
+function send(message: Message, idempotencyKey: string): Promise<EmailOutcome> {
+  const resend = getResend()
+  return deliverEmail(
+    resend ? (key) => resend.emails.send(message, { idempotencyKey: key }) : null,
+    idempotencyKey,
+  )
+}
+
 const FROM = process.env.SUBSCRIBER_FROM_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
 const CONTACT =
   process.env.BRIEFING_MANAGER_EMAIL ?? "intelligence@athenacentre.org"
@@ -33,19 +52,17 @@ const CONTACT =
 // Sign-in link
 // ---------------------------------------------------------------------------
 
+/** The sign-in page's link, sent when someone asks for it there. */
 export async function sendSignInLink(args: {
   subscriberId: string
   email: string
   fullName: string
   token: string
-}): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
+}): Promise<EmailOutcome> {
   const url = portalVerificationUrl(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
-  const result = await resend.emails.send({
+  const outcome = await send({
     from: `APRI <${FROM}>`,
     to: args.email,
     subject: "Your APRI sign-in link",
@@ -64,8 +81,9 @@ export async function sendSignInLink(args: {
         on your account. This link is personal to you; please do not forward it.
       </p>
     `),
-  })
-  await trackEmail({type:"subscriber",id:args.subscriberId}, result.data?.id)
+  }, `signin:${args.subscriberId}:${fingerprint(args.token)}`)
+  await trackAccepted({ type: "subscriber", id: args.subscriberId }, outcome)
+  return outcome
 }
 
 // ---------------------------------------------------------------------------
@@ -80,13 +98,10 @@ export async function sendSignInLink(args: {
 export async function sendLapsedNotice(args: {
   email: string
   fullName: string
-}): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
+}): Promise<EmailOutcome> {
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
-  await resend.emails.send({
+  return send({
     from: `APRI <${FROM}>`,
     to: args.email,
     replyTo: CONTACT,
@@ -105,38 +120,35 @@ export async function sendLapsedNotice(args: {
         and we will arrange renewal.
       </p>
     `),
-  })
+  }, `lapsed:${randomUUID()}`)
 }
 
 // ---------------------------------------------------------------------------
 // Welcome, sent when an administrator activates a seat
 // ---------------------------------------------------------------------------
 
-export async function sendWelcome(args: {
+/**
+ * The first onboarding email: the subscription is active, and a separate
+ * secure-access email follows. It carries no sign-in link -- the personal,
+ * one-time link travels only in the second message.
+ *
+ * The body is fixed for a given subscriber, so its idempotency key is too:
+ * sending it again after an unsettled attempt is recognised by the provider
+ * and never produces a second welcome.
+ */
+export function welcomeMessage(args: {
   subscriberId: string
   email: string
   fullName: string
   publicTier: string
   termEnd: string | null
-  token: string
-}): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
-  const url = portalVerificationUrl(args.token)
+}): { message: Message; idempotencyKey: string } {
   const greeting = args.fullName ? `, ${args.fullName}` : ""
-
-  const result = await resend.emails.send({
-    from: `APRI <${FROM}>`,
-    to: args.email,
-    replyTo: CONTACT,
-    subject: "Your APRI subscription is active",
-    html: shell(`
+  const html = shell(`
       <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Welcome to APRI</h1>
 
       <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#333333;">
-        Good day${esc(greeting)}. Your subscription is now active and your intelligence
-        library is open.
+        Good day${esc(greeting)}. Your APRI subscription is now active.
       </p>
 
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin:0 0 24px;">
@@ -144,20 +156,87 @@ export async function sendWelcome(args: {
         ${args.termEnd ? row("Access until", formatDate(args.termEnd)) : ""}
       </table>
 
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#333333;">
+        We are sending your secure access link in a separate email. It is personal to you,
+        works once and expires shortly after it is sent.
+      </p>
+
+      <p style="margin:0 0 0;font-size:13px;line-height:1.7;color:#888888;">
+        If that link has expired, request a fresh one at any time from
+        <a href="${esc(portalSignInUrl())}" style="color:#b49f69;">the APRI sign-in page</a>
+        using this email address. ${esc(emailNotice())}
+      </p>
+    `)
+  return {
+    message: {
+      from: `APRI <${FROM}>`,
+      to: args.email,
+      replyTo: CONTACT,
+      subject: "Your APRI subscription is active",
+      html,
+    },
+    idempotencyKey: `welcome:${args.subscriberId}:${fingerprint(`${args.email}\n${html}`)}`,
+  }
+}
+
+export function sendWelcome(args: Parameters<typeof welcomeMessage>[0]): Promise<EmailOutcome> {
+  const { message, idempotencyKey } = welcomeMessage(args)
+  return send(message, idempotencyKey)
+}
+
+/**
+ * The second onboarding email, and the one "Resend sign-in link" sends: the
+ * subscriber's personal, one-time sign-in link from the existing mechanism.
+ * `attemptKey` identifies this one attempt, so the provider never sends the
+ * same attempt twice.
+ */
+export async function sendSecureAccess(args: {
+  subscriberId: string
+  email: string
+  fullName: string
+  token: string
+  attemptKey: string
+}): Promise<EmailOutcome> {
+  const url = portalVerificationUrl(args.token)
+  const greeting = args.fullName ? `, ${args.fullName}` : ""
+  const outcome = await send({
+    from: `APRI <${FROM}>`,
+    to: args.email,
+    replyTo: CONTACT,
+    subject: "Your secure APRI access link",
+    html: shell(`
+      <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Your secure access link</h1>
+
+      <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#333333;">
+        Good day${esc(greeting)}. Use the button below to open your APRI intelligence
+        library. The link is personal to you, works once and expires in 15 minutes.
+      </p>
+
       ${button("Open my library", url)}
 
       <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#888888;">
-        This link is personal to you and works once. Whenever you return, request a fresh
-        link from the sign-in page using this email address. ${esc(emailNotice())}
+        If it has expired, request a fresh link from
+        <a href="${esc(portalSignInUrl())}" style="color:#b49f69;">the APRI sign-in page</a>
+        using this email address. Please do not forward this email. ${esc(emailNotice())}
       </p>
     `),
-  })
-  await trackEmail({type:"subscriber",id:args.subscriberId}, result.data?.id)
+  }, `access:${args.attemptKey}`)
+  await trackAccepted({ type: "subscriber", id: args.subscriberId }, outcome)
+  return outcome
 }
 
-async function trackEmail(principal: ClientPrincipal, resendEmailId?: string) {
-  if (!resendEmailId) return
-  try { await recordClientEvent(principal,"signin_email_sent",{resendEmailId}) } catch { /* email delivery must not depend on analytics */ }
+/**
+ * The existing engagement record for a sign-in email, written only once the
+ * provider accepted it. The Resend webhook finds the subscriber through it to
+ * record delivery, opens and bounces.
+ */
+async function trackAccepted(principal: ClientPrincipal, outcome: EmailOutcome) {
+  if (outcome.status !== "accepted") return
+  try {
+    await recordClientEvent(principal, "signin_email_sent", { resendEmailId: outcome.providerMessageId })
+  } catch {
+    /* the provider's acceptance stands; analytics must not undo it */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -178,17 +257,14 @@ export type EditionAlert = {
   linkUrl: string | null
 }
 
-export async function sendEditionAlert(alert: EditionAlert): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
+export async function sendEditionAlert(alert: EditionAlert, idempotencyKey?: string): Promise<EmailOutcome> {
   const target = alert.linkUrl ?? `${APRI_PRODUCTION_URL}/portal`
   const label = alert.linkUrl ? "Read it now" : "Open my library"
   const kicker = [seriesLabel(alert.series), formatDate(alert.editionDate)]
     .filter(Boolean)
     .join(" · ")
 
-  await resend.emails.send({
+  return send({
     from: `APRI <${FROM}>`,
     to: alert.email,
     replyTo: CONTACT,
@@ -214,7 +290,7 @@ export async function sendEditionAlert(alert: EditionAlert): Promise<void> {
         ${esc(emailNotice())}
       </p>
     `),
-  })
+  }, idempotencyKey ?? `alert:${randomUUID()}`)
 }
 
 // ---------------------------------------------------------------------------

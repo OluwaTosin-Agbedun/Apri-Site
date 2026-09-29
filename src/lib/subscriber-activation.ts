@@ -1,23 +1,41 @@
 import 'server-only'
 import { getSql } from './db'
-import { isLevel, levelLabel } from './entitlements'
+import { isLevel, levelLabel, levelForPublicTier, visibilitiesForLevel, type Level } from './entitlements'
+import { PORTAL_SERIES } from './portal-library'
 import { papermarkEmbedUrl } from './papermark-embed'
-import { issueToken } from './magic-link'
-import { sendWelcome } from './subscriber-email'
 import { ensureSubscriberLibraryAccess, type LibraryAccess } from './dataroom-lifecycle'
-import { activationGate, type GateResult } from './subscription-journey'
-import { subscriptionActivationReady, requesterConfirmed } from './subscription-schema'
+import { sendOnboardingEmails, startOnboardingTracking, type OnboardingRun } from './subscriber-onboarding'
+import { activationGate, PLANS, type GateResult } from './subscription-journey'
+import {
+  subscriptionActivationReady,
+  requesterConfirmed,
+  onboardingTrackingReady,
+  ONBOARDING_MIGRATION_PENDING,
+} from './subscription-schema'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LEGACY_REQUEST_NOTE = /^Activated from review prospect ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
 export type SubscriberActivation =
-  /** Active, and the library opens. `welcome` says whether the welcome email went out on this run. */
-  | { state: 'activated'; welcome: 'sent' | 'failed' | 'skipped'; message: string }
-  /** Active, but the library is not ready, so the welcome email is held. */
-  | { state: 'held'; message: string }
-  /** Not activated. Nothing was changed. */
+  /** Not activated: a check or the acquisition gate failed. Nothing was changed. */
   | { state: 'blocked'; message: string }
+  /**
+   * The library could not be verified, so the subscriber was not made active
+   * (one already active stays as they were) and no email was sent.
+   */
+  | { state: 'access_not_ready'; message: string }
+  /**
+   * Active, with a verified library. `onboarding` says what happened to the
+   * two onboarding emails -- which can still need a retry.
+   */
+  | {
+      state: 'activated'
+      access: 'data_room' | 'legacy'
+      onboarding: OnboardingRun
+      /** Active before this call: nothing new is owed unless onboarding had started. */
+      wasActive: boolean
+      message: string
+    }
 
 function startOfToday(): Date {
   const d = new Date()
@@ -37,7 +55,7 @@ function startOfToday(): Date {
  */
 async function acquisitionGate(
   sql: ReturnType<typeof getSql>,
-  row: { id: string; email: string; note: string | null },
+  row: { id: string; email: string; note: string | null; public_tier: string; level: string | null; seats: number },
 ): Promise<GateResult | null> {
   let requestRows: Record<string, unknown>[] = []
   if (await subscriptionActivationReady(sql)) {
@@ -87,23 +105,43 @@ async function acquisitionGate(
   if (!gate.users.some((u) => u.email === row.email.trim().toLowerCase())) {
     return { ok: false, missing: ['This person listed as a named subscriber on the request'] }
   }
+  // The record must carry exactly what the request pays for: its plan's tier
+  // and level, one seat. A pending record can be edited elsewhere (for
+  // example by the public form), so this is checked here, at activation.
+  const tier = PLANS[gate.plan].tier
+  if (row.public_tier !== tier || row.level !== levelForPublicTier(tier) || Number(row.seats) !== 1) {
+    return {
+      ok: false,
+      missing: [`This record set to the request's plan (${tier}, one seat). Run Activate subscription on the request, which sets it`],
+    }
+  }
   return gate
 }
 
 /**
- * Activates one subscriber record: the checks, the status change, their Data
- * Room library (room link and a Papermark-confirmed personal link for every
- * document), and then -- only once all of that is ready -- their welcome email
- * with its sign-in link.
+ * Activates one subscriber record, in this order:
  *
- * `welcome: 'skip'` is for a retry that has already welcomed this person, so
- * nobody is emailed twice. Never throws for an expected failure: the result
- * says what happened and what to do next.
+ *   1. the checks, including the acquisition gate (signed agreement and
+ *      confirmed payment) for a subscriber from a subscription request;
+ *   2. their library, prepared and verified while they are still pending --
+ *      the Data Room link and a Papermark-confirmed personal link for every
+ *      document, or, off Data Rooms, a legacy library that really opens;
+ *   3. only then the status change to active;
+ *   4. the two onboarding emails (welcome, then secure access), each tracked.
+ *
+ * Access preparation and email delivery are reported separately: a failure in
+ * 2 leaves the subscriber as they were; a failure in 4 leaves them active with
+ * the emails marked for retry. Never throws for an expected failure.
  */
 export async function activateSubscriberRecord(args: {
   subscriberId: string
   admin: { id: string; name: string }
-  welcome: 'send' | 'skip'
+  /**
+   * For a subscriber already active whose onboarding emails are still owed --
+   * one a subscription request activated under the previous flow, which held
+   * their welcome. Starts their onboarding instead of treating them as done.
+   */
+  onboardingOwed?: boolean
 }): Promise<SubscriberActivation> {
   const id = args.subscriberId
   const blocked = (message: string): SubscriberActivation => ({ state: 'blocked', message })
@@ -189,26 +227,25 @@ export async function activateSubscriberRecord(args: {
     )
   }
 
-  try {
-    await sql`
-      update subscribers
-      set status = 'active',
-          term_start = coalesce(term_start, current_date),
-          updated_at = now()
-      where id = ${id}
-    `
-  } catch {
-    return blocked(
-      'The subscriber was not fully activated. Refresh the page and use Activate or Resend sign-in link again.',
-    )
-  }
-
+  const wasActive = row.status.toLowerCase() === 'active'
   const granted = levelLabel(row.level, row.seats)
 
-  // The welcome says the library is open, so the library has to open first:
-  // the room link, and a personal link Papermark has confirmed for every
-  // document in the room. If any is not ready the email is held and the Admin
-  // is told which and why, instead of the failure vanishing into a catch.
+  // A new activation needs durable onboarding tracking: without it the two
+  // emails could be neither sent reliably nor retried, so nothing is changed.
+  if (!wasActive) {
+    let tracked = false
+    try {
+      tracked = await onboardingTrackingReady(sql, { fresh: true })
+    } catch {
+      tracked = false
+    }
+    if (!tracked) return blocked(`${ONBOARDING_MIGRATION_PENDING} Nothing was changed.`)
+  }
+
+  // 1. The library, prepared and verified BEFORE the subscriber is made active:
+  //    the room link and a Papermark-confirmed personal link for every
+  //    document. A pending subscriber can be prepared (allowPending), so
+  //    activation never needs the subscriber active before their links exist.
   const access = await ensureSubscriberLibraryAccess({
     subscriberId: id,
     publicTier: row.public_tier,
@@ -216,70 +253,156 @@ export async function activateSubscriberRecord(args: {
     assignedEmail: row.email,
     termEnd: row.term_end,
     createRoomLink: true,
+    allowPending: !wasActive,
     changedById: args.admin.id,
     changedByName: args.admin.name,
   })
-  if (access.state === 'incomplete' || access.state === 'blocked') {
-    return { state: 'held', message: `Seat activated at ${granted}, but ${heldWelcome(access)}` }
+  const notReady = (reason: string): SubscriberActivation => ({
+    state: 'access_not_ready',
+    message: `${wasActive ? 'The subscriber stays active as before' : 'The subscriber was not activated'}, and no email was sent: ${reason}`,
+  })
+
+  let accessKind: 'data_room' | 'legacy'
+  let accessNote = ''
+  if (access.state === 'ready') {
+    accessKind = 'data_room'
+    accessNote = access.message
+  } else if (access.state === 'no_room') {
+    if (gate) {
+      // Individual and Professional Access are served from the level's Data
+      // Room: without one there is no library to open.
+      return notReady(
+        `no Data Room is mapped for ${row.public_tier}. Map one under Admin → Data Rooms, then activate again.`,
+      )
+    }
+    let legacy = false
+    try {
+      legacy = await validatedLegacyLibrary(sql, row, row.level as Level)
+    } catch {
+      return notReady('the legacy library could not be checked. Try again.')
+    }
+    if (!legacy) {
+      return notReady(
+        `no Data Room is mapped for ${row.public_tier}, and this subscriber has no legacy library to open (no private library link, client-folder document, live personal copy or shared edition at their level). Map a Data Room for this tier under Admin → Data Rooms, or give them a private Papermark library link on this page, then activate again.`,
+      )
+    }
+    accessKind = 'legacy'
+    accessNote = 'Their legacy library opens.'
+  } else if (access.state === 'no_room_link') {
+    return notReady('their Data Room link is missing. Create it from the Data Room panel, then activate again.')
+  } else {
+    return notReady(`${access.message} ${retryHint(access)}`)
   }
 
-  const note =
-    access.state === 'ready'
-      ? ` ${access.message}`
-      : access.state === 'no_room'
-        ? ' No Data Room is mapped for this level yet.'
-        : ''
-
-  if (args.welcome === 'skip') {
-    return { state: 'activated', welcome: 'skipped', message: `Seat active at ${granted}; the welcome email was already sent.${note}` }
-  }
-
-  // Issued only now, when it is about to be sent: a held welcome leaves no
-  // unsent sign-in token behind.
-  let token: string
-  try {
-    token = await issueToken(id)
-  } catch {
-    return {
-      state: 'held',
-      message: `Seat activated at ${granted}, but a sign-in link could not be issued, so the welcome email was not sent. Use Resend sign-in link.`,
+  // 2. Only now, with the library verified, is the subscriber made active --
+  //    after their onboarding rows exist, so no failure between the two steps
+  //    can leave an active subscriber whose emails were never owed.
+  if (!wasActive) {
+    try {
+      await startOnboardingTracking(id)
+    } catch {
+      return blocked('The library is ready, but onboarding tracking could not be prepared. Try again; nothing was sent.')
+    }
+    try {
+      // Conditional on the tier and level that were verified, so a record
+      // changed since it was checked is not activated at the new values.
+      const flipped = (await sql`
+        update subscribers
+        set status = 'active',
+            term_start = coalesce(term_start, current_date),
+            updated_at = now()
+        where id = ${id}
+          and public_tier = ${row.public_tier}
+          and level is not distinct from ${row.level}
+          and lower(status) <> 'active'
+        returning id
+      `) as unknown[]
+      if (flipped.length === 0) {
+        return blocked('The subscriber changed while being activated. Nothing was sent; activate again.')
+      }
+    } catch {
+      return {
+        state: 'access_not_ready',
+        message: 'The library is ready, but the subscriber could not be marked active. Try again; nothing was sent.',
+      }
     }
   }
 
-  let mailed = true
+  // 3. The two onboarding emails. Started only for a subscriber activated now;
+  //    one already active is resumed only if their onboarding had started, so
+  //    nobody already active is sent a retrospective welcome.
+  let onboarding: OnboardingRun
   try {
-    await sendWelcome({
-      subscriberId: id,
-      email: row.email,
-      fullName: row.full_name || row.name || '',
-      publicTier: row.public_tier,
-      termEnd: row.term_end,
-      token,
-    })
+    onboarding = await sendOnboardingEmails({ subscriberId: id, start: !wasActive || args.onboardingOwed === true })
   } catch {
-    mailed = false
+    onboarding = { state: 'not_ready', message: 'The onboarding emails could not be started. Use Retry onboarding emails.' }
   }
 
-  return mailed
-    ? { state: 'activated', welcome: 'sent', message: `Seat activated at ${granted}, and the welcome email has been sent.${note}` }
-    : {
-        state: 'activated',
-        welcome: 'failed',
-        message: `Seat activated at ${granted}, but the welcome email could not be sent. Check the email configuration.${note}`,
-      }
+  const head = wasActive ? `Seat is active at ${granted}; access is ready.` : `Seat activated at ${granted}; access is ready.`
+  const emails =
+    onboarding.state === 'ran'
+      ? onboarding.report.complete
+        ? onboarding.message
+        : `Onboarding emails need attention: ${onboarding.message}`
+      : onboarding.message
+  return {
+    state: 'activated',
+    access: accessKind,
+    onboarding,
+    wasActive,
+    message: `${head} ${accessNote} ${emails}`.replace(/\s+/g, ' ').trim(),
+  }
+}
+
+/** Whether activation's work is fully done: access ready, and both onboarding emails accepted or none owed. */
+export function activationDone(result: SubscriberActivation): boolean {
+  if (result.state !== 'activated') return false
+  // "Not started" is done only for someone who was active already (nothing
+  // retrospective is owed) -- never for a fresh activation.
+  return (
+    (result.onboarding.state === 'not_started' && result.wasActive) ||
+    (result.onboarding.state === 'ran' && result.onboarding.report.complete)
+  )
 }
 
 /**
- * Why a welcome email was held, and what to do about it.
+ * Whether a subscriber on no Data Room has a library the legacy portal would
+ * actually open for them:
  *
- * Resend sign-in link is the retry that sends: it prepares what is missing and
- * sends the welcome only once every link is ready. Check and repair document
- * links fixes the same things and sends nothing.
+ *  - their private Papermark library link (already validated above as a
+ *    Papermark share link, unique to them), or
+ *  - a document in their Papermark client folder, or
+ *  - a live personal copy, or a shared edition, of a published edition at
+ *    their level in a series the portal lists.
  */
-export function heldWelcome(access: Extract<LibraryAccess, { state: 'incomplete' | 'blocked' }>): string {
-  const retry =
-    access.state === 'blocked' && /Data Room link (could not|was created)/.test(access.message)
-      ? 'Create the Data Room link from the Data Room panel on this page, then use Resend sign-in link to send the welcome email.'
-      : 'Use Resend sign-in link to retry: it prepares what is missing and sends the welcome email only once every link is ready. Check and repair document links on this page fixes the same without sending anything.'
-  return `the welcome email was held because the library is not ready yet. ${access.message} ${retry}`
+async function validatedLegacyLibrary(
+  sql: ReturnType<typeof getSql>,
+  row: { id: string; library_link_url: string | null },
+  level: Level,
+): Promise<boolean> {
+  if (row.library_link_url && papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) return true
+  const rows = (await sql.query(
+    `select 1
+     from papermark_client_documents cd
+     where cd.subscriber_id = $1 and cd.share_url like 'https://%'
+     union all
+     select 1
+     from documents d
+     left join publication_access pa
+       on pa.publication_id = d.id and pa.subscriber_id = $1 and pa.revoke_state = 'live'
+     where d.status = 'published'
+       and d.visibility <> 'OPEN'
+       and d.visibility = any($2::text[])
+       and d.series = any($3::text[])
+       and ((pa.link_url like 'https://%') or (d.is_shared_copy and d.papermark_link like 'https://%'))
+     limit 1`,
+    [row.id, visibilitiesForLevel(level), [...PORTAL_SERIES]],
+  )) as unknown[]
+  return rows.length > 0
+}
+
+function retryHint(access: Extract<LibraryAccess, { state: 'incomplete' | 'blocked' }>): string {
+  return access.state === 'blocked' && /Data Room link (could not|was created)/.test(access.message)
+    ? 'Create the Data Room link from the Data Room panel on this page, then activate again.'
+    : 'Fix what is listed (Check and repair document links on the subscriber page), then activate again.'
 }

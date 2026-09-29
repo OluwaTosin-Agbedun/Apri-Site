@@ -22,9 +22,9 @@
         is no scheduled sweep in this deployment, so the only thing that closes
         a lapsed subscriber's access is this button.
       */ /*
-        Says when this is actually needed, because the welcome email at
-        activation already carries a working link and the session then lasts 90
-        days. Sending another is for a lost email or a new device, not routine.
+        Says when this is actually needed, because activation already sent a
+        separate secure-access email with a working link and the session then
+        lasts 90 days. Sending another is for a lost email or a new device.
       */
 
 import { useState, useTransition } from "react"
@@ -33,6 +33,7 @@ import {
   activateSubscriber,
   deleteSubscriber,
   resendSignInLink,
+  retryOnboardingEmails,
 } from "@/app/actions/subscribers"
 import { revokeAccessFor } from "@/app/actions/copies"
 import type { FormState } from "@/lib/definitions"
@@ -44,6 +45,8 @@ export default function SeatActions({
   hasTermEnd,
   liveLinks = 0,
   compact = false,
+  onboarding = [],
+  onboardingOwed = false,
 }: {
   id: string
   email: string
@@ -52,6 +55,10 @@ export default function SeatActions({
   hasTermEnd: boolean
   liveLinks?: number
   compact?: boolean
+  /** One line per tracked onboarding email; empty for a subscriber from before tracking. */
+  onboarding?: string[]
+  /** Some onboarding email has not been accepted by the provider yet. */
+  onboardingOwed?: boolean
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -64,7 +71,9 @@ export default function SeatActions({
       const result = await fn(id)
       setOk(Boolean(result?.ok))
       if (result?.message) setMessage(result.message)
-      if (result?.ok) router.refresh()
+      // Refreshed whatever the outcome, so a partial result (access ready,
+      // an email to retry) shows in the status below at once.
+      router.refresh()
     })
   }
 
@@ -173,7 +182,7 @@ export default function SeatActions({
             disabled={pending || !ready}
             className="bg-foreground text-background px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            {pending ? "Working…" : "Activate & send welcome"}
+            {pending ? "Working…" : "Activate & send onboarding emails"}
           </button>
         ) : (
           <button
@@ -215,12 +224,32 @@ export default function SeatActions({
         )}
       </div>
 
-      {}
-      {}
+      {onboarding.length > 0 && (
+        <div className="mt-4 text-xs leading-relaxed max-w-xl">
+          <p className="font-medium text-foreground/80">Onboarding emails</p>
+          <ul className="mt-1 text-muted-foreground">
+            {onboarding.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {isActive && onboardingOwed && (
+            <button
+              type="button"
+              onClick={() => run(retryOnboardingEmails)}
+              disabled={pending}
+              className={"mt-2 " + button}
+            >
+              Retry onboarding emails
+            </button>
+          )}
+        </div>
+      )}
       {isActive && (
         <p className="mt-3 text-xs text-muted-foreground leading-relaxed max-w-xl">
-          Activation already sent them a working link, and signing in lasts 90
-          days. Send another only if they lost the email or are on a new device.
+          Activation sends a welcome email and then a separate secure-access
+          email with their personal sign-in link; signing in lasts 90 days.
+          Send a new sign-in link only if they lost that email or are on a new
+          device. It never repeats the welcome.
         </p>
       )}
 

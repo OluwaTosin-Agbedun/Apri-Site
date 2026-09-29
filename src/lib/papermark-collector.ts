@@ -2,10 +2,11 @@ import 'server-only'
 import { getSql } from './db'
 import {
   isPapermarkConfigured,
-  listLinks,
   listViewsForLink,
   getViewDetail,
 } from './papermark'
+import { editionWithdrawalReady } from './edition-recipients-schema'
+import { orderFromCursor } from './engagement-metrics'
 import { recordView, recordDownload, refreshLastViewed } from './view-attribution'
 import { completionFromPages, enrichmentCoverage, type Maybe } from './engagement-metrics'
 
@@ -29,15 +30,31 @@ export const MAX_DURATION_SECONDS = 60
 const TIME_BUDGET_MS = (MAX_DURATION_SECONDS - 12) * 1000
 
 /** How many views get a second call for duration/page data per run. */
-const ENRICH_LIMIT = 25
+const ENRICH_LIMIT = 100
 
-/** Views older than this are ignored: this is a catch-up, not a backfill. */
-const LOOKBACK_DAYS = 14
+/**
+ * Views seen more recently than this are always re-read, so a late download or
+ * a late attribution is picked up. Older views are still read -- every view on
+ * a known link is ingested once -- but one already stored and attributed is
+ * not rewritten on every run.
+ */
+const REFRESH_DAYS = 14
+
+/** Pages of 100 views read per link: enough for every view on any APRI link. */
+const VIEW_PAGES_PER_LINK = 20
+
+/** Where the next run resumes, so a run cut short by its budget never starves the same links. */
+const CURSOR_KEY = 'papermark_poll_cursor'
 
 export type CollectionSummary = {
   ok: boolean
   skipped?: string
+  /** Links polled in this run. */
   linksChecked: number
+  /** Links APRI has on file. */
+  linksKnown: number
+  /** Every known link was polled in this run (otherwise the next run resumes). */
+  allLinksCovered: boolean
   viewsFound: number
   newViews: number
   downloadsRecorded: number
@@ -46,22 +63,38 @@ export type CollectionSummary = {
   enriched: number
   enrichmentCoveragePct: Maybe<number>
   failures: number
-  /** Link ids Papermark returned that APRI has no record of. */
+  /** Link ids on stored views that match none of APRI's link records. */
   unknownLinkIds: number
   elapsedMs: number
   errors: string[]
 }
 
 /**
- * Every Papermark link id APRI has on file.
+ * Every Papermark link id APRI has on file -- for the subscriber portal and the
+ * Complimentary Review alike.
  *
- * All five sources are consulted. Before Phase 6 this read only two of them,
- * so views arriving on a per-document link, a Data Room link or a
- * Complimentary Review link were polled only by accident — via the fallback
- * below, which was worse than the gap it covered.
+ * Subscriber portal: personal document links, Data Room links, per-publication
+ * access links, legacy client-folder links and the legacy link on the
+ * subscriber record. Complimentary Review: each edition's current link and,
+ * once withdrawals exist, the link an edition had before it was withdrawn (its
+ * earlier views still count), plus the retired fixed-slot links for history.
+ *
+ * Before this, the review editions and the client-folder links were missing,
+ * so their views were never polled at all.
  */
 export async function knownLinkIds(): Promise<Set<string>> {
   const sql = getSql()
+
+  const editions = (await sql`
+    select secure_link_id as id from review_publication_editions
+    where secure_link_id is not null and secure_link_id <> ''
+  `) as { id: string }[]
+  const withdrawn = (await editionWithdrawalReady(sql))
+    ? ((await sql`
+        select withdrawal_link_id as id from review_publication_editions
+        where withdrawal_link_id is not null and withdrawal_link_id <> ''
+      `) as { id: string }[])
+    : []
 
   const rows = (await sql`
     select papermark_link_id as id
@@ -84,9 +117,14 @@ export async function knownLinkIds(): Promise<Set<string>> {
     select papermark_link_id as id
       from subscribers
       where papermark_link_id is not null and papermark_link_id <> ''
+    union
+    -- Legacy client-folder documents served by the older portal.
+    select papermark_link_id as id
+      from papermark_client_documents
+      where papermark_link_id is not null and papermark_link_id <> ''
   `) as { id: string }[]
 
-  return new Set(rows.map((r) => r.id).filter(Boolean))
+  return new Set([...rows, ...editions, ...withdrawn].map((r) => r.id).filter(Boolean))
 }
 
 /**
@@ -102,13 +140,18 @@ export async function knownLinkIds(): Promise<Set<string>> {
 export async function collectPapermarkAnalytics(options: {
   now?: Date
   enrichLimit?: number
+  /** A shorter budget, for a caller that has other work in the same invocation. */
+  timeBudgetMs?: number
 } = {}): Promise<CollectionSummary> {
+  const budgetMs = Math.min(options.timeBudgetMs ?? TIME_BUDGET_MS, TIME_BUDGET_MS)
   const startedAt = Date.now()
   const errors: string[] = []
 
   const empty: CollectionSummary = {
     ok: true,
     linksChecked: 0,
+    linksKnown: 0,
+    allLinksCovered: false,
     viewsFound: 0,
     newViews: 0,
     downloadsRecorded: 0,
@@ -134,26 +177,15 @@ export async function collectPapermarkAnalytics(options: {
     return { ...empty, skipped: 'no-known-links', elapsedMs: Date.now() - startedAt }
   }
 
-  let links: Awaited<ReturnType<typeof listLinks>>
-  try {
-    links = await listLinks()
-  } catch {
-    // No detail echoed: a Papermark error message can quote the request, which
-    // carries the bearer token.
-    return {
-      ...empty,
-      ok: false,
-      failures: 1,
-      errors: ['Could not list links from Papermark.'],
-      elapsedMs: Date.now() - startedAt,
-    }
-  }
+  // Every known link is polled directly -- never a page of the account's links
+  // filtered afterwards, which capped the poll at the first 2000 links and
+  // silently dropped the rest. The order rotates from where the last run
+  // stopped, so a run cut short by its budget resumes with the links it did
+  // not reach instead of starting from the same place every day.
+  const cursor = await readCursor()
+  const candidates = orderFromCursor([...known], cursor)
 
-  const allIds = links.map((l) => l.id).filter((id): id is string => Boolean(id))
-  const candidates = allIds.filter((id) => known.has(id))
-  const unknownLinkIds = allIds.length - candidates.length
-
-  const since = (options.now ?? new Date()).getTime() - LOOKBACK_DAYS * 86_400_000
+  const refreshSince = (options.now ?? new Date()).getTime() - REFRESH_DAYS * 86_400_000
   const enrichLimit = options.enrichLimit ?? ENRICH_LIMIT
 
   let viewsFound = 0
@@ -164,23 +196,37 @@ export async function collectPapermarkAnalytics(options: {
   let enriched = 0
   let failures = 0
   const touched = new Set<string>()
+  let linksPolled = 0
+  let lastPolled: string | null = null
 
   for (const linkId of candidates) {
-    if (Date.now() - startedAt > TIME_BUDGET_MS) break
+    if (Date.now() - startedAt > budgetMs) break
 
     let views
     try {
-      views = await listViewsForLink(linkId)
+      views = await listViewsForLink(linkId, VIEW_PAGES_PER_LINK)
     } catch {
+      // Counted, never described: a Papermark error message can quote the
+      // request, which carries the bearer token.
       failures++
+      linksPolled++
+      lastPolled = linkId
       continue // One bad link must not end the run.
     }
+    linksPolled++
+    lastPolled = linkId
+
+    // What is already stored for this link, so an old view that is stored and
+    // attributed is not rewritten on every run -- while one never stored, or
+    // still unattributed, is ingested whatever its age.
+    const settled = await settledViewIds(linkId)
 
     for (const view of views) {
       if (!view?.id) continue
 
       const viewedAtMs = view.viewed_at ? Date.parse(view.viewed_at) : NaN
-      if (Number.isFinite(viewedAtMs) && viewedAtMs < since) continue
+      const recent = !Number.isFinite(viewedAtMs) || viewedAtMs >= refreshSince
+      if (!recent && settled.has(view.id)) continue
 
       viewsFound++
 
@@ -229,11 +275,14 @@ export async function collectPapermarkAnalytics(options: {
     }
   }
 
+  const allLinksCovered = linksPolled === candidates.length
+  await writeCursor(allLinksCovered ? null : lastPolled)
+
   // Enrichment runs after ingestion, over whatever is still unenriched, so an
   // interrupted run resumes instead of restarting. `last_enriched_at` is the
   // resume marker: null means never attempted.
-  if (Date.now() - startedAt < TIME_BUDGET_MS) {
-    enriched = await enrichPendingViews(enrichLimit, startedAt)
+  if (Date.now() - startedAt < budgetMs) {
+    enriched = await enrichPendingViews(enrichLimit, startedAt, budgetMs)
   }
 
   for (const subscriberId of touched) {
@@ -248,7 +297,10 @@ export async function collectPapermarkAnalytics(options: {
 
   const summary: CollectionSummary = {
     ok: true,
-    linksChecked: candidates.length,
+    // The links actually polled in this run, not the number on file.
+    linksChecked: linksPolled,
+    linksKnown: candidates.length,
+    allLinksCovered,
     viewsFound,
     newViews,
     downloadsRecorded,
@@ -257,7 +309,7 @@ export async function collectPapermarkAnalytics(options: {
     enriched,
     enrichmentCoveragePct: coverage,
     failures,
-    unknownLinkIds,
+    unknownLinkIds: await countUnknownViewLinks(),
     elapsedMs: Date.now() - startedAt,
     errors,
   }
@@ -266,16 +318,67 @@ export async function collectPapermarkAnalytics(options: {
   return summary
 }
 
+/** Views on this link already stored with an attribution: nothing left to learn from re-reading them. */
+async function settledViewIds(linkId: string): Promise<Set<string>> {
+  try {
+    const sql = getSql()
+    const rows = (await sql`
+      select papermark_view_id from document_views
+      where papermark_link_id = ${linkId}
+        and reader_type is not null and reader_type <> 'unknown'
+    `) as { papermark_view_id: string }[]
+    return new Set(rows.map((r) => r.papermark_view_id))
+  } catch {
+    return new Set()
+  }
+}
+
+/** Link ids on stored views that match none of APRI's link records. */
+async function countUnknownViewLinks(): Promise<number> {
+  try {
+    const known = await knownLinkIds()
+    const sql = getSql()
+    const rows = (await sql`
+      select distinct papermark_link_id as id from document_views where papermark_link_id is not null
+    `) as { id: string }[]
+    return rows.filter((r) => !known.has(r.id)).length
+  } catch {
+    return 0
+  }
+}
+
+async function readCursor(): Promise<string | null> {
+  try {
+    const sql = getSql()
+    const rows = (await sql`select value from app_settings where key = ${CURSOR_KEY} limit 1`) as { value: string }[]
+    return rows[0]?.value || null
+  } catch {
+    return null
+  }
+}
+
+async function writeCursor(value: string | null): Promise<void> {
+  try {
+    const sql = getSql()
+    await sql`
+      insert into app_settings (key, value) values (${CURSOR_KEY}, ${value ?? ''})
+      on conflict (key) do update set value = excluded.value
+    `
+  } catch {
+    // The next run starts from the beginning instead; nothing is lost.
+  }
+}
+
 /**
  * Fetches duration and page data for views that have none, in a bounded batch.
  *
- * Ordered oldest-unenriched first so every view is eventually covered rather
- * than the newest being re-fetched forever. `last_enriched_at` is stamped even
- * when Papermark returns nothing usable, so a view with genuinely no data is
- * not retried on every run — the coverage figure is what shows how much is
+ * Newest unenriched first, so the most recent reading appears soonest; every
+ * view is still covered in turn, because `last_enriched_at` is stamped once a
+ * view has been tried -- even when Papermark returns nothing usable -- and a
+ * tried view is never picked again. The coverage figure shows how much is
  * missing.
  */
-async function enrichPendingViews(limit: number, startedAt: number): Promise<number> {
+async function enrichPendingViews(limit: number, startedAt: number, budgetMs: number): Promise<number> {
   const sql = getSql()
 
   const pending = (await sql`
@@ -290,7 +393,7 @@ async function enrichPendingViews(limit: number, startedAt: number): Promise<num
   let done = 0
 
   for (const row of pending) {
-    if (Date.now() - startedAt > TIME_BUDGET_MS) break
+    if (Date.now() - startedAt > budgetMs) break
 
     let duration: number | null = null
     let completion: Maybe<number> = null
@@ -359,6 +462,8 @@ async function recordRun(summary: Partial<CollectionSummary> & { skipped?: strin
     const value = JSON.stringify({
       at: new Date().toISOString(),
       linksChecked: summary.linksChecked ?? 0,
+      linksKnown: summary.linksKnown ?? 0,
+      allLinksCovered: summary.allLinksCovered ?? false,
       viewsFound: summary.viewsFound ?? 0,
       newViews: summary.newViews ?? 0,
       downloadsRecorded: summary.downloadsRecorded ?? 0,

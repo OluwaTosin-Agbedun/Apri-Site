@@ -30,15 +30,43 @@ export async function recordClientEvent(
     on conflict (webhook_event_id) where webhook_event_id is not null do nothing`
 }
 
-export async function principalForResendEmail(resendEmailId: string): Promise<ClientPrincipal | null> {
+/**
+ * Who a provider message belongs to. `welcome` marks the onboarding welcome,
+ * which carries no sign-in link, so its "sent" event must never be recorded as
+ * a sign-in email.
+ */
+/** Whether this provider message's acceptance is already on record. */
+export async function alreadyRecordedSent(resendEmailId: string): Promise<boolean> {
+  const sql = getSql()
+  const rows = (await sql`select 1 from client_engagement_events
+    where resend_email_id = ${resendEmailId} and event_type = 'signin_email_sent' limit 1`) as unknown[]
+  return rows.length > 0
+}
+
+export async function principalForResendEmail(
+  resendEmailId: string,
+): Promise<(ClientPrincipal & { welcome?: boolean }) | null> {
   const sql = getSql()
   const rows = (await sql`select subscriber_id,briefing_request_id from client_engagement_events
     where resend_email_id=${resendEmailId}
       and event_type in ('signin_email_sent','publication_notification_sent')
     order by occurred_at desc limit 1`) as {subscriber_id:string|null;briefing_request_id:string|null}[]
   const row = rows[0]
-  return row?.subscriber_id ? {type:"subscriber",id:row.subscriber_id}
-    : row?.briefing_request_id ? {type:"briefing",id:row.briefing_request_id} : null
+  if (row?.subscriber_id) return { type: "subscriber", id: row.subscriber_id }
+  if (row?.briefing_request_id) return { type: "briefing", id: row.briefing_request_id }
+
+  // The welcome email carries no sign-in link, so it is found through its own
+  // tracked row instead -- once that table exists.
+  try {
+    const onboarding = (await sql`select m.subscriber_id, m.kind from subscriber_onboarding_messages m
+      where m.provider_message_id = ${resendEmailId} limit 1`) as { subscriber_id: string; kind: string }[]
+    if (onboarding[0]) {
+      return { type: "subscriber", id: onboarding[0].subscriber_id, welcome: onboarding[0].kind === "welcome" }
+    }
+  } catch {
+    // Before the onboarding migration the table does not exist.
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -135,10 +163,21 @@ export type EngagementTimelineEntry = {
 
 export async function getSubscriberTimeline(subscriberId: string): Promise<EngagementTimelineEntry[]> {
   const sql = getSql()
+  // A download stored twice by the two collectors before their keys matched
+  // ('dl-<view>' and 'dl-view:<view>') is shown once.
   const rows = await sql`
     select id, event_type, occurred_at, resend_email_id, metadata
-    from client_engagement_events
-    where subscriber_id = ${subscriberId}::uuid
+    from client_engagement_events e
+    where e.subscriber_id = ${subscriberId}::uuid
+      and not (
+        e.event_type = 'document_downloaded'
+        and e.webhook_event_id like 'dl-%' and e.webhook_event_id not like 'dl-view:%'
+        and exists (
+          select 1 from client_engagement_events f
+          where f.subscriber_id = e.subscriber_id
+            and f.webhook_event_id = 'dl-view:' || substring(e.webhook_event_id from 4)
+        )
+      )
     order by occurred_at desc
     limit 200
   ` as Record<string,unknown>[]

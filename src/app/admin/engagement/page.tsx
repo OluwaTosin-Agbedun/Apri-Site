@@ -390,8 +390,10 @@ async function PublicationsTab({ window }: { window: ReturnType<typeof resolveWi
             <tr key={`${r.publicationId ?? r.slotKey ?? i}`} className="hover:bg-black/5 transition-colors">
               <td className="p-3 text-foreground max-w-xs">
                 <span className="block truncate" title={r.title}>{r.title}</span>
-                {r.slotKey && (
-                  <span className="text-[0.65rem] text-accent">Slot {r.slotKey}</span>
+                {r.audience === "complimentary_review" && (
+                  <span className="text-[0.65rem] text-accent">
+                    Complimentary Review{r.slotKey && r.slotKey !== "unknown" ? ` · ${r.slotKey}` : ""}
+                  </span>
                 )}
               </td>
               <td className="p-3 text-foreground/70 text-xs">{r.publicationType || r.series || "—"}</td>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { principalForResendEmail, recordClientEvent, type EngagementEventType } from "@/lib/client-engagement"
+import { principalForResendEmail, recordClientEvent, alreadyRecordedSent, type EngagementEventType } from "@/lib/client-engagement"
 import { verifyResendWebhook } from "@/lib/resend-webhook"
 
 const TYPES: Record<string, EngagementEventType> = {
@@ -21,7 +21,14 @@ export async function POST(request: Request) {
   const emailId = event.data?.email_id
   if (!type || !emailId) return NextResponse.json({ok:true})
   const principal = await principalForResendEmail(emailId)
-  if (principal) await recordClientEvent(principal,type,{resendEmailId:emailId,
+  // The welcome carries no sign-in link: its "sent" event is not a sign-in email.
+  if (principal?.welcome && type === "signin_email_sent") return NextResponse.json({ok:true})
+  // A sign-in email is recorded when the provider accepts it; the provider's
+  // own "sent" event for it would be the same email a second time.
+  if (type === "signin_email_sent" && principal && (await alreadyRecordedSent(emailId))) {
+    return NextResponse.json({ok:true})
+  }
+  if (principal) await recordClientEvent({type:principal.type,id:principal.id},type,{resendEmailId:emailId,
     webhookEventId:request.headers.get("svix-id")!,occurredAt:event.created_at?new Date(event.created_at):new Date()})
   return NextResponse.json({ok:true})
 }

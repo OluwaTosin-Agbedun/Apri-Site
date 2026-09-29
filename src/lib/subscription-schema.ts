@@ -38,6 +38,32 @@ export async function subscriptionActivationReady(sql: Sql, options: { fresh?: b
   return applied
 }
 
+let onboardingApplied = false
+let onboardingCheckedAt = 0
+
+/**
+ * Whether db/migrations/20261001_subscriber_onboarding_messages.sql has been
+ * applied. Until it has, no onboarding email is sent: without durable tracking
+ * a retry could not tell a sent message from an unsent one.
+ */
+export async function onboardingTrackingReady(sql: Sql, options: { fresh?: boolean } = {}): Promise<boolean> {
+  if (onboardingApplied) return true
+  const now = Date.now()
+  if (!options.fresh && now - onboardingCheckedAt < RECHECK_MS) return false
+  onboardingCheckedAt = now
+  try {
+    const rows = (await sql`select (to_regclass('subscriber_onboarding_messages') is not null
+                 and to_regclass('subscriber_email_claims') is not null) as ready`) as { ready: boolean }[]
+    onboardingApplied = rows[0]?.ready === true
+  } catch {
+    onboardingApplied = false
+  }
+  return onboardingApplied
+}
+
+export const ONBOARDING_MIGRATION_PENDING =
+  'Onboarding email tracking is not set up yet: run the database migration db/migrations/20261001_subscriber_onboarding_messages.sql first.'
+
 export const SUBSCRIPTION_MIGRATION_PENDING =
   'Activating subscription requests needs the database migration db/migrations/20260930_subscription_activation.sql to be run first. Nothing was changed.'
 

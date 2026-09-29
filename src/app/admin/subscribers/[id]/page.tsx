@@ -10,6 +10,7 @@ import { resolveDataRoom, getDataRoomLink, getPersonalLinkStatus } from "@/lib/d
 import { portalSignInUrl } from "@/lib/app-url"
 import { decidePortalLinkCopy } from "@/lib/portal-link-copy"
 import CopyPortalLink from "./copy-portal-link"
+import { getOnboardingStatus, onboardingStatusLabel } from "@/lib/subscriber-onboarding"
 
 export const dynamic = "force-dynamic"
 
@@ -159,6 +160,7 @@ export default async function EditSubscriberPage({
       : null
 
   const status = row.status.toLowerCase()
+  const onboarding = await getOnboardingStatus(row.id)
 
   // This subscriber's own latest access email that Resend accepted, and
   // whether it later bounced. Filtered by this record's id only, so another
@@ -223,6 +225,8 @@ export default async function EditSubscriberPage({
           hasLevel={Boolean(row.public_tier && row.level)}
           hasTermEnd={Boolean(row.term_end)}
           liveLinks={Number(row.live_links ?? 0)}
+          onboarding={onboarding.map(onboardingStatusLabel)}
+          onboardingOwed={onboarding.some((m) => m.state !== "accepted")}
         />
         {portalLink.show && (
           <CopyPortalLink

@@ -186,29 +186,50 @@ describe("a complete activation", () => {
   const a = { name: "Ada", email: "ada@example.test" }
   const b = { name: "Bola", email: "bola@example.test" }
 
-  it("is complete only when every named person's access is ready", () => {
+  it("is complete only when every named person's access is ready and both emails were accepted", () => {
     assert.equal(
-      activationComplete([{ ...a, state: "activated", welcome: "sent" }, { ...b, state: "activated", welcome: "already_sent" }], 2),
+      activationComplete([{ ...a, state: "activated", emails: "now" }, { ...b, state: "activated", emails: "earlier" }], 2),
       true,
     )
-    assert.equal(activationComplete([{ ...a, state: "activated", welcome: "sent" }, { ...b, state: "held", reason: "x" }], 2), false)
-    assert.equal(activationComplete([{ ...a, state: "activated", welcome: "sent" }, { ...b, state: "blocked", reason: "x" }], 2), false)
-    assert.equal(activationComplete([{ ...a, state: "activated", welcome: "sent" }], 2), false, "a missing person is not complete")
+    assert.equal(activationComplete([{ ...a, state: "activated", emails: "now" }, { ...b, state: "held", reason: "x" }], 2), false)
+    assert.equal(activationComplete([{ ...a, state: "activated", emails: "now" }, { ...b, state: "blocked", reason: "x" }], 2), false)
+    assert.equal(
+      activationComplete([{ ...a, state: "activated", emails: "now" }, { ...b, state: "emails_pending", reason: "x" }], 2),
+      false,
+      "an email still owed is not complete",
+    )
+    assert.equal(activationComplete([{ ...a, state: "activated", emails: "now" }], 2), false, "a missing person is not complete")
     assert.equal(activationComplete([], 0), false)
   })
 
-  it("a provisioning failure is reported as not complete, naming who and why", () => {
+  it("a provisioning failure is reported as access not ready, naming who and why", () => {
     const text = describeActivation(
       [
-        { ...a, state: "activated", welcome: "sent" },
+        { ...a, state: "activated", emails: "now" },
         { ...b, state: "held", reason: "1 of 3 personal document links ready." },
       ],
       2,
     )
     assert.match(text, /^Activation is not complete\./)
-    assert.match(text, /Bola: activated, but the welcome email is held -- 1 of 3 personal document links ready\./)
-    assert.match(text, /not emailed twice/)
+    assert.match(text, /Bola: access not ready -- 1 of 3 personal document links ready\./)
+    assert.match(text, /never sent twice/)
     assert.doesNotMatch(text, /Access activated for all/)
+  })
+
+  it("an email failure after access is ready is reported as emails to retry, not as access", () => {
+    const text = describeActivation(
+      [{ ...a, state: "emails_pending", reason: "Secure-access email was not sent: refused." }],
+      1,
+    )
+    assert.match(text, /Ada: access is ready, but the onboarding emails need retrying -- Secure-access email was not sent/)
+    assert.doesNotMatch(text, /not activated/)
+  })
+
+  it("a complete activation claims acceptance, never inbox delivery", () => {
+    const text = describeActivation([{ ...a, state: "activated", emails: "now" }], 1)
+    assert.match(text, /accepted by the email provider/)
+    assert.match(text, /delivery is confirmed separately/)
+    assert.doesNotMatch(text, /delivered to|in (their|the) inbox/i)
   })
 })
 

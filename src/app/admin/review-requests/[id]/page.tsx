@@ -4,7 +4,8 @@ import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import { retryReviewNotification } from "@/app/actions/review-admin"
 import { PLANS, activationGate, parsePlan } from "@/lib/subscription-journey"
-import { requesterConfirmed, subscriptionActivationReady } from "@/lib/subscription-schema"
+import { requesterConfirmed, subscriptionActivationReady, onboardingTrackingReady } from "@/lib/subscription-schema"
+import { getOnboardingStatus, onboardingStatusLabel } from "@/lib/subscriber-onboarding"
 import SubscriptionProcessing, { type ProcessingRequest } from "./subscription-processing"
 import { recipientListHash } from "@/lib/edition-recipients"
 import {
@@ -216,9 +217,13 @@ async function processingFor(
         subscription_request_id: string | null
       }[])
     : []
-  const welcomed = new Set(
-    ((await sql`select detail from review_prospect_events where prospect_id = ${p.id}::uuid and event_type = 'subscriber_welcomed'`) as { detail: string }[]).map((e) => e.detail),
-  )
+  const onboardingReady = await onboardingTrackingReady(sql, { fresh: true })
+  // Each named person's own two onboarding emails, from their own record only.
+  const onboarding = new Map<string, string[]>()
+  for (const rec of records) {
+    if (rec.subscription_request_id !== r.id) continue
+    onboarding.set(rec.id, (await getOnboardingStatus(rec.id)).map(onboardingStatusLabel))
+  }
   const gate = activationGate(
     {
       plan: String(r.plan ?? ""),
@@ -273,6 +278,7 @@ async function processingFor(
     },
     gate: gate.ok ? { ok: true, missing: [] } : { ok: false, missing: gate.missing },
     migrationReady,
+    onboardingReady,
     activatedAt: r.activated_at ? day(r.activated_at) : null,
     people: people.map((u) => {
       const rec = records.find((x) => x.email === String(u.email).toLowerCase())
@@ -288,7 +294,7 @@ async function processingFor(
               : ("unlinked" as const),
         status: rec?.status ?? null,
         subscriberId: rec && rec.subscription_request_id === r.id ? rec.id : null,
-        welcomed: rec ? welcomed.has(rec.id) : false,
+        onboarding: rec ? (onboarding.get(rec.id) ?? []) : [],
       }
     }),
   }

@@ -37,7 +37,7 @@ test("subscriber Save and activation turn expected storage errors into form mess
   assert.match(source, /The subscriber could not be saved/)
   assert.match(source, /Subscriber storage is temporarily unavailable/)
   assert.match(source, /Activation checks could not be completed/)
-  assert.match(source, /The subscriber was not fully activated/)
+  assert.match(source, /the subscriber could not be marked active\. Try again; nothing was sent/)
   assert.match(source, /returning id/)
 
   const form = read("src/app/admin/subscribers/[id]/subscriber-form.tsx")

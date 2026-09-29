@@ -28,6 +28,7 @@ export type ProcessingRequest = {
   }
   gate: { ok: boolean; missing: string[] }
   migrationReady: boolean
+  onboardingReady: boolean
   activatedAt: string | null
   people: {
     name: string
@@ -35,7 +36,8 @@ export type ProcessingRequest = {
     record: "none" | "this_request" | "other_request" | "unlinked"
     status: string | null
     subscriberId: string | null
-    welcomed: boolean
+    /** One line per onboarding email (welcome, secure access). Empty until activation starts them. */
+    onboarding: string[]
   }[]
 }
 
@@ -188,7 +190,7 @@ export default function SubscriptionProcessing({ request: r }: { request: Proces
             <tr>
               <th className="py-1 font-normal">Name</th>
               <th className="py-1 font-normal">Subscriber record</th>
-              <th className="py-1 font-normal">Welcome email</th>
+              <th className="py-1 font-normal">Onboarding emails</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -214,7 +216,11 @@ export default function SubscriptionProcessing({ request: r }: { request: Proces
                       "Existing inactive record — taken on at activation"
                     ))}
                 </td>
-                <td className="py-2">{p.welcomed ? "Sent" : "Not sent"}</td>
+                <td className="py-2 text-xs">
+                  {p.onboarding.length === 0
+                    ? "Not started"
+                    : p.onboarding.map((line) => <div key={line}>{line}</div>)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -227,16 +233,24 @@ export default function SubscriptionProcessing({ request: r }: { request: Proces
             Activation needs the database migration db/migrations/20260930_subscription_activation.sql to be run first.
           </p>
         )}
+        {r.migrationReady && !r.onboardingReady && (
+          <p className="text-sm text-amber-800">
+            Activation needs the database migration db/migrations/20261001_subscriber_onboarding_messages.sql to be run
+            first, so the onboarding emails can be tracked.
+          </p>
+        )}
         {r.migrationReady && !r.gate.ok && (
           <p className="text-sm text-amber-800">Still needed before activation: {r.gate.missing.join("; ")}.</p>
         )}
-        <button className="btn-primary" disabled={activating || !r.migrationReady || !r.gate.ok}>
+        <button className="btn-primary" disabled={activating || !r.migrationReady || !r.onboardingReady || !r.gate.ok}>
           {activating ? "Activating…" : r.activatedAt ? "Check and complete activation" : "Activate subscription"}
         </button>
         <p className="text-xs text-muted-foreground">
-          Each named person gets their own subscriber record, Data Room library and personal document links, and then
-          their own welcome email with a secure sign-in link. Running this again is safe: nobody is created or emailed
-          twice, and existing subscribers are never changed.
+          Each named person gets their own subscriber record, and their Data Room library and personal document links
+          are verified before they are made active. Then each is sent a welcome email and, once the provider has
+          accepted it, a separate secure-access email with their personal sign-in link. Running this again is safe: it
+          resumes only what is still owed, an email already accepted is never sent twice, and existing subscribers are
+          never changed.
         </p>
         {activated?.message && (
           <p className={activated.ok ? "text-sm text-foreground/80" : "text-sm text-red-700"} role="status">
