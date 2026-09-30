@@ -184,7 +184,7 @@ function SyncSection({
       </p>
       {lastSyncAt && (
         <p className="text-xs text-muted-foreground mb-3">
-          Last sync: {new Date(lastSyncAt).toLocaleString()} — {lastSyncResult}
+          Last sync: {new Date(lastSyncAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" })} — {lastSyncResult}
         </p>
       )}
         <button
@@ -312,7 +312,7 @@ function EditionCard({
           name="Last synced"
           value={
             e.lastSyncedAt
-              ? new Date(e.lastSyncedAt).toLocaleString()
+              ? new Date(e.lastSyncedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" })
               : "Not recorded"
           }
         />
@@ -326,7 +326,7 @@ function EditionCard({
           name="Verified"
           value={
             e.secureLinkVerifiedAt
-              ? new Date(e.secureLinkVerifiedAt).toLocaleString()
+              ? new Date(e.secureLinkVerifiedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" })
               : "Not verified"
           }
         />

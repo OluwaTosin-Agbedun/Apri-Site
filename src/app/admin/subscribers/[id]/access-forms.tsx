@@ -30,8 +30,9 @@ function useRefreshAfterSave(state: FormState) {
   const router = useRouter()
   useEffect(() => {
     if (!state?.ok) return
-    const timer = setTimeout(() => router.refresh(), 3500)
-    return () => clearTimeout(timer)
+    // Twice: the background preparation usually finishes within a few seconds.
+    const timers = [2500, 7000].map((ms) => setTimeout(() => router.refresh(), ms))
+    return () => timers.forEach(clearTimeout)
   }, [state, router])
 }
 
@@ -116,7 +117,7 @@ export function PublicationAccessControl({
         <option value="block">Hide from this subscriber</option>
       </select>
       <input name="reason" maxLength={500} aria-label="Reason (optional)" placeholder="Reason (optional)" className={`${input} grow min-w-[10rem]`} />
-      <button className="btn-primary text-xs" type="submit" disabled={pending || decision === (current ?? "automatic")}>
+      <button className="btn-primary text-xs disabled:opacity-40 disabled:cursor-default" type="submit" disabled={pending || decision === (current ?? "automatic")}>
         {pending ? "Saving…" : "Save"}
       </button>
       <div className="basis-full min-w-0 break-words"><Result state={state} /></div>

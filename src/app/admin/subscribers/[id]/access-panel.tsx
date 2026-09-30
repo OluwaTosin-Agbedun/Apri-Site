@@ -150,7 +150,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
             </p>
           </>
         ) : (
-          <p className="text-muted-foreground">Never run. Repair document links prepares and verifies this subscriber&rsquo;s access.</p>
+          <p className="text-muted-foreground">Not run yet. Prepare library access sets up and checks everything this subscriber should see.</p>
         )}
       </div>
 

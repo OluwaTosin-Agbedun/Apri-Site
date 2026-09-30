@@ -174,8 +174,8 @@ export function EditionAccessPanel({
       <p className={`text-xs mb-1 ${STATUS_TONE[access.status]}`}>{STATUS_TEXT[access.status]}</p>
       <p className="text-xs text-muted-foreground mb-3">
         {access.recipients.length} recipient{access.recipients.length === 1 ? "" : "s"} saved
-        {access.verifiedAt ? ` · last verified ${new Date(access.verifiedAt).toLocaleString()}` : ""}
-        {access.adoptedAt ? ` · adopted ${new Date(access.adoptedAt).toLocaleString()}` : ""}
+        {access.verifiedAt ? ` · last verified ${new Date(access.verifiedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" })}` : ""}
+        {access.adoptedAt ? ` · adopted ${new Date(access.adoptedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" })}` : ""}
       </p>
 
       <fieldset className="mb-3">

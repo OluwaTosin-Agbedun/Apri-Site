@@ -48,7 +48,7 @@ const EVENT_LABEL: Record<string, string> = {
   reoffered: "Returned to draft to be offered again",
 }
 
-const when = (value: string | null) => (value ? new Date(value).toLocaleString() : "")
+const when = (value: string | null) => (value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "")
 
 export function EditionWithdrawalPanel({
   editionId,
