@@ -26,8 +26,8 @@ jobs:
           rm -rf /tmp/upstream
           git clone https://x-access-token:${{ secrets.UPSTREAM_TOKEN }}@github.com/athenacenterpl-cmd/Apri-Site.git /tmp/upstream
 
-          git -C /tmp/upstream lfs install
-          git -C /tmp/upstream lfs fetch --all origin
+          git -C /tmp/upstream lfs install --local
+          git -C /tmp/upstream lfs pull origin
           git -C /tmp/upstream lfs checkout
 
       - name: Copy first repo into second repo
