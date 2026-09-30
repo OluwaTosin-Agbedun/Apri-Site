@@ -85,8 +85,6 @@ export type CopyGap = {
  */
 export async function getCopyGaps(): Promise<CopyGap[]> {
   const sql = getSql()
-  const reachMonths = await getReachMonths()
-
   // Levels are expanded here from the shared rule, then bound as a pair list,
   // so SQL never re-implements the ranking.
   const pairs: { level: Level; visibility: string }[] = []
@@ -128,19 +126,16 @@ export async function getCopyGaps(): Promise<CopyGap[]> {
        and lower(s.status) = 'active'
        and s.term_end is not null
        and s.term_end >= current_date
-       -- Only editions from the subscriber's own term onward, and never
-       -- further back than the boundary. A backdated term would otherwise
-       -- summon the whole back catalogue at once.
-       and coalesce(d.edition_date, d.published_at::date, d.created_at::date)
-           >= greatest(
-                coalesce(s.term_start, s.created_at::date),
-                (current_date - ($3::int || ' months')::interval)::date
-              )
+       and d.edition_date is not null
+       and not exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'block')
+       and (exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'allow')
+            or exists (select 1 from subscriber_subscription_periods p where p.subscriber_id = s.id and d.edition_date between p.starts_on and p.ends_on
+              and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
        -- The gap itself: no row at all. A revoked row is not a gap; that
        -- subscriber's access ended deliberately.
        and pa.id is null
      order by opened_at asc`,
-    [pairs.map((p) => p.level), pairs.map((p) => p.visibility), reachMonths]
+    [pairs.map((p) => p.level), pairs.map((p) => p.visibility)]
   )) as {
     subscriber_id: string
     subscriber_name: string | null

@@ -681,6 +681,25 @@ create index if not exists auth_tokens_briefing_idx
 -- Subscriber and briefing engagement events. Raw tokens and private URLs are
 -- deliberately absent; webhook retries are idempotent by provider event id.
 alter table subscribers add column if not exists library_link_updated_at timestamptz;
+
+create table if not exists subscriber_subscription_periods (
+  id uuid primary key default gen_random_uuid(), subscriber_id uuid not null references subscribers(id) on delete cascade,
+  starts_on date not null, ends_on date not null, level text not null check (level in ('L1','L2','L3','L4')),
+  source text not null default 'admin', created_at timestamptz not null default now(),
+  check (ends_on >= starts_on), unique (subscriber_id, starts_on, ends_on, level)
+);
+create index if not exists subscriber_periods_lookup_idx on subscriber_subscription_periods(subscriber_id, starts_on, ends_on);
+create table if not exists subscriber_publication_exceptions (
+  subscriber_id uuid not null references subscribers(id) on delete cascade, publication_id uuid not null references documents(id) on delete cascade,
+  decision text not null check (decision in ('allow','block')), reason text not null check (length(trim(reason)) > 0),
+  administrator_id uuid not null references admins(id), created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+  primary key (subscriber_id, publication_id)
+);
+create table if not exists subscriber_access_reconciliations (
+  subscriber_id uuid primary key references subscribers(id) on delete cascade, generation bigint not null default 1,
+  state text not null default 'pending' check (state in ('pending','complete','failed')), detail text,
+  requested_at timestamptz not null default now(), completed_at timestamptz
+);
 alter table briefing_requests add column if not exists private_link_updated_at timestamptz;
 create table if not exists client_engagement_events (
   id uuid primary key default gen_random_uuid(),

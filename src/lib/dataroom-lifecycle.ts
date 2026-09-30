@@ -140,6 +140,10 @@ export async function reassignDataRoomOnLevelChange(args: {
   let links: SubscriberLinkOutcome | undefined
   try {
     links = await ensureAllDocumentLinks(sub.id, { dataroomId: newRoom.dataroomId })
+    const {queueSubscriberAccessReconciliation,reconcileSubscriberAccess}=await import('./subscriber-access-reconciliation')
+    await queueSubscriberAccessReconciliation(sub.id)
+    const reconciled=await reconcileSubscriberAccess(sub.id)
+    if(reconciled.state!=="complete")links=undefined
   } catch {
     links = undefined
   }

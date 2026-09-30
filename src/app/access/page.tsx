@@ -3,7 +3,7 @@ import SiteFooter from "@/components/SiteFooter"
 import AccessForm from "@/app/access-form"
 import { accessNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
 import { TIER_DESCRIPTIONS, tierDisplayName } from "@/lib/entitlements"
-import { PLANS } from "@/lib/subscription-journey"
+import { SUBSCRIPTION_CATALOGUE } from "@/lib/subscription-catalogue"
 
 export const metadata = {
   title:
@@ -24,13 +24,8 @@ export const metadata = {
  * person with their own sign-in and their own individually identified copy. A
  * buyer who read that would have expected one login to pass around.
  */
-const SUBSCRIPTION_LEVELS = [
-  "Individual Access",
-  "Professional Team Access",
-  "Political Monitor",
-  "Executive Intelligence",
-  "Board Briefing",
-] as const
+const SUBSCRIPTION_LEVELS = SUBSCRIPTION_CATALOGUE
+// Compatible stored names include "Political Monitor", "Executive Intelligence", "Board Briefing".
 
 /**
  * Read on the server and passed to the form as a prop, rather than read in the
@@ -63,7 +58,7 @@ export default async function AccessPage({
   const defaultLevel =
     requested &&
     SUBSCRIPTION_LEVELS.some(
-      (l) => tierDisplayName(l) === requested || l === requested,
+      (l) => l.name === requested || l.storedName === requested,
     )
       ? requested
       : ""
@@ -84,51 +79,9 @@ export default async function AccessPage({
           </p>
         </header>
 
-        {/*
-          The two plans with published prices. Each button opens the request
-          form with its plan selected; the request grants nothing by itself --
-          access follows a signed agreement and confirmed payment.
-        */}
         <section id="plans" className="mb-16 scroll-mt-24">
           <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-10 tracking-tight">
-            Subscription Plans
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {(["Individual", "Professional"] as const).map((key) => {
-              const plan = PLANS[key]
-              return (
-                <article key={key} className="border border-border bg-card/30 p-8 sm:p-10 flex flex-col">
-                  <h3 className="font-serif text-2xl text-foreground">{plan.label}</h3>
-                  <p className="mt-3 text-lg text-foreground">{plan.price}</p>
-                  <p className="mt-1 text-sm text-foreground/70">{plan.users}.</p>
-                  <p className="mt-4 text-sm text-foreground/70 leading-relaxed flex-1">
-                    {TIER_DESCRIPTIONS[plan.tier] ?? ""}
-                  </p>
-                  <a
-                    className="btn-primary mt-8 self-start"
-                    href={`/access?level=${encodeURIComponent(plan.tier)}${utmQuery}#subscribe`}
-                  >
-                    Request {plan.label}
-                  </a>
-                </article>
-              )
-            })}
-          </div>
-          <p className="mt-6 text-sm text-muted-foreground leading-relaxed max-w-4xl">
-            Each named subscriber receives their own secure sign-in. We send the
-            subscription agreement and payment details after your request, and
-            access is activated once the agreement is completed and payment
-            confirmed. Already a subscriber?{" "}
-            <a className="text-accent hover:text-accent-hover transition-colors" href="/portal/sign-in">
-              Sign in to your library
-            </a>
-            .
-          </p>
-        </section>
-
-        <section className="mb-16">
-          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-10 tracking-tight">
-            Subscription Levels
+            Subscription levels
           </h2>
 
           {/*
@@ -138,7 +91,8 @@ export default async function AccessPage({
             dropdown -- so the level travels with the click.
           */}
           <div className="space-y-6">
-            {SUBSCRIPTION_LEVELS.map((storedName, index) => {
+            {SUBSCRIPTION_LEVELS.map((offering, index) => {
+              const storedName = offering.storedName
               const displayName = tierDisplayName(storedName)
               return (
                 <a
@@ -157,6 +111,7 @@ export default async function AccessPage({
                   <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl ml-8">
                     {TIER_DESCRIPTIONS[storedName] ?? ""}
                   </p>
+                  {offering.price && <p className="mt-3 text-sm text-foreground ml-8">{offering.price} · {offering.seats === 1 ? "One named authorised subscriber" : `Up to ${offering.seats} named authorised subscribers`}</p>}
                   <span className="inline-flex items-center text-sm font-medium text-accent mt-6 ml-8 group-hover:translate-x-1 transition-transform">
                     Request Access &rarr;
                   </span>
@@ -164,6 +119,8 @@ export default async function AccessPage({
               )
             })}
           </div>
+          <p className="mt-6 text-sm text-muted-foreground leading-relaxed max-w-4xl">Each named subscriber receives their own secure sign-in. Individual and Professional access activates only after the agreement is signed and manual payment is confirmed.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Already a subscriber? <a className="text-accent" href="/portal/sign-in">Sign in to your library</a>.</p>
         </section>
 
         <section className="mb-16 border border-border bg-card/30 p-8 sm:p-10 lg:p-12">

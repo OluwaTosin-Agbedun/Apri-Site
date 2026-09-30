@@ -743,7 +743,7 @@ export async function linkPublicationToSyncedDocument(
   refresh()
   return linked
     ? { ok: true, message: "Publication linked." }
-    : { message: "Document not found." }
+    : { message: "Not linked: the document was not found, or that publication record does not exist or is an open (public) record." }
 }
 
 export async function unlinkPublicationFromSyncedDocument(

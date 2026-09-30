@@ -12,6 +12,7 @@ type Status = (typeof STATUSES)[number]
 
 function refreshDocumentAdminPaths() {
   revalidatePath('/admin/documents')
+  revalidatePath('/admin/datarooms')
   revalidatePath('/admin')
 
   // The public pages are cached rather than rendered per visitor, so every
@@ -36,6 +37,7 @@ export async function setDocumentStatus(
 ): Promise<FormState> {
   await requireAdmin()
 
+  if (!UUID.test(id)) return { message: 'Unknown publication.' }
   if (!STATUSES.includes(status as Status)) {
     return { message: 'Unknown status.' }
   }
@@ -97,8 +99,28 @@ export async function deleteDocument(id: string): Promise<FormState> {
   if (admin.role !== 'owner') return { message: 'Only an owner can delete publications.' }
   if (!UUID.test(id)) return { message: 'Unknown publication.' }
   const sql = getSql()
-  // Database foreign keys remove APRI-only access, copy, view and alert
-  // associations. No Papermark API is called, so its original and link remain.
+  // A record anything still relies on is never deleted: a Data Room document
+  // or review slot would lose its portal title, series and ordering, and the
+  // cascade would remove access and alert records and orphan its reading
+  // history. Archive it instead.
+  const [refs] = (await sql`
+    select
+      exists (select 1 from papermark_dataroom_documents where publication_id = ${id}::uuid) as dataroom,
+      exists (select 1 from complimentary_review_items where publication_id = ${id}::uuid) as review,
+      exists (select 1 from publication_access where publication_id = ${id}::uuid) as access,
+      exists (select 1 from document_views where publication_id = ${id}::uuid) as views,
+      exists (select 1 from document_download_events where publication_id = ${id}::uuid) as downloads
+  `) as { dataroom: boolean; review: boolean; access: boolean; views: boolean; downloads: boolean }[]
+  const uses = [
+    refs?.dataroom && 'a Data Room document',
+    refs?.review && 'a review slot',
+    refs?.access && 'subscriber access records',
+    (refs?.views || refs?.downloads) && 'reading history',
+  ].filter(Boolean)
+  if (uses.length > 0) {
+    return { message: `This publication record is used by ${uses.join(', ')}, so it was not deleted. Archive it instead.` }
+  }
+  // No Papermark API is called, so its original and link remain.
   const rows = await sql`delete from documents where id=${id} returning id`
   if (!rows[0]) return { message: 'That publication no longer exists.' }
   refreshDocumentAdminPaths()
@@ -112,6 +134,7 @@ export async function saveDocument(
   formData: FormData
 ): Promise<FormState> {
   await requireAdmin()
+  if (id !== null && !UUID.test(id)) return { message: 'Unknown publication.' }
 
   const parsed = DocumentSchema.safeParse({
     slug: formData.get('slug'),

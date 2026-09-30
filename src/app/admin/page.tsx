@@ -77,13 +77,18 @@ export default async function AdminDashboardPage() {
         ))}
       </div>
 
-      <h3 className="font-serif text-lg text-foreground mb-4">Publications</h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+        <h3 className="font-serif text-lg text-foreground">Publications</h3>
+        <Link href="/admin/documents" className="text-sm text-accent hover:text-accent-hover">
+          Manage publication records →
+        </Link>
+      </div>
       <div className="border border-border bg-card/30">
         {recent.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            <p>No publications have been published yet. Fetch open publications from Papermark or add a publication under Publications.</p>
+            <p>No publications have been published yet. Fetch open publications from Papermark under Data Rooms, or add a publication record.</p>
             <div className="mt-4 flex justify-center gap-3">
-              <Link href="/admin/documents" className="bg-accent text-white px-4 py-2 text-xs">Fetch from Papermark</Link>
+              <Link href="/admin/datarooms" className="bg-accent text-white px-4 py-2 text-xs">Fetch from Papermark</Link>
               <Link href="/admin/documents" className="border border-border px-4 py-2 text-xs">Manage Publications</Link>
             </div>
           </div>

@@ -11,6 +11,9 @@ import { portalSignInUrl } from "@/lib/app-url"
 import { decidePortalLinkCopy } from "@/lib/portal-link-copy"
 import CopyPortalLink from "./copy-portal-link"
 import { getOnboardingStatus, onboardingStatusLabel } from "@/lib/subscriber-onboarding"
+import PublicationAccessControl from "./publication-access-control"
+import { reconcilePublicationAccess } from "@/app/actions/subscribers"
+import { editionEntitlementSchemaReady, EDITION_ENTITLEMENT_MIGRATION_PENDING } from "@/lib/edition-entitlement-schema"
 
 export const dynamic = "force-dynamic"
 
@@ -161,6 +164,22 @@ export default async function EditSubscriberPage({
 
   const status = row.status.toLowerCase()
   const onboarding = await getOnboardingStatus(row.id)
+  const entitlementReady=await editionEntitlementSchemaReady(sql)
+  const publications = entitlementReady ? (await sql`
+    select d.id, d.title, d.series, d.edition_date, x.decision,
+      case
+        when lower(${status}) <> 'active' or ${row.term_end}::date < current_date then 'inactive subscription'
+        when d.edition_date is null then 'missing metadata'
+        when x.decision = 'block' then 'manually blocked'
+        when x.decision = 'allow' then 'manually allowed'
+        when exists(select 1 from subscriber_subscription_periods p where p.subscriber_id=${row.id}::uuid and d.edition_date between p.starts_on and p.ends_on) then 'within covered dates'
+        when d.edition_date < (select min(starts_on) from subscriber_subscription_periods p where p.subscriber_id=${row.id}::uuid) then 'before coverage'
+        else 'uncovered gap' end as reason,
+      coalesce((select state from subscriber_access_reconciliations where subscriber_id=${row.id}::uuid),'pending') as enforcement
+    from documents d left join subscriber_publication_exceptions x on x.publication_id=d.id and x.subscriber_id=${row.id}::uuid
+    where d.status='published' and d.visibility <> 'OPEN'
+    order by d.edition_date desc nulls last
+  `) as { id:string; title:string; series:string; edition_date:string|null; decision:string|null; reason:string; enforcement:string }[] : []
 
   // This subscriber's own latest access email that Resend accepted, and
   // whether it later bounced. Filtered by this record's id only, so another
@@ -265,6 +284,21 @@ export default async function EditSubscriberPage({
         personalLinks={personalLinks}
         canRepair={admin.role === "owner"}
       />
+
+      <section className="my-6 border border-border bg-card/30 p-6">
+        <h2 className="font-serif text-xl mb-2">Publication access</h2>
+        {!entitlementReady&&<p className="text-sm text-red-700 mb-4">{EDITION_ENTITLEMENT_MIGRATION_PENDING}</p>}
+        <p className="text-xs text-muted-foreground mb-5">Changes apply only to this named subscriber. Allow remains bounded by an active subscription and content level. Saving queues Papermark reconciliation.</p>
+        <form action={reconcilePublicationAccess} className="mb-5"><input type="hidden" name="subscriberId" value={row.id}/><button className="btn-secondary" type="submit">Reconcile and verify Papermark access</button></form>
+        <div className="space-y-3">
+          {publications.map((publication) => (
+            <div key={publication.id} className="border border-border p-4 grid gap-3 md:grid-cols-[1fr_auto]">
+              <div><p className="text-sm font-medium">{publication.title}</p><p className="text-xs text-muted-foreground">{publication.series} · {publication.edition_date ? dateInput(publication.edition_date) : "Edition date missing"} · {publication.reason} · Papermark: {publication.enforcement}</p></div>
+              <PublicationAccessControl subscriberId={row.id} publicationId={publication.id} title={publication.title} current={publication.decision}/>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <SubscriberForm draft={draft} />
     </AdminShell>

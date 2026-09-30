@@ -13,27 +13,32 @@
  * Dependency-free so every rule is tested directly.
  */
 
+import { SUBSCRIPTION_CATALOGUE } from "./subscription-catalogue.ts"
+
+const INDIVIDUAL = SUBSCRIPTION_CATALOGUE[0]
+const PROFESSIONAL = SUBSCRIPTION_CATALOGUE[1]
+
 export const PLANS = {
   Individual: {
     plan: "Individual",
-    label: "Individual Access",
-    price: "₦2 million annually",
+    label: INDIVIDUAL.name,
+    price: INDIVIDUAL.price,
     users: "1 named authorised subscriber",
-    maxUsers: 1,
+    maxUsers: INDIVIDUAL.seats,
     /** The stored subscription tier. Its name is unchanged, so existing subscribers are unaffected. */
-    tier: "Individual Access",
-    agreement: "APRI Individual Subscription",
+    tier: INDIVIDUAL.storedName,
+    agreement: INDIVIDUAL.agreement,
   },
   Professional: {
     plan: "Professional",
-    label: "Professional Access",
-    price: "₦5 million annually",
+    label: PROFESSIONAL.name,
+    price: PROFESSIONAL.price,
     users: "Up to 3 named authorised subscribers",
-    maxUsers: 3,
+    maxUsers: PROFESSIONAL.seats,
     // Professional Access is sold as the existing Professional Team Access
     // tier: the same L1 content for individually named readers.
-    tier: "Professional Team Access",
-    agreement: "APRI Professional Subscription",
+    tier: PROFESSIONAL.storedName,
+    agreement: PROFESSIONAL.agreement,
   },
 } as const
 

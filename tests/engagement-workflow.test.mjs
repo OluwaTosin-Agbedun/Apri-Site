@@ -61,7 +61,8 @@ test("admin navigation replaces Copies and dashboard has production publication 
 test("private-link clicks re-read the authenticated principal instead of accepting a URL",()=>{
   const route=read("src/app/portal/open-private/route.ts")
   assert.match(route,/requirePortalPrincipal/)
-  assert.match(route,/principal\.libraryLinkUrl/)
+  assert.doesNotMatch(route,/redirect\(.*libraryLinkUrl/)
+  assert.match(route,/Exact-document/)
   assert.doesNotMatch(route,/principal\.privateLinkUrl/)
   assert.doesNotMatch(route,/searchParams|get\("url"\)/)
 })

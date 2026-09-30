@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { requireOwner } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
-import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom, getPersonalLinkGaps } from "@/lib/dataroom-dal"
+import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom, getPersonalLinkGaps, getRecordsOutsideDataRooms } from "@/lib/dataroom-dal"
 import { PUBLIC_TIERS, tierDisplayName } from "@/lib/entitlements"
 import { portalCategoryLabel, type PortalCategoryKey } from "@/lib/papermark-dataroom-contract"
 import DataRoomMappingForm, { MappingActions, CreatePublicationButton, LinkExistingPublication, GenerateDocumentDetailsButton } from "./dataroom-form"
@@ -11,10 +11,11 @@ export const metadata = { title: "Data Rooms · APRI" }
 
 export default async function DataRoomsPage() {
   const admin = await requireOwner()
-  const [mappings, stats, linkGaps] = await Promise.all([
+  const [mappings, stats, linkGaps, outsideRooms] = await Promise.all([
     getLevelRoomMappings(),
     getDataRoomStats(),
     getPersonalLinkGaps(),
+    getRecordsOutsideDataRooms(),
   ])
 
   const mapped = new Set(mappings.map((m) => m.publicTier))
@@ -142,6 +143,7 @@ export default async function DataRoomsPage() {
                     <th className="font-medium p-3">Papermark Filename</th>
                     <th className="font-medium p-3">Folder / Category</th>
                     <th className="font-medium p-3">Pages</th>
+                    <th className="font-medium p-3">In the portal</th>
                     <th className="font-medium p-3">Editorial Status</th>
                     <th className="font-medium p-3 text-right">Actions</th>
                   </tr>
@@ -165,6 +167,18 @@ export default async function DataRoomsPage() {
                         )}
                       </td>
                       <td className="p-3 text-foreground/70">{doc.numPages ?? "—"}</td>
+                      <td className="p-3 text-xs">
+                        {doc.publicationId ? (
+                          <>
+                            <span className="block text-foreground">{doc.portalTitle}</span>
+                            <span className="text-muted-foreground">
+                              {[doc.series || "No series", doc.editionDate || "No edition date"].join(" · ")}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">Not shown until a publication record is linked</span>
+                        )}
+                      </td>
                       <td className="p-3">
                         {doc.editorialStatus === "complete" ? (
                           <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-accent/10 text-accent">
@@ -207,6 +221,55 @@ export default async function DataRoomsPage() {
           </div>
         ),
       )}
+
+      <div className="mt-8 pt-8 border-t border-border">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 mb-2">
+          <h3 className="font-serif text-lg text-foreground">Publication records not in a Data Room</h3>
+          <span className="flex gap-4 text-sm">
+            <Link href="/admin/documents/new" className="text-accent hover:text-accent-hover">New publication record</Link>
+            <Link href="/admin/documents" className="text-accent hover:text-accent-hover">All publication records</Link>
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4 max-w-3xl">
+          Records no Data Room document links to: legacy library editions and the public Publications page&rsquo;s
+          records. Their series, edition date, title and status are edited in each record. Complimentary review
+          publications are published and withdrawn in the Review Library.
+        </p>
+        {outsideRooms.length === 0 ? (
+          <p className="text-sm text-muted-foreground border border-border p-4">Every publication record is linked to a Data Room document.</p>
+        ) : (
+          <div className="border border-border bg-card/30 overflow-x-auto">
+            <table className="w-full text-left text-sm min-w-[36rem]">
+              <thead className="border-b border-border bg-black/5 text-foreground/70">
+                <tr>
+                  <th className="font-medium p-3">Title</th>
+                  <th className="font-medium p-3">Series</th>
+                  <th className="font-medium p-3">Edition date</th>
+                  <th className="font-medium p-3">Visibility</th>
+                  <th className="font-medium p-3">Status</th>
+                  <th className="font-medium p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {outsideRooms.map((r) => (
+                  <tr key={r.id} className="hover:bg-black/5 transition-colors">
+                    <td className="p-3 text-foreground max-w-xs truncate" title={r.title}>{r.title}</td>
+                    <td className="p-3 text-xs">{r.series || "—"}</td>
+                    <td className="p-3 text-xs">{r.editionDate || "—"}</td>
+                    <td className="p-3 text-xs">{r.visibility === "OPEN" ? "Public" : r.visibility}</td>
+                    <td className="p-3 text-xs capitalize">{r.status}</td>
+                    <td className="p-3 text-right">
+                      <Link href={`/admin/documents/${r.id}`} className="text-xs text-accent hover:text-accent-hover">
+                        Edit publication details
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="mt-8 pt-8 border-t border-border">
         <h3 className="font-serif text-lg text-foreground mb-4">Migration Status</h3>

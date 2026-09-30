@@ -2,6 +2,7 @@ import 'server-only'
 import { getSql } from './db'
 import { PUBLIC_TIERS } from './entitlements'
 import { expiryProblem } from './personal-links'
+import { portalDocumentTitle } from './papermark-dataroom-contract'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -777,6 +778,36 @@ export async function getRoomDocumentsForLinks(
   return rows.map((r) => ({ papermarkDocumentId: r.papermark_document_id, title: r.title ?? '' }))
 }
 
+/** Present room documents that the named subscriber may receive right now. */
+export async function getEligibleRoomDocumentsForSubscriber(
+  subscriberId: string,
+  dataroomId: string,
+  allowPending = false,
+): Promise<{ papermarkDocumentId: string; title: string }[]> {
+  const sql = getSql()
+  const {editionEntitlementSchemaReady}=await import('./edition-entitlement-schema')
+  if(!(await editionEntitlementSchemaReady(sql)))return []
+  const rows = (await sql`
+    select dd.papermark_document_id, dd.title
+    from papermark_dataroom_documents dd
+    join documents d on d.id=dd.publication_id
+    join subscribers s on s.id=${subscriberId}::uuid
+    where dd.papermark_dataroom_id=${dataroomId} and dd.is_present=true
+      and (lower(s.status)='active' or ${allowPending}::boolean) and s.term_start is not null and current_date between s.term_start and s.term_end
+      and d.status='published' and d.edition_date is not null and d.visibility<>'OPEN'
+      and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end
+          <= case s.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end
+      and not exists(select 1 from subscriber_publication_exceptions x where x.subscriber_id=s.id and x.publication_id=d.id and x.decision='block')
+      and (exists(select 1 from subscriber_publication_exceptions x where x.subscriber_id=s.id and x.publication_id=d.id and x.decision='allow')
+        or exists(select 1 from subscriber_subscription_periods p where p.subscriber_id=s.id
+          and d.edition_date between p.starts_on and p.ends_on
+          and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end
+              <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
+    order by d.edition_date, dd.title
+  `) as { papermark_document_id:string; title:string|null }[]
+  return rows.map((r)=>({papermarkDocumentId:r.papermark_document_id,title:r.title ?? ''}))
+}
+
 export type LivePersonalLink = {
   rowId: string
   papermarkDocumentId: string
@@ -963,6 +994,10 @@ export type SyncedDocumentRow = {
   numPages: number | null
   publicationId: string | null
   editorialTitle: string | null
+  /** What the paid portal uses: its series, edition date and the title subscribers see. */
+  series: string | null
+  editionDate: string | null
+  portalTitle: string
   editorialStatus: 'complete' | 'needs_details'
   missingFields: string[]
 }
@@ -974,7 +1009,9 @@ export async function getSyncedDocumentsForRoom(
   const rows = (await sql`
     select dd.id, dd.papermark_document_id, dd.title, dd.folder_path,
            dd.category, dd.num_pages, dd.publication_id,
-           d.title as editorial_title, d.summary as editorial_summary
+           d.title as editorial_title, d.summary as editorial_summary,
+           d.series, to_char(d.edition_date, 'YYYY-MM-DD') as edition_date,
+           coalesce((to_jsonb(d) ->> 'portal_title_override')::boolean, false) as title_override
     from papermark_dataroom_documents dd
     left join documents d on d.id = dd.publication_id
     where dd.papermark_dataroom_id = ${dataroomId}
@@ -990,6 +1027,9 @@ export async function getSyncedDocumentsForRoom(
     publication_id: string | null
     editorial_title: string | null
     editorial_summary: string | null
+    series: string | null
+    edition_date: string | null
+    title_override: boolean
   }[]
 
   return rows.map((r) => {
@@ -998,6 +1038,9 @@ export async function getSyncedDocumentsForRoom(
     else {
       if (!r.editorial_title) missing.push('Editorial title')
       if (!r.editorial_summary) missing.push('One-line summary')
+      // The portal places an edition by its series and orders it by date.
+      if (!r.series) missing.push('Series')
+      if (!r.edition_date) missing.push('Edition date')
     }
     return {
       id: r.id,
@@ -1008,10 +1051,52 @@ export async function getSyncedDocumentsForRoom(
       numPages: r.num_pages,
       publicationId: r.publication_id,
       editorialTitle: r.editorial_title,
+      series: r.series,
+      editionDate: r.edition_date,
+      portalTitle: portalDocumentTitle({
+        syncedName: r.title,
+        editorialTitle: r.editorial_title,
+        editorialTitleIsOverride: r.title_override === true,
+      }),
       editorialStatus: missing.length === 0 ? 'complete' as const : 'needs_details' as const,
       missingFields: missing,
     }
   })
+}
+
+export type UnroomedRecord = {
+  id: string
+  title: string
+  series: string | null
+  editionDate: string | null
+  visibility: string
+  status: string
+}
+
+/**
+ * Publication records no Data Room document is linked to: the legacy
+ * library's editions and the public Publications page's records. Listed on
+ * Data Rooms so they stay manageable without a separate Publications section.
+ */
+export async function getRecordsOutsideDataRooms(): Promise<UnroomedRecord[]> {
+  const sql = getSql()
+  const rows = (await sql`
+    select d.id, d.title, d.series, to_char(d.edition_date, 'YYYY-MM-DD') as edition_date, d.visibility, d.status
+    from documents d
+    where not exists (
+      select 1 from papermark_dataroom_documents dd where dd.publication_id = d.id and dd.is_present = true
+    )
+    order by d.status = 'published' desc, d.edition_date desc nulls last, d.title
+    limit 300
+  `) as { id: string; title: string; series: string | null; edition_date: string | null; visibility: string; status: string }[]
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    series: r.series,
+    editionDate: r.edition_date,
+    visibility: r.visibility,
+    status: r.status,
+  }))
 }
 
 export async function linkPublicationToDocument(
@@ -1019,10 +1104,12 @@ export async function linkPublicationToDocument(
   publicationId: string,
 ): Promise<boolean> {
   const sql = getSql()
+  // Only an existing, paid (not OPEN) record can back a paid Data Room document.
   const rows = await sql`
     update papermark_dataroom_documents
     set publication_id = ${publicationId}::uuid, updated_at = now()
     where id = ${documentRowId}::uuid
+      and exists (select 1 from documents d where d.id = ${publicationId}::uuid and d.visibility <> 'OPEN')
     returning 1
   `
   return rows.length > 0

@@ -23,13 +23,13 @@ const RANK: Record<Level, number> = { L1: 1, L2: 2, L3: 3, L4: 4 }
  * Individual and Professional Team Access are the same content at the same
  * level; they differ only in how many named seats the organisation buys.
  */
-export const PUBLIC_TIERS = [
-  { name: 'Individual Access', level: 'L1', defaultSeats: 1 },
-  { name: 'Professional Team Access', level: 'L1', defaultSeats: 5 },
-  { name: 'Political Monitor', level: 'L2', defaultSeats: 1 },
-  { name: 'Executive Intelligence', level: 'L3', defaultSeats: 1 },
-  { name: 'Board Briefing', level: 'L4', defaultSeats: 1 },
-] as const satisfies readonly {
+import { SUBSCRIPTION_CATALOGUE, subscriptionDisplayName } from './subscription-catalogue.ts'
+
+export const PUBLIC_TIERS = SUBSCRIPTION_CATALOGUE.map((item) => ({
+  name: item.storedName,
+  level: item.level,
+  defaultSeats: item.seats,
+})) satisfies readonly {
   name: string
   level: Level
   defaultSeats: number
@@ -130,12 +130,8 @@ const LEVEL_BASE_NAMES: Record<Level, string> = {
  * `papermark_level_rooms` maps that value to a Data Room. Changing the stored
  * value would break existing records and mappings, so the rename is display-only.
  */
-const TIER_DISPLAY_OVERRIDES: Record<string, string> = {
-  'Board Briefing': 'Board Intelligence',
-}
-
 export function tierDisplayName(storedName: string): string {
-  return TIER_DISPLAY_OVERRIDES[storedName] ?? storedName
+  return subscriptionDisplayName(storedName)
 }
 
 export const TIER_DESCRIPTIONS: Record<string, string> = {

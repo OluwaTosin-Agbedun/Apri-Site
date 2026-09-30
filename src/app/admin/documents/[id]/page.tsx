@@ -86,8 +86,8 @@ export default async function EditDocumentPage({
     return (
       <AdminShell
         admin={admin}
-        current="/admin/documents"
-        title="New Publication"
+        current="/admin/datarooms"
+        title="New publication record"
         description="Saved as a draft. It will not appear publicly until you publish it."
       >
         <DocumentForm draft={BLANK} />
@@ -145,8 +145,8 @@ export default async function EditDocumentPage({
   return (
     <AdminShell
       admin={admin}
-      current="/admin/documents"
-      title={row.title || 'Publication'}
+      current="/admin/datarooms"
+      title={row.title || 'Publication record'}
       description={`Status: ${row.status}. Editorial fields here are never overwritten by a Papermark sync.`}
     >
       <DocumentForm draft={draft} />

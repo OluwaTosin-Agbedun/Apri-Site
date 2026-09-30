@@ -63,7 +63,7 @@
 // ---------------------------------------------------------------------------
 import { revalidatePath } from "next/cache"
 import * as z from "zod"
-import { requireAdmin } from "@/lib/dal"
+import { requireAdmin, requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import { resendSecureAccessEmail, sendOnboardingEmails } from "@/lib/subscriber-onboarding"
 import { sendPublishAlert as sendAlert, previewAlert } from "@/lib/alerts"
@@ -280,6 +280,16 @@ export async function saveSubscriber(
         )
       `
     }
+    const periodOwner = id
+      ? id
+      : String(((await sql`select id from subscribers where lower(email)=${d.email} limit 1`) as { id:string }[])[0]?.id ?? "")
+    if (periodOwner && termStart && termEnd && level) {
+      await sql`insert into subscriber_subscription_periods(subscriber_id,starts_on,ends_on,level,source)
+        values(${periodOwner}::uuid,${termStart}::date,${termEnd}::date,${level},'admin-agreed-term') on conflict do nothing`
+      await sql`insert into subscriber_access_reconciliations(subscriber_id,generation,state,requested_at)
+        values(${periodOwner}::uuid,1,'pending',now()) on conflict(subscriber_id) do update
+        set generation=subscriber_access_reconciliations.generation+1,state='pending',requested_at=now(),completed_at=null`
+    }
     if (id) {
       outcome = await applyLevelChange({
         subscriberId: id,
@@ -314,6 +324,14 @@ export async function saveSubscriber(
           })
         } catch {}
       }
+      if (previousLevel !== level || previousTermEnd !== termEnd) {
+        try {
+          const {queueSubscriberAccessReconciliation,reconcileSubscriberAccess}=await import("@/lib/subscriber-access-reconciliation")
+          await queueSubscriberAccessReconciliation(id)
+          const reconciled=await reconcileSubscriberAccess(id)
+          if(reconciled.state!=="complete")linkNote+=` Publication access reconciliation is ${reconciled.state}; retry it on this page.`
+        } catch { linkNote+=" Publication access reconciliation failed; retry it on this page." }
+      }
     }
   } catch (error) {
     return {
@@ -341,6 +359,42 @@ export async function saveSubscriber(
   }
 
   return { ok: true, message: `Saved.${linkNote}` }
+}
+
+export async function setPublicationException(formData: FormData): Promise<void> {
+  const admin = await requireAdmin()
+  const subscriberId = String(formData.get("subscriberId") ?? "")
+  const publicationId = String(formData.get("publicationId") ?? "")
+  const decision = String(formData.get("decision") ?? "automatic")
+  const reason = String(formData.get("reason") ?? "").trim()
+  if (!UUID.test(subscriberId) || !UUID.test(publicationId)) throw new Error("Unknown subscriber or publication.")
+  if (!["automatic", "allow", "block"].includes(decision)) throw new Error("Unknown access control.")
+  if (decision !== "automatic" && !reason) throw new Error("Record a reason before changing access.")
+  const sql = getSql()
+  const {editionEntitlementSchemaReady,EDITION_ENTITLEMENT_MIGRATION_PENDING}=await import("@/lib/edition-entitlement-schema")
+  if(!(await editionEntitlementSchemaReady(sql)))throw new Error(EDITION_ENTITLEMENT_MIGRATION_PENDING)
+  if (decision === "automatic") {
+    await sql`delete from subscriber_publication_exceptions where subscriber_id=${subscriberId}::uuid and publication_id=${publicationId}::uuid`
+  } else {
+    await sql`insert into subscriber_publication_exceptions(subscriber_id,publication_id,decision,reason,administrator_id)
+      values(${subscriberId}::uuid,${publicationId}::uuid,${decision},${reason},${admin.id}::uuid)
+      on conflict(subscriber_id,publication_id) do update set decision=excluded.decision,reason=excluded.reason,administrator_id=excluded.administrator_id,updated_at=now()`
+  }
+  await sql`insert into subscriber_access_reconciliations(subscriber_id,generation,state,requested_at)
+    values(${subscriberId}::uuid,1,'pending',now()) on conflict(subscriber_id) do update
+    set generation=subscriber_access_reconciliations.generation+1,state='pending',requested_at=now(),completed_at=null`
+  const {reconcileSubscriberAccess}=await import("@/lib/subscriber-access-reconciliation")
+  await reconcileSubscriberAccess(subscriberId)
+  revalidatePath(`/admin/subscribers/${subscriberId}`)
+}
+
+export async function reconcilePublicationAccess(formData:FormData):Promise<void>{
+  await requireOwner()
+  const subscriberId=String(formData.get("subscriberId")??"")
+  if(!UUID.test(subscriberId))throw new Error("Unknown subscriber.")
+  const {reconcileSubscriberAccess}=await import("@/lib/subscriber-access-reconciliation")
+  await reconcileSubscriberAccess(subscriberId)
+  revalidatePath(`/admin/subscribers/${subscriberId}`)
 }
 
 /** What a level change did to the new room's personal links, when it needs saying. */

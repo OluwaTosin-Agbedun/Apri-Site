@@ -67,8 +67,10 @@ test("activation gate requires all commercial milestones", () => {
   const fn = s.slice(s.indexOf("export async function activateSubscriptionRequest("))
   assert.ok(fn.indexOf("activationGate(") > 0 && fn.indexOf("activationGate(") < fn.indexOf("insert into subscribers"))
   const plans = read("src/lib/subscription-journey.ts")
-  assert.match(plans, /tier: "Professional Team Access"/)
-  assert.match(plans, /maxUsers: 3/)
+  const catalogue = read("src/lib/subscription-catalogue.ts")
+  assert.match(catalogue, /storedName: "Professional Team Access"/)
+  assert.match(catalogue, /seats: 3/)
+  assert.match(plans, /maxUsers: PROFESSIONAL\.seats/)
   assert.match(plans, /if \(cleaned\.length > max\)/)
 })
 test("manager destination is fixed and PII is not sent to analytics", () => {

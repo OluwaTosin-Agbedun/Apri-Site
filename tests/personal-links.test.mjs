@@ -736,9 +736,10 @@ describe("who can be given a personal link", () => {
     assert.match(loader, /UUID\.test\(subscriberId\)/)
   })
 
-  it("only inside their term, with a live link to the room they are assigned", () => {
+  it("only inside their term and assigned room, without requiring an unrestricted room URL", () => {
     assert.match(ensure, /if \(sub\.termEnded\) return notEligible/)
-    assert.match(ensure, /if \(!sub\.hasRoomLink\) return notEligible/)
+    assert.doesNotMatch(ensure, /if \(!sub\.hasRoomLink\) return notEligible/)
+    assert.match(ensure, /getEligibleRoomDocumentsForSubscriber/)
     assert.match(ensure, /options\.dataroomId !== sub\.dataroomId/)
     assert.match(loader, /l\.revoke_state = 'live'/)
   })

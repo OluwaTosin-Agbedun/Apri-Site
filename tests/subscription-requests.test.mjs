@@ -43,9 +43,10 @@ describe("Subscription Access shows the two plans", () => {
 
   it("with their prices, limits and request buttons, which select the plan in the existing form", () => {
     assert.match(page, /<section id="plans"/)
-    assert.match(page, /\(\["Individual", "Professional"\] as const\)\.map/)
-    assert.match(page, /href=\{`\/access\?level=\$\{encodeURIComponent\(plan\.tier\)\}\$\{utmQuery\}#subscribe`\}/)
-    assert.match(page, /Request \{plan\.label\}/)
+    assert.match(page, /SUBSCRIPTION_LEVELS\.map/)
+    assert.match(page, /href=\{`\/access\?level=\$\{encodeURIComponent\(storedName\)\}\$\{utmQuery\}#subscribe`\}/)
+    assert.match(page, /Request Access/)
+    assert.doesNotMatch(page, /Subscription Plans/)
     assert.match(page, /\["source", "medium", "campaign", "term", "content"\]/)
     assert.match(page, /<AccessForm defaultLevel=\{defaultLevel\} utm=\{utm\} \/>/)
   })

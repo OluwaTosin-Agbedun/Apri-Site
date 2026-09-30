@@ -3,7 +3,7 @@ import { getSql } from './db'
 import {
   markDocumentLinkRevoked,
   getLiveDocumentLinksForSubscriber,
-  getRoomDocumentsForLinks,
+  getEligibleRoomDocumentsForSubscriber,
   getLivePersonalLinks,
   saveDocumentLink,
   setPersonalLinkExpiry,
@@ -156,10 +156,9 @@ export async function ensureAllDocumentLinks(
     return notEligible(sub.id, sub.fullName, 'room_mismatch')
   }
   if (sub.termEnded) return notEligible(sub.id, sub.fullName, 'term_ended')
-  if (!sub.hasRoomLink) return notEligible(sub.id, sub.fullName, 'no_room_link')
 
   const dataroomId = sub.dataroomId
-  const roomDocuments = await getRoomDocumentsForLinks(dataroomId)
+  const roomDocuments = await getEligibleRoomDocumentsForSubscriber(sub.id, dataroomId, options.allowPending===true)
   const documents = options.papermarkDocumentId
     ? roomDocuments.filter((d) => d.papermarkDocumentId === options.papermarkDocumentId)
     : roomDocuments
@@ -269,12 +268,14 @@ export async function prepareRoomLinks(
 
   for (const subscriberId of subscriberIds) {
     try {
-      outcomes.push(
-        await ensureAllDocumentLinks(subscriberId, {
+      outcomes.push(await ensureAllDocumentLinks(subscriberId, {
           dataroomId,
           papermarkDocumentId: options.papermarkDocumentId,
-        }),
-      )
+        }))
+      const {queueSubscriberAccessReconciliation,reconcileSubscriberAccess}=await import('./subscriber-access-reconciliation')
+      await queueSubscriberAccessReconciliation(subscriberId)
+      const reconciled=await reconcileSubscriberAccess(subscriberId)
+      if(reconciled.state!=="complete")errors++
     } catch {
       errors++
     }

@@ -324,6 +324,18 @@ export async function activateSubscriptionRequest(prospectId: string, _state: Fo
       }
     }
 
+    await sql`
+      insert into subscriber_subscription_periods(subscriber_id, starts_on, ends_on, level, source)
+      values (${subscriberId}::uuid, ${termStart}::date, ${termEnd}::date, ${level}, 'subscription-request')
+      on conflict do nothing
+    `
+    await sql`
+      insert into subscriber_access_reconciliations(subscriber_id, generation, state, requested_at)
+      values (${subscriberId}::uuid, 1, 'pending', now())
+      on conflict (subscriber_id) do update set generation = subscriber_access_reconciliations.generation + 1,
+        state = 'pending', requested_at = now(), completed_at = null
+    `
+
     // Each named subscriber's two onboarding emails are tracked on their own
     // record, so running this again resumes only what is still owed. Someone
     // this request activated under the previous flow without a welcome (it

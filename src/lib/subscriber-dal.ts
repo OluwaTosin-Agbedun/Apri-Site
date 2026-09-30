@@ -10,6 +10,7 @@ import {
   type Level,
   type Visibility,
 } from "./entitlements"
+import { editionEntitlementSchemaReady } from "./edition-entitlement-schema"
 
 /**
  * The confidentiality boundary for the subscriber surface.
@@ -30,6 +31,7 @@ export type CurrentSubscriber = {
   roleTitle: string
   level: Level | null
   publicTier: string
+  termStart: string | null
   termEnd: string | null
   status: string
   libraryLinkUrl: string | null
@@ -48,6 +50,7 @@ type SubscriberRow = {
   level: string | null
   public_tier: string
   term_end: string | null
+  term_start: string | null
   status: string
   library_link_url: string | null
   papermark_folder_id: string | null
@@ -56,11 +59,13 @@ type SubscriberRow = {
 function toSubscriber(row: SubscriberRow): CurrentSubscriber {
   const status = row.status.toLowerCase()
   const termEnd = row.term_end
+  const termStart = row.term_start
 
   // A term that has run out revokes access even while the row still says
   // active, so a lapsed subscription cannot outlive its end date by however
   // long it takes someone to notice and change the status by hand.
-  const termCurrent = !termEnd || new Date(termEnd) >= startOfToday()
+  const today = lagosToday()
+  const termCurrent = Boolean(termStart && termEnd && termStart <= today && termEnd >= today)
 
   return {
     type: "subscriber",
@@ -71,6 +76,7 @@ function toSubscriber(row: SubscriberRow): CurrentSubscriber {
     roleTitle: row.role_title,
     level: isLevel(row.level) ? row.level : null,
     publicTier: row.public_tier,
+    termStart,
     termEnd,
     status,
     libraryLinkUrl: row.library_link_url,
@@ -79,9 +85,8 @@ function toSubscriber(row: SubscriberRow): CurrentSubscriber {
   }
 }
 
-function startOfToday(): Date {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+function lagosToday(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(now)
 }
 
 /**
@@ -101,7 +106,7 @@ export const getCurrentSubscriber = cache(
     if (session.principalType !== "subscriber") return null
     const rows = (await sql`
       select id, full_name, name, organization, email, role_title,
-             level, public_tier, term_end, status, library_link_url, papermark_folder_id
+             level, public_tier, term_start, term_end, status, library_link_url, papermark_folder_id
       from subscribers
       where id = ${session.principalId}
       limit 1
@@ -218,6 +223,7 @@ export async function getLibraryFor(
   if (!subscriber.hasAccess || !subscriber.level) return []
 
   const sql = getSql()
+  if (!(await editionEntitlementSchemaReady(sql))) return []
 
   // Parameterised: the level list is bound, not interpolated into the text.
   const rows = (await sql.query(
@@ -236,11 +242,17 @@ export async function getLibraryFor(
             case when pa.revoke_state = 'live' then pa.link_url else null end
               as stamped_link
      from documents d
+     join subscribers s on s.id = $1
      left join publication_access pa
        on pa.publication_id = d.id and pa.subscriber_id = $1
      where d.status = 'published'
        and d.visibility <> 'OPEN'
        and d.visibility = any($2::text[])
+       and d.edition_date is not null
+       and not exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'block')
+       and (exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'allow')
+            or exists (select 1 from subscriber_subscription_periods p where p.subscriber_id = s.id and d.edition_date between p.starts_on and p.ends_on
+              and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
      order by d.edition_date desc nulls last, d.sort_order asc, d.created_at desc`,
     [subscriber.id, visibilitiesForLevel(subscriber.level)],
   )) as LibraryRow[]

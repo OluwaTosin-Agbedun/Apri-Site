@@ -5,7 +5,9 @@ import AdminSidebar from './AdminSidebar'
 
 const NAV = [
   { href: '/admin', label: 'Dashboard' },
-  { href: '/admin/documents', label: 'Publications' },
+  // Paid publication records are managed from Data Rooms (and the Dashboard);
+  // public review publications from the Review Library. The record editor
+  // stays at /admin/documents, so existing links keep working.
   { href: '/admin/subscribers', label: 'Subscribers' },
   { href: '/admin/engagement', label: 'Engagement' },
   { href: '/admin/briefings', label: 'Briefing Requests' },

@@ -154,7 +154,8 @@ test("subscriber DAL only returns subscribers, not briefing clients", () => {
 
 test("Board Intelligence display name is applied", () => {
   const entitlements = read("src/lib/entitlements.ts")
-  assert.match(entitlements, /'Board Briefing': 'Board Intelligence'/)
+  const catalogue = read("src/lib/subscription-catalogue.ts")
+  assert.match(catalogue, /name: "Board Intelligence", storedName: "Board Briefing"/)
   assert.match(entitlements, /tierDisplayName/)
 
   const access = read("src/app/access/page.tsx")

@@ -51,15 +51,15 @@ export default async function AdminDocumentsPage() {
   return (
     <AdminShell
       admin={admin}
-      current="/admin/documents"
-      title="Publications"
-      description="Manage publications. Published items appear on the public Publications page. Complimentary review documents are managed through the Review Library."
+      current="/admin/datarooms"
+      title="Publication records"
+      description="Manage publications: the records behind the paid portal (series, edition date and title, set per Data Room document under Data Rooms) and behind the public Publications page. Complimentary review documents are managed through the Review Library."
       actions={
         <Link
           href="/admin/documents/new"
           className="bg-foreground text-background px-4 py-2 text-sm font-medium tracking-wide hover:bg-foreground/90 transition-colors shrink-0"
         >
-          New Publication
+          New publication record
         </Link>
       }
     >
@@ -68,7 +68,7 @@ export default async function AdminDocumentsPage() {
       <div className="border border-border bg-card/30">
         {documents.length === 0 ? (
           <div className="p-12 text-center text-sm text-muted-foreground">
-            No publications yet. Add one manually or sync from the Review Library.
+            No publication records yet. Create one from a Data Room document under Data Rooms, or add one here.
           </div>
         ) : (
           <table className="w-full text-left text-sm">

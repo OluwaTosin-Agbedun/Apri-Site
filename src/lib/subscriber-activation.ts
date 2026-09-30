@@ -1,6 +1,6 @@
 import 'server-only'
 import { getSql } from './db'
-import { isLevel, levelLabel, levelForPublicTier, visibilitiesForLevel, type Level } from './entitlements'
+import { isLevel, tierDisplayName, levelForPublicTier, visibilitiesForLevel, type Level } from './entitlements'
 import { PORTAL_SERIES } from './portal-library'
 import { papermarkEmbedUrl } from './papermark-embed'
 import { ensureSubscriberLibraryAccess, type LibraryAccess } from './dataroom-lifecycle'
@@ -12,6 +12,8 @@ import {
   onboardingTrackingReady,
   ONBOARDING_MIGRATION_PENDING,
 } from './subscription-schema'
+import { editionEntitlementSchemaReady, EDITION_ENTITLEMENT_MIGRATION_PENDING } from './edition-entitlement-schema'
+import { reconcileSubscriberAccess } from './subscriber-access-reconciliation'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LEGACY_REQUEST_NOTE = /^Activated from review prospect ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
@@ -228,7 +230,8 @@ export async function activateSubscriberRecord(args: {
   }
 
   const wasActive = row.status.toLowerCase() === 'active'
-  const granted = levelLabel(row.level, row.seats)
+  // The commercial tier, not the one-seat row shape, names a Professional member.
+  const granted = `${row.level} — ${tierDisplayName(row.public_tier)}`
 
   // A new activation needs durable onboarding tracking: without it the two
   // emails could be neither sent reliably nor retried, so nothing is changed.
@@ -241,6 +244,11 @@ export async function activateSubscriberRecord(args: {
     }
     if (!tracked) return blocked(`${ONBOARDING_MIGRATION_PENDING} Nothing was changed.`)
   }
+
+  if (!(await editionEntitlementSchemaReady(sql))) return blocked(`${EDITION_ENTITLEMENT_MIGRATION_PENDING} Nothing was changed.`)
+  await sql`insert into subscriber_access_reconciliations(subscriber_id,generation,state,requested_at)
+    values(${id}::uuid,1,'pending',now()) on conflict(subscriber_id) do update
+    set generation=subscriber_access_reconciliations.generation+1,state='pending',requested_at=now(),completed_at=null`
 
   // 1. The library, prepared and verified BEFORE the subscriber is made active:
   //    the room link and a Papermark-confirmed personal link for every
@@ -293,6 +301,9 @@ export async function activateSubscriberRecord(args: {
   } else {
     return notReady(`${access.message} ${retryHint(access)}`)
   }
+
+  const reconciled=await reconcileSubscriberAccess(id,{allowPending:!wasActive})
+  if(reconciled.state!=="complete")return notReady(reconciled.message)
 
   // 2. Only now, with the library verified, is the subscriber made active --
   //    after their onboarding rows exist, so no failure between the two steps

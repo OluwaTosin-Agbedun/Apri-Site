@@ -15,6 +15,7 @@ import {
 } from "./papermark-dataroom-contract"
 import { getDocumentLinkByDocRowId } from "./dataroom-dal"
 import { portalTitleOverrideReady } from "./portal-title-schema"
+import { editionEntitlementSchemaReady } from "./edition-entitlement-schema"
 
 export type SyncedClientDocument = {
   id: string
@@ -74,6 +75,7 @@ export async function getDataRoomDocumentsForSubscriber(
   options: { previousVisit?: string | null } = {},
 ): Promise<SubscriberDataRoomContext | null> {
   const sql = getSql()
+  if (!(await editionEntitlementSchemaReady(sql))) return null
 
   const links = (await sql`
     select id, papermark_link_id, link_url, papermark_dataroom_id, allow_download
@@ -110,8 +112,15 @@ export async function getDataRoomDocumentsForSubscriber(
                and de.papermark_document_id = dd.papermark_document_id) as downloaded_by_subscriber
     from papermark_dataroom_documents dd
     left join documents d on d.id = dd.publication_id
+    join subscribers s on s.id = ${subscriberId}::uuid
     where dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
       and dd.is_present = true
+      and d.edition_date is not null
+      and d.status = 'published'
+      and not exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'block')
+      and (exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'allow')
+           or exists (select 1 from subscriber_subscription_periods p where p.subscriber_id = s.id and d.edition_date between p.starts_on and p.ends_on
+             and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
     order by d.edition_date desc nulls last, dd.id asc
   `) as {
     id: string
@@ -205,6 +214,7 @@ export async function getDataRoomDocumentForSubscriber(
 } | null> {
   if (!documentRowId || documentRowId.length > 200) return null
   const sql = getSql()
+  if (!(await editionEntitlementSchemaReady(sql))) return null
 
   const links = (await sql`
     select papermark_link_id, link_url, papermark_dataroom_id, allow_download
@@ -232,9 +242,16 @@ export async function getDataRoomDocumentForSubscriber(
            d.series as ed_series
     from papermark_dataroom_documents dd
     left join documents d on d.id = dd.publication_id
+    join subscribers s on s.id = ${subscriberId}::uuid
     where dd.id = ${documentRowId}::uuid
       and dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
       and dd.is_present = true
+      and d.edition_date is not null
+      and d.status = 'published'
+      and not exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'block')
+      and (exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'allow')
+           or exists (select 1 from subscriber_subscription_periods p where p.subscriber_id = s.id and d.edition_date between p.starts_on and p.ends_on
+             and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
     limit 1
   `) as {
     id: string
