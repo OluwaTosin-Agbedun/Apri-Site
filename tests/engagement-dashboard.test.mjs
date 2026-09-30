@@ -94,32 +94,40 @@ test("subscriber activity requires an explicit window", () => {
   assert.match(dal, /windowDays: number/)
 })
 
-test("engagement page has four sections and a period selector", () => {
+test("engagement page has two monitoring tabs and an inclusive date range, not a statistics dashboard", () => {
   const page = read("src/app/admin/engagement/page.tsx")
-  for (const tab of ["Overview", "Publications", "Readers", "Diagnostics"]) {
-    assert.match(page, new RegExp(`label: "${tab}"`))
+  assert.match(page, /\{ key: "subscribers", label: "Subscribers" \}/)
+  assert.match(page, /\{ key: "review", label: "Complimentary Review" \}/)
+  for (const old of ["Overview", "Publications", "Readers"]) {
+    assert.doesNotMatch(page, new RegExp(`label: "${old}"`), `no ${old} reporting tab`)
   }
-  assert.match(page, /WINDOW_PRESETS/)
-  assert.match(page, /name="window" value="custom"/)
+  assert.doesNotMatch(page, /function Metric\(/, "no large statistics cards")
+  assert.match(page, /readMonitorFilters\(params, PUBLIC_TIER_NAMES\)/)
+  assert.match(read("src/lib/reader-monitoring-rules.ts"), /const range = lagosDateRange\(params\.from, params\.to\)/)
+  assert.match(page, /type="date" name="from"/)
+  assert.match(page, /type="date" name="to"/)
+  assert.match(page, /To \(inclusive\)/)
 })
 
-test("engagement page filters readers by type", () => {
+test("search by name or email happens in the browser, never in the URL", () => {
   const client = read("src/app/admin/engagement/engagement-client.tsx")
-  assert.match(client, /function ReaderTypeFilter/)
-  assert.match(client, /complimentary_review/)
+  const page = read("src/app/admin/engagement/page.tsx")
+  assert.match(client, /export function ReaderSearch/)
+  assert.match(client, /data-reader-search/)
+  assert.doesNotMatch(page, /name="q"/, "no email address in a query string")
+  assert.match(page, /data-reader-search=/)
 })
 
-test("engagement page links to subscriber detail", () => {
+test("engagement page links a subscriber to their publication activity", () => {
   const page = read("src/app/admin/engagement/page.tsx")
-  // The Readers tab links a reader who holds a subscriber record; a
-  // Complimentary Review reader has none and is correctly not linked.
-  assert.match(page, /\/admin\/engagement\/\$\{r\.subscriberId\}/)
-  assert.match(page, /r\.subscriberId \? \(/)
+  assert.match(page, /href=\{`\/admin\/engagement\/\$\{r\.id\}/)
 })
 
-test("engagement page shows subscriber-only metrics, no briefing", () => {
+test("engagement page separates login from portal visit, and shows no briefing metrics", () => {
   const page = read("src/app/admin/engagement/page.tsx")
-  assert.match(page, /Active subscribers/)
+  assert.match(page, /Last successful login/)
+  assert.match(page, /Last portal visit/)
+  assert.match(page, /NO_LOGIN/)
   assert.doesNotMatch(page, /Active briefing clients/)
   assert.doesNotMatch(page, />Briefing</)
 })
@@ -133,17 +141,20 @@ test("subscriber engagement detail page awaits params and validates UUID", () =>
   assert.match(page, /const \{ id \} = await params/)
   assert.match(page, /UUID\.test\(id\)/)
   assert.match(page, /notFound\(\)/)
-  assert.match(page, /getSubscriberForEngagement/)
+  assert.match(page, /getSubscriberMonitorDetail/)
   assert.match(page, /getSubscriberTimeline/)
 })
 
-test("subscriber detail shows activity timeline table", () => {
+test("subscriber detail shows per-edition publication activity, and keeps the sign-in history", () => {
   const page = read("src/app/admin/engagement/[id]/page.tsx")
-  assert.match(page, /Activity timeline/)
+  assert.match(page, /<EditionActivityTable/)
+  assert.match(page, /Sign-in and email history/)
   assert.match(page, /EVENT_LABELS/)
   assert.match(page, /signin_completed/)
   assert.match(page, /publication_notification_sent/)
   assert.match(page, /Back to engagement/)
+  // Cumulative by default; the selected period only when asked for, and labelled.
+  assert.match(page, /const periodScope = query\.scope === "period" && range !== null/)
 })
 
 // ---------------------------------------------------------------------------

@@ -159,7 +159,9 @@ async function handleViewEvents(payload: unknown): Promise<Record<string, number
         papermarkLinkId: event.papermarkLinkId,
         papermarkDocumentId: event.papermarkDocumentId,
         viewerEmail: event.viewerEmail,
-        downloadedAt: event.viewedAt,
+        // The download's own time when Papermark gave one; otherwise the
+        // session's, which is when it can at the latest have been downloaded from.
+        downloadedAt: event.downloadedAt ?? event.viewedAt,
         collectionSource: 'webhook',
         attribution,
       })
@@ -507,8 +509,34 @@ function readViewEvents(payload: unknown): IncomingView[] {
 
 function readOneView(value: unknown): IncomingView | null {
   if (!value || typeof value !== 'object') return null
-  const d = value as Record<string, unknown>
+  const outer = value as Record<string, unknown>
 
+  // Papermark's link.viewed payload nests the view: data = { view, link,
+  // document?, dataroom? }, with view.viewId / viewedAt / email and the link's
+  // id and documentId. Read that shape first; the flat shape is still
+  // accepted for any other sender.
+  const nestedView = outer.view && typeof outer.view === 'object' ? (outer.view as Record<string, unknown>) : null
+  if (nestedView) {
+    const link = outer.link && typeof outer.link === 'object' ? (outer.link as Record<string, unknown>) : {}
+    const document = outer.document && typeof outer.document === 'object' ? (outer.document as Record<string, unknown>) : {}
+    const papermarkViewId = str(nestedView.viewId ?? nestedView.id ?? nestedView.view_id)
+    if (!papermarkViewId) return null
+    return {
+      papermarkViewId,
+      papermarkLinkId: str(link.id ?? outer.link_id),
+      papermarkDocumentId: str(document.id ?? link.documentId ?? link.document_id),
+      viewerEmail: str(nestedView.email ?? nestedView.viewerEmail ?? nestedView.viewer_email),
+      viewedAt: str(nestedView.viewedAt ?? nestedView.viewed_at),
+      // A view notification is sent when the view opens: it carries no
+      // duration, pages or download. Those come from the analytics read.
+      durationSeconds: null,
+      completionPct: null,
+      downloaded: false,
+      source: 'webhook',
+    }
+  }
+
+  const d = outer
   const papermarkViewId = str(d.id ?? d.view_id ?? d.viewId)
   if (!papermarkViewId) return null
 
@@ -521,10 +549,17 @@ function readOneView(value: unknown): IncomingView | null {
     viewerEmail: str(d.viewer_email ?? d.viewerEmail ?? d.email),
     viewedAt: str(d.viewed_at ?? d.viewedAt ?? d.created_at),
     durationSeconds: num(d.total_duration_seconds ?? d.duration_seconds ?? d.duration),
-    completionPct: num(d.completion_pct ?? d.completionRate),
+    // A percentage outside 0-100 is not a percentage: dropped, never stored.
+    completionPct: percent(d.completion_pct ?? d.completionRate),
     downloaded: Boolean(downloadedAt) || d.downloaded === true,
+    downloadedAt,
     source: 'webhook',
   }
+}
+
+function percent(value: unknown): number | null {
+  const n = num(value)
+  return n === null || n > 100 ? null : n
 }
 
 function str(value: unknown): string | null {

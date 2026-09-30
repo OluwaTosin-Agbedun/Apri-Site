@@ -3,12 +3,15 @@ import { getSql } from './db'
 import {
   isPapermarkConfigured,
   listViewsForLink,
-  getViewDetail,
+  getViewAnalytics,
 } from './papermark'
+import { enrichViewPages } from './page-progress-collector'
+import { pageProgressReady } from './page-progress-schema'
+import { parseViewAnalytics } from './page-progress'
 import { editionWithdrawalReady } from './edition-recipients-schema'
 import { orderFromCursor } from './engagement-metrics'
 import { recordView, recordDownload, refreshLastViewed } from './view-attribution'
-import { completionFromPages, enrichmentCoverage, type Maybe } from './engagement-metrics'
+import { enrichmentCoverage, type Maybe } from './engagement-metrics'
 
 /**
  * The Papermark collection safety net, in one place.
@@ -65,6 +68,10 @@ export type CollectionSummary = {
   failures: number
   /** Link ids on stored views that match none of APRI's link records. */
   unknownLinkIds: number
+  /** Papermark's analytics rate limit stopped enrichment early; it resumes next run. */
+  analyticsRateLimited?: boolean
+  /** Papermark refused analytics (scope or plan), with its reason. */
+  analyticsNotPermitted?: string
   elapsedMs: number
   errors: string[]
 }
@@ -196,6 +203,7 @@ export async function collectPapermarkAnalytics(options: {
   let enriched = 0
   let failures = 0
   const touched = new Set<string>()
+  const progressReady = await pageProgressReady(getSql())
   let linksPolled = 0
   let lastPolled: string | null = null
 
@@ -217,8 +225,9 @@ export async function collectPapermarkAnalytics(options: {
     lastPolled = linkId
 
     // What is already stored for this link, so an old view that is stored and
-    // attributed is not rewritten on every run -- while one never stored, or
-    // still unattributed, is ingested whatever its age.
+    // attributed is not rewritten on every run -- while one never stored,
+    // still unattributed, or downloaded since it was stored is ingested
+    // whatever its age.
     const settled = await settledViewIds(linkId)
 
     for (const view of views) {
@@ -226,7 +235,8 @@ export async function collectPapermarkAnalytics(options: {
 
       const viewedAtMs = view.viewed_at ? Date.parse(view.viewed_at) : NaN
       const recent = !Number.isFinite(viewedAtMs) || viewedAtMs >= refreshSince
-      if (!recent && settled.has(view.id)) continue
+      const known = settled.get(view.id)
+      if (!recent && known && (known.downloaded || !view.downloaded_at) && known.viewType) continue
 
       viewsFound++
 
@@ -246,6 +256,14 @@ export async function collectPapermarkAnalytics(options: {
         })
 
         if (created) newViews++
+        // What kind of view it was: opening a Data Room is not reading a
+        // document, and is never counted as a reading session.
+        if (progressReady && view.view_type) {
+          await getSql()`
+            update document_views set view_type = ${String(view.view_type).slice(0, 40)}
+            where papermark_view_id = ${view.id} and view_type is distinct from ${String(view.view_type).slice(0, 40)}
+          `
+        }
         if (attribution.subscriberId || attribution.briefingRequestId ||
             attribution.readerType === 'complimentary_review') {
           attributed++
@@ -281,8 +299,17 @@ export async function collectPapermarkAnalytics(options: {
   // Enrichment runs after ingestion, over whatever is still unenriched, so an
   // interrupted run resumes instead of restarting. `last_enriched_at` is the
   // resume marker: null means never attempted.
+  let rateLimited = false
+  let notPermitted: string | null = null
   if (Date.now() - startedAt < budgetMs) {
-    enriched = await enrichPendingViews(enrichLimit, startedAt, budgetMs)
+    if (progressReady) {
+      const result = await enrichViewPages({ limit: enrichLimit, startedAt, budgetMs })
+      enriched = result.enriched
+      rateLimited = result.rateLimited
+      notPermitted = result.notPermitted
+    } else {
+      enriched = await enrichPendingViews(enrichLimit, startedAt, budgetMs)
+    }
   }
 
   for (const subscriberId of touched) {
@@ -308,6 +335,8 @@ export async function collectPapermarkAnalytics(options: {
     attributed,
     enriched,
     enrichmentCoveragePct: coverage,
+    ...(rateLimited ? { analyticsRateLimited: true } : {}),
+    ...(notPermitted ? { analyticsNotPermitted: notPermitted } : {}),
     failures,
     unknownLinkIds: await countUnknownViewLinks(),
     elapsedMs: Date.now() - startedAt,
@@ -318,18 +347,25 @@ export async function collectPapermarkAnalytics(options: {
   return summary
 }
 
-/** Views on this link already stored with an attribution: nothing left to learn from re-reading them. */
-async function settledViewIds(linkId: string): Promise<Set<string>> {
+/**
+ * Views on this link already stored with an attribution, with whether a
+ * download and the view type are on record: a view re-read with nothing new
+ * to add is skipped, one downloaded since is not.
+ */
+async function settledViewIds(linkId: string): Promise<Map<string, { downloaded: boolean; viewType: boolean }>> {
   try {
     const sql = getSql()
+    const ready = await pageProgressReady(sql)
     const rows = (await sql`
-      select papermark_view_id from document_views
+      select papermark_view_id, coalesce(downloaded, false) as downloaded,
+             case when ${ready}::boolean then (to_jsonb(document_views) ->> 'view_type') is not null else true end as has_type
+      from document_views
       where papermark_link_id = ${linkId}
         and reader_type is not null and reader_type <> 'unknown'
-    `) as { papermark_view_id: string }[]
-    return new Set(rows.map((r) => r.papermark_view_id))
+    `) as { papermark_view_id: string; downloaded: boolean; has_type: boolean }[]
+    return new Map(rows.map((r) => [r.papermark_view_id, { downloaded: r.downloaded === true, viewType: r.has_type === true }]))
   } catch {
-    return new Set()
+    return new Map()
   }
 }
 
@@ -370,13 +406,10 @@ async function writeCursor(value: string | null): Promise<void> {
 }
 
 /**
- * Fetches duration and page data for views that have none, in a bounded batch.
- *
- * Newest unenriched first, so the most recent reading appears soonest; every
- * view is still covered in turn, because `last_enriched_at` is stamped once a
- * view has been tried -- even when Papermark returns nothing usable -- and a
- * tried view is never picked again. The coverage figure shows how much is
- * missing.
+ * Before the page-progress migration: fetches the recorded duration for views
+ * that have none, in a bounded batch, newest first. A view is marked enriched
+ * only when Papermark answered -- a failed or rate-limited call leaves it for
+ * the next run -- and a rate limit ends the batch.
  */
 async function enrichPendingViews(limit: number, startedAt: number, budgetMs: number): Promise<number> {
   const sql = getSql()
@@ -395,36 +428,21 @@ async function enrichPendingViews(limit: number, startedAt: number, budgetMs: nu
   for (const row of pending) {
     if (Date.now() - startedAt > budgetMs) break
 
-    let duration: number | null = null
-    let completion: Maybe<number> = null
-
-    try {
-      const detail = await getViewDetail(row.papermark_view_id)
-
-      if (typeof detail?.total_duration_seconds === 'number' &&
-          Number.isFinite(detail.total_duration_seconds) &&
-          detail.total_duration_seconds >= 0) {
-        duration = Math.round(detail.total_duration_seconds)
-      }
-
-      // Completion is computed only when Papermark returned enough page data.
-      // A missing page count stays null; it must never become 0%, which would
-      // read as "opened and not read".
-      const d = detail as Record<string, unknown> | null
-      completion = completionFromPages(
-        pickNumber(d, ['pages_viewed', 'pagesViewed', 'completed_pages']),
-        pickNumber(d, ['num_pages', 'numPages', 'total_pages', 'totalPages']),
-      )
-    } catch {
-      // Stamp it anyway below: a view Papermark cannot describe should not be
-      // retried on every future run.
+    const read = await getViewAnalytics(row.papermark_view_id)
+    if (!read.ok) {
+      if (read.kind === 'rate_limited' || read.kind === 'not_permitted') break
+      if (read.kind === 'failed') continue
     }
+    const parsed = read.ok ? parseViewAnalytics(read.data) : null
+    const duration =
+      parsed?.ok && parsed.totalDurationSeconds !== null ? Math.round(parsed.totalDurationSeconds) : null
 
     try {
+      // Completion is not set here: it needs the version's page total, which
+      // only the page-progress collection establishes. Missing stays null.
       await sql`
         update document_views set
           duration_seconds = coalesce(${duration}, duration_seconds),
-          completion_pct   = coalesce(${completion}, completion_pct),
           last_enriched_at = now()
         where papermark_view_id = ${row.papermark_view_id}
       `

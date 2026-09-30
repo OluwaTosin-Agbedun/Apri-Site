@@ -167,5 +167,5 @@ test("engagement page shows only subscriber metrics", () => {
   assert.doesNotMatch(page, /Active briefing clients/)
   assert.doesNotMatch(page, /Briefings never signed in/)
   assert.doesNotMatch(page, />Briefing</)
-  assert.match(page, /Active subscribers/)
+  assert.match(page, /Last successful login/)
 })

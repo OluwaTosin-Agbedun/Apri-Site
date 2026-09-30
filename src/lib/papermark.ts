@@ -193,6 +193,107 @@ export async function papermarkRequest<T>(
   }
 }
 
+/**
+ * An analytics read that reports what happened instead of throwing, so the
+ * collector can tell "try again later" from "not allowed" from "no data":
+ *
+ *  - rate_limited: 429; `retryAfterMs` from X-RateLimit-Reset when present.
+ *  - not_permitted: 401/403, or a plan restriction -- the token lacks the
+ *    scope or the plan lacks the feature. Reported to the administrator.
+ *  - not_found: 404 -- the provider has nothing for this id.
+ *  - failed: anything else (network, timeout, 5xx, unreadable body).
+ *
+ * Messages are sanitized: never the token, a header or the response body.
+ */
+export type AnalyticsRead<T> =
+  | { ok: true; data: T }
+  | { ok: false; kind: 'rate_limited'; retryAfterMs: number | null; message: string }
+  | { ok: false; kind: 'not_permitted' | 'not_found' | 'failed'; message: string }
+
+export async function papermarkAnalyticsRead<T>(path: string, timeoutMs = 15_000): Promise<AnalyticsRead<T>> {
+  const token = apiToken()
+  if (!token) return { ok: false, kind: 'not_permitted', message: 'No Papermark API token is configured.' }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let response: Response
+  try {
+    response = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      kind: 'failed',
+      message: error instanceof Error && error.name === 'AbortError' ? 'Papermark did not answer in time.' : 'Could not reach Papermark.',
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (response.status === 429) {
+    const reset = Number(response.headers.get('x-ratelimit-reset'))
+    const retryAfterMs = Number.isFinite(reset) && reset > 0 ? Math.max(0, reset * 1000 - Date.now()) : null
+    return { ok: false, kind: 'rate_limited', retryAfterMs, message: 'Papermark rate limit reached.' }
+  }
+  if (!response.ok) {
+    const body = (await readErrorBody(response)) as { error?: { code?: unknown } } | null
+    const code = typeof body?.error?.code === 'string' ? body.error.code : ''
+    if (response.status === 401 || response.status === 403 || code === 'plan_restriction') {
+      return {
+        ok: false,
+        kind: 'not_permitted',
+        message:
+          code === 'plan_restriction'
+            ? 'Papermark refused this analytics request for the current plan.'
+            : `Papermark refused this analytics request (${response.status}): the API token may lack the analytics.read or documents.read scope.`,
+      }
+    }
+    if (response.status === 404) return { ok: false, kind: 'not_found', message: 'Papermark has no analytics for this item.' }
+    return { ok: false, kind: 'failed', message: `Papermark returned ${response.status}.` }
+  }
+  try {
+    return { ok: true, data: (await response.json()) as T }
+  } catch {
+    return { ok: false, kind: 'failed', message: 'Papermark returned a response that was not JSON.' }
+  }
+}
+
+/** Per-session page timings: GET /v1/analytics/views/{id} (scope analytics.read). */
+export function getViewAnalytics(viewId: string): Promise<AnalyticsRead<unknown>> {
+  return papermarkAnalyticsRead(`/v1/analytics/views/${encodeURIComponent(viewId)}`)
+}
+
+/** A document's versions with their page counts: GET /v1/documents/{id}/versions (scope documents.read). */
+export async function listDocumentVersions(documentId: string): Promise<
+  AnalyticsRead<
+    {
+      versionId: string
+      versionNumber: number | null
+      numPages: number | null
+      createdAt: string | null
+      isPrimary: boolean
+    }[]
+  >
+> {
+  const read = await papermarkAnalyticsRead<unknown>(`/v1/documents/${encodeURIComponent(documentId)}/versions`)
+  if (!read.ok) return read
+  const items = unwrap<Record<string, unknown>>(read.data, 'versions').items
+  return {
+    ok: true,
+    data: items
+      .filter((v) => typeof v?.id === 'string' && v.id)
+      .map((v) => ({
+        versionId: String(v.id),
+        versionNumber: typeof v.version_number === 'number' ? v.version_number : null,
+        numPages: typeof v.num_pages === 'number' && v.num_pages > 0 ? v.num_pages : null,
+        createdAt: typeof v.created === 'string' ? v.created : typeof v.created_at === 'string' ? v.created_at : null,
+        isPrimary: v.is_primary === true,
+      })),
+  }
+}
+
 /** One page of a cursor-paginated list, unwrapped from either envelope shape. */
 export async function papermarkFetch<T>(
   path: string,
@@ -376,9 +477,12 @@ export type PapermarkView = {
   link_id?: string | null
   document_id?: string | null
   viewer_email?: string | null
+  /** DOCUMENT_VIEW (a document was opened) or DATAROOM_VIEW (the room was). */
   view_type?: string | null
   viewed_at?: string
+  /** The latest download in this session; Papermark keeps one per view. */
   downloaded_at?: string | null
+  download_type?: string | null
 }
 
 /**

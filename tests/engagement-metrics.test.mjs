@@ -563,7 +563,7 @@ describe('isExcludedReader', () => {
   })
 
   it('does not exclude a genuine reader', () => {
-    assert.equal(isExcludedReader('desmond@onekobotech.com'), false)
+    assert.equal(isExcludedReader('reader.one@example.invalid'), false)
   })
 
   it('does not exclude a null address', () => {

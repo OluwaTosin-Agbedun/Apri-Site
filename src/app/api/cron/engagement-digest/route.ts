@@ -1,12 +1,8 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import {
-  getEngagement,
-  getEngagementWindow,
-  getEngagementSummary,
-  type EngagementRow,
-} from '@/lib/engagement'
+import { APRI_PRODUCTION_URL } from '@/lib/app-url'
+import { getDigestData, type DigestPerson } from '@/lib/reader-monitoring'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -15,12 +11,17 @@ export const maxDuration = 60
  * GET /api/cron/engagement-digest
  *
  * A weekly note to ourselves: who is not reading, and whose term is nearly up.
+ * It uses the Engagement monitor's own definitions (src/lib/reader-monitoring.ts):
+ *
+ *  - not reading: active, inside their term, and no confirmed Papermark
+ *    session in the paid context in the last 30 days;
+ *  - term ending: active, with the term ending within 30 days;
+ *  - unmatched: last week's views that no rule could attribute to anyone --
+ *    Complimentary Review reads are attributed, and are not "unmatched";
+ *  - a line on Complimentary Review activity, kept separate from subscribers.
  *
  * Internal only. It goes to BRIEFING_MANAGER_EMAIL -- our own address -- and
- * never to a subscriber. Nothing here is reachable by a subscriber, and no
- * subscriber's activity is ever sent outside Athena Centre.
- *
- * Protected by the same CRON_SECRET as the view poll.
+ * never to a subscriber. Protected by the same CRON_SECRET as the view poll.
  */
 export async function GET(request: Request) {
   const expected = process.env.CRON_SECRET
@@ -43,28 +44,25 @@ export async function GET(request: Request) {
     })
   }
 
-  const window = await getEngagementWindow()
-  const rows = await getEngagement(window)
-  const summary = await getEngagementSummary()
-
-  const flagged = rows.filter((r) => r.flagged)
-  const expiring = rows.filter(
-    (r) => r.daysUntilTermEnd !== null && r.daysUntilTermEnd >= 0 && r.daysUntilTermEnd <= 30
-  )
+  const data = await getDigestData()
 
   // Nothing to report is worth saying once a week, but not worth an email.
-  if (flagged.length === 0 && expiring.length === 0) {
+  if (data.notReading.length === 0 && data.termEnding.length === 0) {
     return NextResponse.json({ ok: true, sent: false, reason: 'nothing-to-report' })
   }
 
   try {
     const resend = new Resend(key)
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: `APRI System <${from}>`,
       to,
-      subject: `APRI engagement: ${flagged.length} not reading, ${expiring.length} renewing soon`,
-      html: digestHtml({ flagged, expiring, window, summary }),
+      subject: `APRI engagement: ${data.notReading.length} not reading, ${data.termEnding.length} renewing soon`,
+      html: digestHtml(data),
     })
+    // The provider reports a refusal as a returned error, not an exception.
+    if (result.error || !result.data?.id) {
+      return NextResponse.json({ ok: false, error: 'The email provider did not accept the digest.' }, { status: 502 })
+    }
   } catch {
     return NextResponse.json(
       { ok: false, error: 'Could not send the digest.' },
@@ -75,16 +73,19 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     sent: true,
-    flagged: flagged.length,
-    expiring: expiring.length,
+    flagged: data.notReading.length,
+    expiring: data.termEnding.length,
   })
 }
 
+/**
+ * The secret is accepted from the Authorization header only (how Vercel Cron
+ * sends it). Never from the query string: a URL is written to request logs.
+ */
 function isAuthorised(request: Request, expected: string): boolean {
   const header = request.headers.get('authorization') ?? ''
   const bearer = header.startsWith('Bearer ') ? header.slice(7) : ''
-  const query = new URL(request.url).searchParams.get('secret') ?? ''
-  return constantTimeEquals(bearer, expected) || constantTimeEquals(query, expected)
+  return constantTimeEquals(bearer, expected)
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
@@ -95,14 +96,7 @@ function constantTimeEquals(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB)
 }
 
-function digestHtml(args: {
-  flagged: EngagementRow[]
-  expiring: EngagementRow[]
-  window: number
-  summary: { unmatchedViews: number; totalViews: number }
-}): string {
-  const appUrl = (process.env.APP_URL ?? 'https://apri.athenacentre.org').replace(/\/$/, '')
-
+function digestHtml(data: Awaited<ReturnType<typeof getDigestData>>): string {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f7f6f3;font-family:Arial,Helvetica,sans-serif;">
@@ -116,37 +110,40 @@ function digestHtml(args: {
 
         <tr><td style="padding:28px 32px;">
           ${section(
-            `Not reading (opened none of the last ${args.window})`,
-            args.flagged,
+            'Not reading (no confirmed session in the last 30 days)',
+            data.notReading,
             (r) =>
-              `${esc(r.fullName)} &middot; ${esc(r.organisation || r.email)} &mdash; last opened ${r.lastOpenedAt ? formatDate(r.lastOpenedAt) : 'never'}`
+              `${esc(r.name || r.email)} &middot; ${esc(r.level)} &mdash; last viewed ${r.lastViewedAt ? formatDate(r.lastViewedAt) : 'never'}, last login ${r.lastLoginAt ? formatDate(r.lastLoginAt) : 'no login recorded'}`
           )}
 
           ${section(
             'Term ending within 30 days',
-            args.expiring,
-            (r) =>
-              `${esc(r.fullName)} &middot; ${esc(r.organisation || r.email)} &mdash; ends ${r.termEnd ? formatDate(r.termEnd) : '—'} (${r.daysUntilTermEnd} days)`
+            data.termEnding,
+            (r) => `${esc(r.name || r.email)} &middot; ${esc(r.level)} &mdash; ends ${r.termEnd ? formatDate(r.termEnd) : '—'}`
           )}
 
+          <p style="margin:0 0 20px;font-size:13px;color:#555;">
+            Complimentary Review, last 7 days: ${data.review.sessions} confirmed session${data.review.sessions === 1 ? '' : 's'} by ${data.review.readers} reader${data.review.readers === 1 ? '' : 's'}.
+          </p>
+
           ${
-            args.summary.unmatchedViews > 0
+            data.unmatchedLastWeek > 0
               ? `<p style="margin:0 0 20px;font-size:13px;color:#8a6d3b;background:#fcf8e3;border:1px solid #faebcc;padding:10px 12px;">
-                   ${args.summary.unmatchedViews} of ${args.summary.totalViews} recorded opens could not be matched to a subscriber. Check the link ids on their records.
+                   ${data.unmatchedLastWeek} view${data.unmatchedLastWeek === 1 ? '' : 's'} last week could not be attributed to any reader. See Diagnostics on the Engagement page.
                  </p>`
               : ''
           }
 
           <table cellpadding="0" cellspacing="0"><tr>
             <td style="background:#1a1a1a;">
-              <a href="${esc(appUrl)}/admin/engagement" style="display:inline-block;padding:12px 26px;font-size:14px;color:#ffffff;text-decoration:none;">Open the attention list</a>
+              <a href="${esc(APRI_PRODUCTION_URL)}/admin/engagement" style="display:inline-block;padding:12px 26px;font-size:14px;color:#ffffff;text-decoration:none;">Open Engagement</a>
             </td>
           </tr></table>
         </td></tr>
 
         <tr><td style="padding:16px 32px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:11px;color:#aaa;">
-            Internal only. Contains subscriber activity &mdash; do not forward outside Athena Centre.
+            Internal only. Contains subscriber activity &mdash; do not forward outside Athena Centre. Dates are in Africa/Lagos time.
           </p>
         </td></tr>
 
@@ -156,11 +153,7 @@ function digestHtml(args: {
 </body></html>`
 }
 
-function section(
-  title: string,
-  rows: EngagementRow[],
-  line: (r: EngagementRow) => string
-): string {
+function section(title: string, rows: DigestPerson[], line: (r: DigestPerson) => string): string {
   if (rows.length === 0) return ''
 
   return `
@@ -173,9 +166,10 @@ function section(
 }
 
 function formatDate(value: string): string {
-  const date = new Date(value)
+  const date = new Date(value.length === 10 ? `${value}T12:00:00Z` : value)
   if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleDateString('en-GB', {
+    timeZone: 'Africa/Lagos',
     day: 'numeric',
     month: 'short',
     year: 'numeric',

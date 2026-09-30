@@ -28,6 +28,8 @@ export type IncomingView = {
   durationSeconds: number | null
   completionPct: number | null
   downloaded: boolean
+  /** When Papermark says the download happened, if it said. */
+  downloadedAt?: string | null
   source: 'webhook' | 'poll'
 }
 

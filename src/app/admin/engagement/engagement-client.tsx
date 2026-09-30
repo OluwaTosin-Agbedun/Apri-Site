@@ -1,7 +1,6 @@
 "use client"
 
-import { useState } from "react"
-import Link from "next/link"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   syncPapermarkAnalyticsNow,
@@ -166,49 +165,36 @@ function RepairPanel() {
   )
 }
 
-/** Separates and filters subscriber readers from Complimentary Review readers. */
-export function ReaderTypeFilter({
-  current,
-  params,
-  counts,
-}: {
-  current: string
-  params: Record<string, string | undefined>
-  counts: Record<string, number>
-}) {
-  const link = (reader: string) => {
-    const sp = new URLSearchParams()
-    sp.set("tab", "readers")
-    if (params.window) sp.set("window", params.window)
-    if (params.from) sp.set("from", params.from)
-    if (params.to) sp.set("to", params.to)
-    if (reader) sp.set("reader", reader)
-    return `?${sp.toString()}`
-  }
-
-  const options = [
-    { key: "", label: "All readers", count: counts.all },
-    { key: "subscriber", label: "Subscribers", count: counts.subscriber },
-    { key: "complimentary_review", label: "Complimentary Review", count: counts.complimentary_review },
-    { key: "briefing", label: "Briefing", count: counts.briefing },
-    { key: "unknown", label: "Unattributed", count: counts.unknown },
-  ]
-
+/**
+ * Search by name or email, done in the browser over the rows already on the
+ * page. Deliberately not a URL parameter: an email address in a URL ends up in
+ * request logs and browser history.
+ */
+export function ReaderSearch({ label = "Search name or email" }: { label?: string }) {
+  const [term, setTerm] = useState("")
+  useEffect(() => {
+    const t = term.trim().toLowerCase()
+    let shown = 0
+    document.querySelectorAll<HTMLElement>("[data-reader-search]").forEach((el) => {
+      const match = !t || (el.dataset.readerSearch ?? "").includes(t)
+      el.hidden = !match
+      if (match) shown++
+    })
+    const counter = document.getElementById("reader-search-count")
+    if (counter) counter.textContent = t ? `${shown} shown` : ""
+  }, [term])
   return (
-    <div className="flex flex-wrap items-center gap-2 mb-6">
-      {options.map((o) => (
-        <Link
-          key={o.key || "all"}
-          href={link(o.key)}
-          className={`px-3 py-1.5 text-xs font-medium border transition-colors ${
-            current === o.key
-              ? "border-accent text-accent bg-accent/5"
-              : "border-border text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          {o.label} ({o.count ?? 0})
-        </Link>
-      ))}
-    </div>
+    <label className="block text-xs text-muted-foreground mb-3 max-w-md">
+      {label}
+      <input
+        type="search"
+        value={term}
+        onChange={(e) => setTerm(e.target.value)}
+        placeholder="Name or email"
+        autoComplete="off"
+        className="border border-border bg-background px-3 py-2 text-sm w-full"
+      />
+      <span id="reader-search-count" className="block mt-1" aria-live="polite" />
+    </label>
   )
 }

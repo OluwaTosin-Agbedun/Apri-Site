@@ -1,326 +1,415 @@
 import Link from "next/link"
 import { requireAdmin } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
-import { tierDisplayName } from "@/lib/entitlements"
+import { PUBLIC_TIER_NAMES, tierDisplayName } from "@/lib/entitlements"
+import { getDiagnostics } from "@/lib/engagement-analytics"
+import { formatLagos, formatMetric, DISPLAY_TIME_ZONE } from "@/lib/engagement-metrics"
 import {
-  getOverviewMetrics,
-  getPublicationRows,
-  getReaderRows,
-  getDiagnostics,
-} from "@/lib/engagement-analytics"
-import {
-  resolveWindow,
-  formatLagos,
-  formatMetric,
-  NOT_APPLICABLE_LABEL,
-  UNAVAILABLE_LABEL,
-  WINDOW_PRESETS,
-  DISPLAY_TIME_ZONE,
-} from "@/lib/engagement-metrics"
-import { EngagementMaintenance, ReaderTypeFilter } from "./engagement-client"
+  getMonitorStatus,
+  listReviewReaders,
+  listSubscriberReaders,
+  type MonitorFilters,
+} from "@/lib/reader-monitoring"
+import { readMonitorFilters, NO_LOGIN, NO_VISIT, type DateRange } from "@/lib/reader-monitoring-rules"
+import { EngagementMaintenance, ReaderSearch } from "./engagement-client"
+import { Badge, EditionActivityTable } from "./monitor-parts"
 
 export const metadata = { title: "Engagement · APRI" }
 export const dynamic = "force-dynamic"
 
 type Params = {
   tab?: string
-  window?: string
   from?: string
   to?: string
-  reader?: string
+  level?: string
+  status?: string
+  series?: string
 }
 
 const TABS = [
-  { key: "overview", label: "Overview" },
-  { key: "publications", label: "Publications" },
-  { key: "readers", label: "Readers" },
-  { key: "diagnostics", label: "Diagnostics" },
+  { key: "subscribers", label: "Subscribers" },
+  { key: "review", label: "Complimentary Review" },
 ] as const
 
-export default async function EngagementPage({
-  searchParams,
-}: {
-  searchParams: Promise<Params>
-}) {
+const STATUSES = [
+  { value: "", label: "Any status" },
+  { value: "active", label: "Active" },
+  { value: "term_ended", label: "Active, term ended" },
+  { value: "pending", label: "Pending" },
+  { value: "lapsed", label: "Lapsed" },
+  { value: "suspended", label: "Suspended" },
+  { value: "declined", label: "Declined" },
+]
+
+const SERIES = ["", "MIN", "AIU", "PLM", "AEO", "QIB"]
+
+/** Keeps only known values, so nothing from the address bar reaches a query unchecked. */
+function readFilters(params: Params): { filters: MonitorFilters; rangeInvalid: boolean } {
+  return readMonitorFilters(params, PUBLIC_TIER_NAMES)
+}
+
+function periodText(range: DateRange | null): string | null {
+  return range ? (range.from === range.to ? range.from : `${range.from} to ${range.to}`) : null
+}
+
+export default async function EngagementPage({ searchParams }: { searchParams: Promise<Params> }) {
   const admin = await requireAdmin()
   const params = await searchParams
-
-  const tab = TABS.find((t) => t.key === params.tab)?.key ?? "overview"
-
-  // One window object, passed to every query on the page. This is what stops
-  // the old dashboard's fault of mixing lifetime and 30-day figures in one row.
-  const window = resolveWindow({
-    preset: params.window ?? "30d",
-    from: params.from,
-    to: params.to,
-  })
+  const tab = TABS.find((t) => t.key === params.tab)?.key ?? "subscribers"
+  const { filters, rangeInvalid } = readFilters(params)
+  const status = await getMonitorStatus()
 
   return (
     <AdminShell
       admin={admin}
       current="/admin/engagement"
       title="Engagement"
-      description="Confirmed document engagement from Papermark, and publication access clicks recorded by APRI. The two are measured separately and are never combined."
+      description="Who is reading what: subscribers and Complimentary Review readers, one row per publication edition, from Papermark's confirmed sessions."
     >
-      <TabBar tab={tab} params={params} />
+      <div className="flex flex-wrap gap-1 border-b border-border mb-6">
+        {TABS.map((t) => (
+          <Link
+            key={t.key}
+            href={`?${new URLSearchParams({ tab: t.key }).toString()}`}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              tab === t.key ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
 
-      {tab !== "diagnostics" && <WindowBar window={window} tab={tab} params={params} />}
+      <FilterBar tab={tab} filters={filters} />
+      {rangeInvalid && (
+        <p className="text-sm text-amber-800 mb-4">
+          That date range is not valid (the end must be on or after the start), so all-time activity is shown.
+        </p>
+      )}
+      <SyncLine status={status} />
 
-      {tab === "overview" && <OverviewTab window={window} />}
-      {tab === "publications" && <PublicationsTab window={window} />}
-      {tab === "readers" && <ReadersTab window={window} readerFilter={params.reader ?? ""} params={params} />}
-      {tab === "diagnostics" && <DiagnosticsTab />}
+      {tab === "subscribers" ? <SubscribersTab filters={filters} /> : <ReviewTab filters={filters} />}
+
+      <DiagnosticsSection />
 
       <p className="text-xs text-muted-foreground mt-10 pt-6 border-t border-border">
-        All times shown in {DISPLAY_TIME_ZONE}. Timestamps are stored in UTC.
+        All times are shown in {DISPLAY_TIME_ZONE}. A selected period includes the whole of its end day.
       </p>
     </AdminShell>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Chrome
-// ---------------------------------------------------------------------------
-
-function TabBar({ tab, params }: { tab: string; params: Params }) {
-  const qs = (key: string) => {
-    const sp = new URLSearchParams()
-    sp.set("tab", key)
-    if (params.window) sp.set("window", params.window)
-    if (params.from) sp.set("from", params.from)
-    if (params.to) sp.set("to", params.to)
-    return `?${sp.toString()}`
-  }
-
+function FilterBar({ tab, filters }: { tab: string; filters: MonitorFilters }) {
+  const input = "border border-border bg-background px-3 py-2 text-sm w-full"
   return (
-    <div className="flex flex-wrap gap-1 border-b border-border mb-8">
-      {TABS.map((t) => (
-        <Link
-          key={t.key}
-          href={qs(t.key)}
-          className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-            tab === t.key
-              ? "border-accent text-accent"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          {t.label}
-        </Link>
-      ))}
-    </div>
-  )
-}
-
-function WindowBar({
-  window,
-  tab,
-  params,
-}: {
-  window: ReturnType<typeof resolveWindow>
-  tab: string
-  params: Params
-}) {
-  const link = (preset: string) => {
-    const sp = new URLSearchParams()
-    sp.set("tab", tab)
-    sp.set("window", preset)
-    return `?${sp.toString()}`
-  }
-
-  return (
-    <div className="border border-border bg-card/30 p-4 mb-8">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Period
-        </span>
-        {WINDOW_PRESETS.map((p) => (
-          <Link
-            key={p.value}
-            href={link(p.value)}
-            className={`px-3 py-1.5 text-xs font-medium border transition-colors ${
-              window.preset === p.value
-                ? "border-accent text-accent bg-accent/5"
-                : "border-border text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {p.label}
-          </Link>
-        ))}
-
-        <form method="get" className="flex items-end gap-2 ml-auto flex-wrap">
-          <input type="hidden" name="tab" value={tab} />
-          <input type="hidden" name="window" value="custom" />
-          <div>
-            <label className="block text-[0.65rem] uppercase tracking-wider text-muted-foreground mb-1">
-              From
-            </label>
-            <input
-              type="date"
-              name="from"
-              defaultValue={params.from ?? ""}
-              className="border border-border bg-background px-2 py-1 text-xs"
-            />
-          </div>
-          <div>
-            <label className="block text-[0.65rem] uppercase tracking-wider text-muted-foreground mb-1">
-              To
-            </label>
-            <input
-              type="date"
-              name="to"
-              defaultValue={params.to ?? ""}
-              className="border border-border bg-background px-2 py-1 text-xs"
-            />
-          </div>
-          <button
-            type="submit"
-            className="border border-border px-3 py-1.5 text-xs hover:bg-black/5 transition-colors cursor-pointer"
-          >
+    <form method="get" className="border border-border bg-card/30 p-4 mb-4">
+      <input type="hidden" name="tab" value={tab} />
+      <div className="flex flex-wrap gap-3 items-end">
+        <label className="text-xs text-muted-foreground w-full sm:w-44">
+          From
+          <input type="date" name="from" defaultValue={filters.range?.from ?? ""} className={input} />
+        </label>
+        <label className="text-xs text-muted-foreground w-full sm:w-44">
+          To (inclusive)
+          <input type="date" name="to" defaultValue={filters.range?.to ?? ""} className={input} />
+        </label>
+        {tab === "subscribers" ? (
+          <label className="text-xs text-muted-foreground w-full sm:w-44">
+            Level
+            <select name="level" defaultValue={filters.level} className={input}>
+              <option value="">Any level</option>
+              {PUBLIC_TIER_NAMES.map((t) => (
+                <option key={t} value={t}>
+                  {tierDisplayName(t)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="text-xs text-muted-foreground w-full sm:w-44">
+          Series
+          <select name="series" defaultValue={filters.series} className={input}>
+            {SERIES.map((s) => (
+              <option key={s || "all"} value={s}>
+                {s || "Any series"}
+              </option>
+            ))}
+          </select>
+        </label>
+        {tab === "subscribers" && (
+          <label className="text-xs text-muted-foreground w-full sm:w-44">
+            Status
+            <select name="status" defaultValue={filters.status} className={input}>
+              {STATUSES.map((s) => (
+                <option key={s.value || "any"} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <div className="flex gap-3 items-center">
+          <button type="submit" className="bg-foreground text-background px-4 py-2 text-sm font-medium cursor-pointer">
             Apply
           </button>
-        </form>
+          <Link href={`?tab=${tab}`} className="text-sm text-muted-foreground hover:text-foreground">
+            Clear
+          </Link>
+        </div>
       </div>
-      <p className="text-xs text-muted-foreground mt-3">
-        Showing {formatLagos(window.fromIso)} to {formatLagos(window.toIso)}
-        {window.preset !== "custom" && <> &middot; last {window.days} days</>}
-      </p>
-    </div>
+    </form>
   )
 }
 
-function Metric({
-  label,
-  value,
-  note,
-  tone = "default",
-}: {
-  label: string
-  value: string | number
-  note?: string
-  tone?: "default" | "warn" | "muted"
-}) {
-  const colour =
-    tone === "warn"
-      ? "text-amber-700"
-      : tone === "muted"
-        ? "text-foreground/60"
-        : "text-foreground"
-
+function SyncLine({ status }: { status: Awaited<ReturnType<typeof getMonitorStatus>> }) {
   return (
-    <div className="border border-border p-5 bg-card/30">
-      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
-        {label}
+    <div className="text-xs text-muted-foreground mb-6 space-y-1">
+      <p>
+        Last Papermark sync: {status.lastPollAt ? formatLagos(status.lastPollAt) : "never"}
+        {" · "}Last webhook: {status.lastWebhookAt ? formatLagos(status.lastWebhookAt) : "none received"}
       </p>
-      <p className={`text-3xl font-serif ${colour}`}>{value}</p>
-      {note && <p className="text-[0.7rem] text-muted-foreground mt-2 leading-snug">{note}</p>}
+      {status.pageProgressNote && <p className="text-amber-800">{status.pageProgressNote}</p>}
+      {status.capability && (
+        <p className="text-amber-800">
+          Papermark analytics limitation{status.capability.at ? ` (${formatLagos(status.capability.at)})` : ""}:{" "}
+          {status.capability.message}
+        </p>
+      )}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Overview
+// Subscribers
 // ---------------------------------------------------------------------------
 
-async function OverviewTab({ window }: { window: ReturnType<typeof resolveWindow> }) {
-  const m = await getOverviewMetrics(window)
+async function SubscribersTab({ filters }: { filters: MonitorFilters }) {
+  const rows = await listSubscriberReaders(filters)
+  const period = periodText(filters.range)
+  const detailQuery = new URLSearchParams()
+  if (filters.range) {
+    detailQuery.set("from", filters.range.from)
+    detailQuery.set("to", filters.range.to)
+  }
+  if (filters.series) detailQuery.set("series", filters.series)
+  const qs = detailQuery.toString()
 
   return (
-    <>
-      <p className="text-xs text-muted-foreground mb-6">
-        Data since:{" "}
-        <span className="font-medium text-foreground">
-          {m.dataSince ? formatLagos(m.dataSince) : "click tracking has not recorded an event yet"}
-        </span>
-        . Papermark view and download history predates click tracking; clicks are
-        only counted from deployment onward and are never backfilled.
+    <section>
+      <p className="text-sm text-muted-foreground mb-3">
+        {rows.length} subscriber{rows.length === 1 ? "" : "s"}, including those with no recorded activity. Last login
+        and last portal visit are all-time; sessions and editions cover {period ?? "all time"}.
       </p>
-
-      <h3 className="font-serif text-lg text-foreground mb-4">Confirmed by Papermark</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Metric
-          label="Unique paid readers"
-          value={m.uniquePaidReaders}
-          note="Distinct subscribers with a confirmed view in this period."
-        />
-        <Metric
-          label="Complimentary Review readers"
-          value={m.uniqueProspectReaders}
-          note="Distinct verified prospect addresses. Not subscribers."
-        />
-        <Metric
-          label="View sessions"
-          value={m.viewSessions}
-          note="Distinct Papermark view ids. Not a row count."
-        />
-        <Metric
-          label="Download events"
-          value={m.downloadEvents}
-          note="Every confirmed download, including repeats by one reader."
-        />
-        <Metric
-          label="Unique downloaders"
-          value={m.uniqueDownloaders}
-          note="Distinct subscriber or verified prospect address."
-        />
-        <Metric
-          label="Unmatched views"
-          value={m.unmatchedViews}
-          note="Kept, never guessed. See Diagnostics."
-          tone={m.unmatchedViews > 0 ? "warn" : "default"}
-        />
-      </div>
-
-      <h3 className="font-serif text-lg text-foreground mb-2">Recorded by APRI</h3>
-      <p className="text-xs text-muted-foreground mb-4 max-w-3xl">
-        A click means a reader pressed a publication button on this site. It does
-        not mean the document was opened &mdash; only Papermark can confirm that.
-        These figures are deliberately kept apart from the view sessions above and
-        must not be added to them.
+      <ReaderSearch />
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground border border-border p-4">No subscriber matches these filters.</p>
+      ) : (
+        <div className="border border-border overflow-x-auto">
+          <table className="w-full text-sm min-w-[52rem]">
+            <thead className="bg-card/50 text-left">
+              <tr className="border-b border-border">
+                <th className="p-3 font-medium">Subscriber</th>
+                <th className="p-3 font-medium">Level</th>
+                <th className="p-3 font-medium">Access</th>
+                <th className="p-3 font-medium">Last successful login</th>
+                <th className="p-3 font-medium">Last portal visit</th>
+                <th className="p-3 font-medium">Sessions{period ? " (period)" : ""}</th>
+                <th className="p-3 font-medium">Editions{period ? " (period)" : ""}</th>
+                <th className="p-3 font-medium">Last viewed</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((r) => (
+                <tr key={r.id} className="hover:bg-black/5 align-top" data-reader-search={`${r.name} ${r.email}`.toLowerCase()}>
+                  <td className="p-3">
+                    <Link
+                      href={`/admin/engagement/${r.id}${qs ? `?${qs}` : ""}`}
+                      className="text-foreground hover:text-accent font-medium"
+                    >
+                      {r.name || r.email}
+                    </Link>
+                    {r.isAdministrator && <Badge>APRI admin</Badge>}
+                    <span className="block text-xs text-muted-foreground">{r.email}</span>
+                  </td>
+                  <td className="p-3 text-xs">{r.level}</td>
+                  <td className="p-3 text-xs">{r.status.label}</td>
+                  <td className="p-3 text-xs tabular-nums">{r.lastLoginAt ? formatLagos(r.lastLoginAt) : NO_LOGIN}</td>
+                  <td className="p-3 text-xs tabular-nums">
+                    {r.lastPortalVisitAt ? formatLagos(r.lastPortalVisitAt) : NO_VISIT}
+                  </td>
+                  <td className="p-3 tabular-nums">{r.sessions}</td>
+                  <td className="p-3 tabular-nums">{r.editions}</td>
+                  <td className="p-3 text-xs tabular-nums">{r.lastViewedAt ? formatLagos(r.lastViewedAt) : "No views recorded"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground mt-3 max-w-3xl">
+        A login is a successful sign-in from an emailed link. A portal visit is an authenticated page load of the
+        library; a returning subscriber with a saved session can have a recent visit and an older login. Opening an
+        email, clicking a link that fails, or reading a document is neither.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Metric label="Publication access clicks" value={m.accessClicks} note="Unique click events." />
-        <Metric label="Unique clickers" value={m.uniqueClickers} note="Distinct anonymous visitors." />
-      </div>
-
-      <h3 className="font-serif text-lg text-foreground mb-4">Subscriptions</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Metric
-          label="Active subscribers"
-          value={m.activeSubscribers}
-          note="Current state, not a figure for this period."
-          tone="muted"
-        />
-        <Metric
-          label="Not opened recent editions"
-          value={m.dormantSubscribers}
-          note="Active subscribers with no confirmed view in this period."
-          tone={m.dormantSubscribers > 0 ? "warn" : "default"}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-        <Metric
-          label="Last webhook received"
-          value={m.lastWebhookAt ? formatLagos(m.lastWebhookAt) : UNAVAILABLE_LABEL}
-        />
-        <Metric
-          label="Last successful poll"
-          value={m.lastPollAt ? formatLagos(m.lastPollAt) : UNAVAILABLE_LABEL}
-        />
-      </div>
-
-      <WebsiteAnalyticsNote />
-    </>
+    </section>
   )
 }
 
-/**
- * The Vercel note.
- *
- * Placed here rather than in Diagnostics because the risk it guards against is
- * a reader of this page adding an anonymous visitor estimate to a verified
- * reader count and believing the total.
- */
+// ---------------------------------------------------------------------------
+// Complimentary Review
+// ---------------------------------------------------------------------------
+
+async function ReviewTab({ filters }: { filters: MonitorFilters }) {
+  const rows = await listReviewReaders(filters)
+  const period = periodText(filters.range)
+  return (
+    <section>
+      <p className="text-sm text-muted-foreground mb-3">
+        {rows.length} review reader{rows.length === 1 ? "" : "s"}: approved recipients, verified requesters and anyone
+        Papermark recorded on a review link, including those with no recorded views. Review editions are opened directly
+        through their Papermark link, which verifies the reader&rsquo;s email; there is no APRI login for them.
+        Activity covers {period ?? "all time"}.
+      </p>
+      <ReaderSearch />
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground border border-border p-4">No review reader matches these filters.</p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r) => {
+            const active = r.assignments.filter((a) => a.state === "active")
+            const removed = r.assignments.filter((a) => a.state === "removed")
+            return (
+              <details key={r.key} className="border border-border" data-reader-search={`${r.name ?? ""} ${r.email}`.toLowerCase()}>
+                <summary className="cursor-pointer list-none p-3 sm:p-4 hover:bg-black/5">
+                  <div className="grid gap-x-6 gap-y-2 text-sm grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]">
+                    <div className="col-span-2 lg:col-span-1">
+                      <p className="font-medium text-foreground">
+                        {r.name ?? r.email}
+                        {r.isAdministrator && <Badge>APRI admin</Badge>}
+                      </p>
+                      {r.name && <p className="text-xs text-muted-foreground">{r.email}</p>}
+                      <p className="text-xs text-muted-foreground">{r.verified ? "Email verified with APRI" : "Not a verified requester"}</p>
+                    </div>
+                    <Summary label="Approved editions" value={`${active.length}${removed.length ? ` (+${removed.length} removed)` : ""}`} />
+                    <Summary label={`Sessions${period ? " (period)" : ""}`} value={String(r.sessions)} />
+                    <Summary label="Editions opened" value={String(r.editions.length)} />
+                    <Summary label="Last viewed" value={r.lastViewedAt ? formatLagos(r.lastViewedAt) : "No views recorded"} />
+                  </div>
+                </summary>
+                <div className="border-t border-border p-3 sm:p-4 space-y-4">
+                  <EditionActivityTable
+                    editions={r.editions}
+                    periodLabel={period}
+                    emptyText={period ? "No recorded sessions in this period." : "No recorded sessions."}
+                  />
+                  {r.assignments.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Assigned editions</p>
+                      <table className="w-full text-xs min-w-[32rem]">
+                        <thead>
+                          <tr className="text-left text-muted-foreground">
+                            <th className="py-1 pr-3 font-medium">Edition</th>
+                            <th className="py-1 pr-3 font-medium">Approval</th>
+                            <th className="py-1 pr-3 font-medium">Edition state</th>
+                            <th className="py-1 font-medium">Opened</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {r.assignments.map((a, i) => {
+                            const opened = r.editions.some((e) => e.editionKey === a.editionKey)
+                            return (
+                              <tr key={`${a.editionKey}-${i}`}>
+                                <td className="py-1.5 pr-3">{a.title}</td>
+                                <td className="py-1.5 pr-3">
+                                  {a.state === "active"
+                                    ? a.via === "shared_list"
+                                      ? "Approved (shared list)"
+                                      : `Approved${a.grantedAt ? ` ${formatLagos(a.grantedAt)}` : ""}`
+                                    : `Removed${a.removedAt ? ` ${formatLagos(a.removedAt)}` : ""}`}
+                                </td>
+                                <td className="py-1.5 pr-3 capitalize">{a.editionState}</td>
+                                <td className="py-1.5">{opened ? "Yes" : "No recorded views"}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </details>
+            )
+          })}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground mt-3 max-w-3xl">
+        Review activity is kept separate from subscriber activity, even for someone who is both. A withdrawn edition or a
+        removed approval keeps its recorded history.
+      </p>
+    </section>
+  )
+}
+
+function Summary({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="tabular-nums text-foreground">{value}</p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics (collapsed)
+// ---------------------------------------------------------------------------
+
+async function DiagnosticsSection() {
+  const d = await getDiagnostics()
+  const items: [string, string][] = [
+    ["Webhook secret configured", d.webhookConfigured ? "Yes" : "No"],
+    ["Last webhook received", d.lastWebhookAt ? formatLagos(d.lastWebhookAt) : "None"],
+    ["Last poll", d.lastPollAt ? formatLagos(d.lastPollAt) : "Never"],
+    ["Failed webhook events", String(d.failedWebhookEvents)],
+    ["Unmatched views (kept, not guessed)", String(d.unmatchedViewsAllTime)],
+    ["Unknown link ids", String(d.unknownLinkIds)],
+    ["Sessions with recorded time", formatMetric(d.enrichmentCoveragePct, (n) => `${Math.round(n)}%`)],
+    ["Sessions awaiting analytics", String(d.viewsAwaitingEnrichment)],
+    ["Rows with missing attribution", String(d.repairableRows)],
+  ]
+  return (
+    <details className="mt-10 border border-border">
+      <summary className="cursor-pointer p-4 text-sm font-medium hover:bg-black/5">Diagnostics and maintenance</summary>
+      <div className="border-t border-border p-4 space-y-6">
+        <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          {items.map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-4 border-b border-border py-1">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="tabular-nums text-foreground">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {d.lastPollSummary && (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Last poll detail</p>
+            <dl className="grid gap-x-8 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
+              {Object.entries(d.lastPollSummary)
+                .filter(([k]) => k !== "at")
+                .map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{k.replace(/([A-Z])/g, " $1")}</dt>
+                    <dd className="tabular-nums">{String(v)}</dd>
+                  </div>
+                ))}
+            </dl>
+          </div>
+        )}
+        <EngagementMaintenance />
+        <WebsiteAnalyticsNote />
+      </div>
+    </details>
+  )
+}
+
 function WebsiteAnalyticsNote() {
   return (
     <div className="border border-border bg-card/30 p-6">
@@ -343,311 +432,5 @@ function WebsiteAnalyticsNote() {
         ever sent to it.
       </p>
     </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Publications
-// ---------------------------------------------------------------------------
-
-async function PublicationsTab({ window }: { window: ReturnType<typeof resolveWindow> }) {
-  const rows = await getPublicationRows(window)
-
-  if (rows.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No publication activity in this period.
-      </p>
-    )
-  }
-
-  const audienceLabel = (a: string) =>
-    a === "complimentary_review" ? "Complimentary Review" : a === "briefing" ? "Briefing" : "Paid"
-
-  return (
-    <div className="border border-border bg-card/30 overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b border-border bg-black/5 text-foreground/70">
-          <tr>
-            <th className="font-medium p-3">Publication</th>
-            <th className="font-medium p-3">Type</th>
-            <th className="font-medium p-3">Audience</th>
-            <th className="font-medium p-3">Edition</th>
-            <th className="font-medium p-3 text-right">Eligible</th>
-            <th className="font-medium p-3 text-right">Clicks</th>
-            <th className="font-medium p-3 text-right">Readers</th>
-            <th className="font-medium p-3 text-right">Sessions</th>
-            <th className="font-medium p-3 text-right">Repeat</th>
-            <th className="font-medium p-3 text-right">Downloads</th>
-            <th className="font-medium p-3 text-right">Downloaders</th>
-            <th className="font-medium p-3 text-right">Avg time</th>
-            <th className="font-medium p-3 text-right">Completion</th>
-            <th className="font-medium p-3">Last activity</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {rows.map((r, i) => (
-            <tr key={`${r.publicationId ?? r.slotKey ?? i}`} className="hover:bg-black/5 transition-colors">
-              <td className="p-3 text-foreground max-w-xs">
-                <span className="block truncate" title={r.title}>{r.title}</span>
-                {r.audience === "complimentary_review" && (
-                  <span className="text-[0.65rem] text-accent">
-                    Complimentary Review{r.slotKey && r.slotKey !== "unknown" ? ` · ${r.slotKey}` : ""}
-                  </span>
-                )}
-              </td>
-              <td className="p-3 text-foreground/70 text-xs">{r.publicationType || r.series || "—"}</td>
-              <td className="p-3 text-xs">
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded text-[0.65rem] font-medium ${
-                    r.audience === "complimentary_review"
-                      ? "bg-blue-50 text-blue-700"
-                      : r.audience === "briefing"
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-accent/10 text-accent"
-                  }`}
-                >
-                  {audienceLabel(r.audience)}
-                </span>
-              </td>
-              <td className="p-3 text-foreground/70 text-xs">
-                {r.editionDate ? formatLagos(r.editionDate) : "—"}
-              </td>
-              <td className="p-3 text-right text-xs text-foreground/70">
-                {/* A prospect publication has no eligibility, and says so
-                    rather than reporting zero eligible readers. */}
-                {r.eligibleSubscribers === null ? (
-                  <span className="text-muted-foreground">{NOT_APPLICABLE_LABEL}</span>
-                ) : (
-                  r.eligibleSubscribers
-                )}
-              </td>
-              <td className="p-3 text-right">{r.accessClicks}</td>
-              <td className="p-3 text-right font-medium">{r.uniqueReaders}</td>
-              <td className="p-3 text-right">{r.viewSessions}</td>
-              <td className="p-3 text-right text-foreground/70">{r.repeatSessions}</td>
-              <td className="p-3 text-right">{r.downloadEvents}</td>
-              <td className="p-3 text-right text-foreground/70">{r.uniqueDownloaders}</td>
-              <td className="p-3 text-right text-xs">
-                {formatMetric(r.averageEngagedTime, (n) => `${Math.round(n)}s`)}
-              </td>
-              <td className="p-3 text-right text-xs">
-                {formatMetric(r.completionPct, (n) => `${Math.round(n)}%`)}
-              </td>
-              <td className="p-3 text-foreground/70 text-xs">
-                {r.lastActivity ? formatLagos(r.lastActivity) : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Readers
-// ---------------------------------------------------------------------------
-
-async function ReadersTab({
-  window,
-  readerFilter,
-  params,
-}: {
-  window: ReturnType<typeof resolveWindow>
-  readerFilter: string
-  params: Params
-}) {
-  const all = await getReaderRows(window)
-  const rows = readerFilter ? all.filter((r) => r.readerType === readerFilter) : all
-
-  const typeLabel = (t: string) =>
-    t === "complimentary_review"
-      ? "Complimentary Review"
-      : t === "subscriber"
-        ? "Subscriber"
-        : t === "briefing"
-          ? "Briefing"
-          : "Unknown"
-
-  return (
-    <>
-      <ReaderTypeFilter current={readerFilter} params={params} counts={{
-        all: all.length,
-        subscriber: all.filter((r) => r.readerType === "subscriber").length,
-        complimentary_review: all.filter((r) => r.readerType === "complimentary_review").length,
-        briefing: all.filter((r) => r.readerType === "briefing").length,
-        unknown: all.filter((r) => r.readerType === "unknown").length,
-      }} />
-
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No readers in this period.</p>
-      ) : (
-        <div className="border border-border bg-card/30 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-black/5 text-foreground/70">
-              <tr>
-                <th className="font-medium p-3">Name</th>
-                <th className="font-medium p-3">Verified email</th>
-                <th className="font-medium p-3">Reader type</th>
-                <th className="font-medium p-3">Level</th>
-                <th className="font-medium p-3 text-right">Documents</th>
-                <th className="font-medium p-3 text-right">Sessions</th>
-                <th className="font-medium p-3 text-right">Downloads</th>
-                <th className="font-medium p-3 text-right">Read</th>
-                <th className="font-medium p-3">Last activity</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((r) => (
-                <tr
-                  key={r.readerKey}
-                  className={`hover:bg-black/5 transition-colors ${
-                    r.readerType === "complimentary_review" ? "bg-blue-50/30" : ""
-                  }`}
-                >
-                  <td className="p-3 text-foreground">
-                    {/* A Complimentary Review reader holds no subscriber
-                        record, so no name is invented for them -- and there is
-                        no detail page to link to either. */}
-                    {r.name ? (
-                      r.subscriberId ? (
-                        <Link
-                          href={`/admin/engagement/${r.subscriberId}`}
-                          className="text-accent hover:text-accent-hover transition-colors"
-                        >
-                          {r.name}
-                        </Link>
-                      ) : (
-                        r.name
-                      )
-                    ) : (
-                      <span className="text-muted-foreground text-xs">No subscriber record</span>
-                    )}
-                  </td>
-                  <td className="p-3 text-foreground/70 text-xs">{r.email ?? "—"}</td>
-                  <td className="p-3 text-xs">
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-[0.65rem] font-medium ${
-                        r.readerType === "complimentary_review"
-                          ? "bg-blue-100 text-blue-800"
-                          : r.readerType === "subscriber"
-                            ? "bg-accent/10 text-accent"
-                            : r.readerType === "briefing"
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-black/5 text-muted-foreground"
-                      }`}
-                    >
-                      {typeLabel(r.readerType)}
-                    </span>
-                  </td>
-                  <td className="p-3 text-foreground/70 text-xs">
-                    {r.subscriptionLevel ? tierDisplayName(r.subscriptionLevel) : NOT_APPLICABLE_LABEL}
-                  </td>
-                  <td className="p-3 text-right">{r.documentsOpened}</td>
-                  <td className="p-3 text-right">{r.viewSessions}</td>
-                  <td className="p-3 text-right">{r.downloadEvents}</td>
-                  <td className="p-3 text-right text-xs">
-                    {formatMetric(r.averageCompletion, (n) =>
-                      n >= 90 ? "Read" : `Partial ${Math.round(n)}%`,
-                    )}
-                  </td>
-                  <td className="p-3 text-foreground/70 text-xs">
-                    {r.lastActivity ? formatLagos(r.lastActivity) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Diagnostics
-// ---------------------------------------------------------------------------
-
-async function DiagnosticsTab() {
-  const d = await getDiagnostics()
-
-  return (
-    <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        <Metric
-          label="Webhook configured"
-          value={d.webhookConfigured ? "Yes" : "No"}
-          note={
-            d.webhookConfigured
-              ? "A signing secret is set. Its value is never displayed or logged."
-              : "No signing secret is set, so the endpoint refuses every delivery. Set it in the Vercel environment settings."
-          }
-          tone={d.webhookConfigured ? "default" : "warn"}
-        />
-        <Metric
-          label="Last webhook received"
-          value={d.lastWebhookAt ? formatLagos(d.lastWebhookAt) : UNAVAILABLE_LABEL}
-        />
-        <Metric
-          label="Last successful poll"
-          value={d.lastPollAt ? formatLagos(d.lastPollAt) : UNAVAILABLE_LABEL}
-        />
-        <Metric
-          label="Failed webhook events"
-          value={d.failedWebhookEvents}
-          note="Recorded as failed, not processed, so Papermark retries them."
-          tone={d.failedWebhookEvents > 0 ? "warn" : "default"}
-        />
-        <Metric
-          label="Unmatched views (all time)"
-          value={d.unmatchedViewsAllTime}
-          note="Kept rather than guessed at."
-          tone={d.unmatchedViewsAllTime > 0 ? "warn" : "default"}
-        />
-        <Metric
-          label="Unknown link ids"
-          value={d.unknownLinkIds}
-          note="Views on a link APRI has no record of."
-          tone={d.unknownLinkIds > 0 ? "warn" : "default"}
-        />
-        <Metric
-          label="Duration / completion coverage"
-          value={formatMetric(d.enrichmentCoveragePct, (n) => `${Math.round(n)}%`)}
-          note="Share of views with duration data from Papermark."
-        />
-        <Metric
-          label="Awaiting enrichment"
-          value={d.viewsAwaitingEnrichment}
-          note="Picked up in bounded batches by each poll; resumes across runs."
-        />
-        <Metric
-          label="Rows with missing attribution"
-          value={d.repairableRows}
-          note="Candidates for the repair below."
-          tone={d.repairableRows > 0 ? "warn" : "default"}
-        />
-      </div>
-
-      {d.lastPollSummary && (
-        <div className="border border-border bg-card/30 p-5 mb-8">
-          <h4 className="text-sm font-medium text-foreground mb-3">Last poll detail</h4>
-          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            {Object.entries(d.lastPollSummary)
-              .filter(([k]) => k !== "at")
-              .map(([k, v]) => (
-                <div key={k}>
-                  <dt className="text-muted-foreground uppercase tracking-wider text-[0.65rem]">
-                    {k.replace(/([A-Z])/g, " $1")}
-                  </dt>
-                  <dd className="text-foreground font-medium mt-1">{String(v)}</dd>
-                </div>
-              ))}
-          </dl>
-        </div>
-      )}
-
-      <EngagementMaintenance />
-    </>
   )
 }

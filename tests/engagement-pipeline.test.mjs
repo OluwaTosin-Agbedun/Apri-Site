@@ -362,7 +362,8 @@ describe('polling', () => {
 
   it('ingests every view on a link once, whatever its age, and re-reads only recent ones', () => {
     const fn = fnBody(src, 'collectPapermarkAnalytics')
-    assert.match(fn, /if \(!recent && settled\.has\(view\.id\)\) continue/)
+    // Re-read an old view only when something is new: a download, or its view type.
+    assert.match(fn, /if \(!recent && known && \(known\.downloaded \|\| !view\.downloaded_at\) && known\.viewType\) continue/)
     assert.match(fnBody(src, 'settledViewIds'), /reader_type is not null and reader_type <> 'unknown'/)
   })
 
@@ -389,12 +390,19 @@ describe('polling', () => {
   it('enriches in bounded batches', () => {
     assert.match(src, /const ENRICH_LIMIT = \d+/)
     assert.match(fnBody(src, 'enrichPendingViews'), /limit \$\{limit\}/)
+    assert.match(read('src/lib/page-progress-collector.ts'), /limit \$\{args\.limit\}/)
   })
 
-  it('resumes unfinished enrichment on a later run', () => {
-    const fn = fnBody(src, 'enrichPendingViews')
-    assert.match(fn, /where last_enriched_at is null/)
-    assert.match(fn, /last_enriched_at = now\(\)/)
+  it('resumes unfinished enrichment on a later run, and marks a session done only when Papermark answered', () => {
+    const collector = read('src/lib/page-progress-collector.ts')
+    assert.match(collector, /enrichment_state is null or \(next_enrichment_at is not null and next_enrichment_at <= now\(\)\)/)
+    // A rate limit or a refusal stops the batch and is retried later, never stamped as done.
+    assert.match(collector, /if \(read\.kind === 'rate_limited'\) \{[\s\S]*?summary\.rateLimited = true\s+break/)
+    assert.match(collector, /if \(read\.kind === 'not_permitted'\) \{[\s\S]*?recordCapability\(sql, read\.message\)[\s\S]*?break/)
+    const legacy = fnBody(src, 'enrichPendingViews')
+    assert.match(legacy, /where last_enriched_at is null/)
+    assert.match(legacy, /if \(read\.kind === 'rate_limited' \|\| read\.kind === 'not_permitted'\) break/)
+    assert.match(legacy, /if \(read\.kind === 'failed'\) continue/)
   })
 
   it('reports enrichment coverage', () => {
@@ -402,12 +410,16 @@ describe('polling', () => {
     assert.match(src, /getEnrichmentCoverage/)
   })
 
-  it('computes completion only from sufficient page data', () => {
-    const fn = fnBody(src, 'enrichPendingViews')
-    assert.match(fn, /completionFromPages/)
-    // Missing information must remain null, never zero.
-    assert.match(fn, /coalesce\(\$\{completion\}, completion_pct\)/)
-    assert.doesNotMatch(fn, /completion_pct = 0/)
+  it('computes pages viewed only from page evidence over the exact version total', () => {
+    const collector = read('src/lib/page-progress-collector.ts')
+    assert.match(collector, /const parsed = parseViewAnalytics\(read\.data\)/)
+    assert.match(collector, /version = versionForView\(versions\.data, row\.viewed_at\)/)
+    // Missing information must remain null, never zero -- and Papermark's own
+    // completion column is never overwritten with a derived figure.
+    assert.match(collector, /pages_viewed = \$\{total \? progress\.pagesViewed : null\}::int/)
+    assert.doesNotMatch(collector, /completion_pct/)
+    // The pre-migration path records time only, never a guessed completion.
+    assert.doesNotMatch(fnBody(src, 'enrichPendingViews'), /completion_pct =/)
   })
 
   it('preserves the 60-second budget with headroom, and never exceeds it', () => {
@@ -825,7 +837,7 @@ describe('dashboard queries', () => {
 
   it('active subscribers is labelled as a state, not a windowed figure', () => {
     assert.match(fnBody(src, 'getOverviewMetrics'), /Not date-filtered on purpose/)
-    assert.match(read('src/app/admin/engagement/page.tsx'), /Current state, not a figure for this period/)
+    assert.match(read('src/app/admin/engagement/page.tsx'), /Last login\s+and last portal visit are all-time/)
   })
 
   it('never reveals the webhook secret, only whether it is set', () => {
@@ -841,61 +853,49 @@ describe('dashboard queries', () => {
 
 describe('dashboard rendering', () => {
   const src = read('src/app/admin/engagement/page.tsx')
+  const parts = read('src/app/admin/engagement/monitor-parts.tsx')
+  const rules = read('src/lib/reader-monitoring-rules.ts')
 
-  it('has the four required sections', () => {
-    for (const tab of ['Overview', 'Publications', 'Readers', 'Diagnostics']) {
-      assert.match(src, new RegExp(`label: "${tab}"`), `${tab} tab must exist`)
-    }
+  it('has the two monitoring tabs', () => {
+    assert.match(src, /label: "Subscribers"/)
+    assert.match(src, /label: "Complimentary Review"/)
   })
 
-  it('offers 7, 30, 90 day and custom periods', () => {
-    assert.match(src, /WINDOW_PRESETS/)
-    assert.match(src, /name="window" value="custom"/)
+  it('reads every filter from a fixed list, so nothing from the address bar reaches a query unchecked', () => {
+    assert.match(src, /return readMonitorFilters\(params, PUBLIC_TIER_NAMES\)/)
+    assert.match(rules, /export function readMonitorFilters/)
+    assert.match(rules, /typeof value === "string" && \(allowed as readonly string\[\]\)\.includes\(value\)/)
   })
 
-  it('passes one window object to every query', () => {
-    assert.match(src, /const window = resolveWindow\(/)
-    assert.match(src, /getOverviewMetrics\(window\)/)
-    assert.match(src, /getPublicationRows\(window\)/)
-    assert.match(src, /getReaderRows\(window\)/)
+  it('renders missing figures as unavailable, never zero', () => {
+    assert.match(parts, /progressLabel\(e\.coverage\)/)
+    assert.match(parts, /durationLabel\(e\.viewingSeconds\)/)
+    assert.match(parts, /PROGRESS_UNAVAILABLE/)
+    assert.match(rules, /export const PROGRESS_UNAVAILABLE = "Progress unavailable"/)
+    assert.match(rules, /export const NO_LOGIN = "No login recorded"/)
   })
 
-  it('renders missing metrics as Unavailable', () => {
-    assert.match(src, /formatMetric\(r\.averageEngagedTime/)
-    assert.match(src, /formatMetric\(r\.completionPct/)
-    assert.match(src, /UNAVAILABLE_LABEL/)
+  it('labels progress as pages viewed, never reading or completion', () => {
+    assert.match(parts, /label="Pages viewed"/)
+    assert.match(parts, /not of reading or comprehension/)
+    assert.doesNotMatch(parts + src, /Completed|Read in full|comprehension confirmed/)
   })
 
-  it('renders Not applicable for a prospect publication eligibility', () => {
-    assert.match(src, /r\.eligibleSubscribers === null \? \(/)
-    assert.match(src, /NOT_APPLICABLE_LABEL/)
+  it('keeps diagnostics, repair and sync, collapsed', () => {
+    assert.match(src, /<details className="mt-10 border border-border">/)
+    assert.match(src, /Diagnostics and maintenance/)
+    assert.match(src, /<EngagementMaintenance \/>/)
+    assert.match(src, /Last Papermark sync:/)
   })
 
-  it('separates clicks from Papermark confirmations under distinct headings', () => {
-    assert.match(src, /Confirmed by Papermark/)
-    assert.match(src, /Recorded by APRI/)
-    assert.match(src, /must not be added to them/)
+  it('states that times are Africa/Lagos and the end day is included', () => {
+    assert.match(src, /All times are shown in \{DISPLAY_TIME_ZONE\}/)
+    assert.match(src, /includes the whole of its end day/)
   })
 
-  it('shows Data since', () => {
-    assert.match(src, /Data since:/)
-    assert.match(src, /never backfilled/)
-  })
-
-  it('states that times are Africa\/Lagos', () => {
-    assert.match(src, /All times shown in \{DISPLAY_TIME_ZONE\}/)
-    assert.match(src, /stored in UTC/)
-  })
-
-  it('separates and filters reader types', () => {
-    const client = read('src/app/admin/engagement/engagement-client.tsx')
-    assert.match(client, /function ReaderTypeFilter/)
-    assert.match(client, /complimentary_review/)
-    assert.match(client, /Subscribers/)
-  })
-
-  it('invents no name for a reader with no subscriber record', () => {
-    assert.match(src, /No subscriber record/)
+  it('names review access truthfully: a direct Papermark link, no APRI login', () => {
+    assert.match(src, /there is no APRI login for them/)
+    assert.doesNotMatch(src, /No subscriber record/)
   })
 })
 
@@ -1178,11 +1178,18 @@ describe('safeguards', () => {
     assert.match(read('src/lib/publications.ts'), /secureUrl: r\.secure_link_url/)
   })
 
-  it('Resend email flows are untouched', () => {
+  it('the weekly digest uses the monitor\'s corrected definitions', () => {
     const digest = read('src/app/api/cron/engagement-digest/route.ts')
-    // Still uses the engagement module's own summary, not the analytics layer.
-    assert.match(digest, /from '@\/lib\/engagement'/)
-    assert.doesNotMatch(digest, /engagement-analytics/)
+    assert.match(digest, /import \{ getDigestData, type DigestPerson \} from '@\/lib\/reader-monitoring'/)
+    assert.doesNotMatch(digest, /from '@\/lib\/engagement'/)
+    // The cron secret is accepted from the Authorization header only.
+    assert.doesNotMatch(digest, /searchParams/)
+    // A refused send is not reported as sent.
+    assert.match(digest, /if \(result\.error \|\| !result\.data\?\.id\)/)
+    const data = read('src/lib/reader-monitoring.ts')
+    const fn = data.slice(data.indexOf('export async function getDigestData'))
+    assert.match(fn, /and \(s\.term_end is null or s\.term_end >= \$1::date\)/)
+    assert.match(fn, /reader_type is null or v\.reader_type = 'unknown'/)
   })
 
   it('subscriber entitlement logic is not touched by the analytics layer', () => {
