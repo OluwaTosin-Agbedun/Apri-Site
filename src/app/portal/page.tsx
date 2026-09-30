@@ -1,4 +1,6 @@
 import Link from "next/link"
+import { after } from "next/server"
+import { reconcileIfDue } from "@/lib/subscriber-access-reconciliation"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 import {
   requirePortalPrincipal,
@@ -50,24 +52,43 @@ export default async function PortalPage() {
     })
   } catch {}
 
+  // The subscription alone decides this screen. Which documents it covers,
+  // and whether their links are ready, never turn a current subscription into
+  // an "access has ended" notice.
   if (!principal.hasAccess) {
-    return <LockedLibrary name={principal.fullName} />
+    return <SubscriptionNotice principal={principal} />
   }
 
-  const drContext = await getDataRoomDocumentsForSubscriber(principal.id, { previousVisit })
+  // Authentication and the subscription are settled above. From here on,
+  // anything missing -- a room, a release decision, a personal link -- is
+  // explained as preparation or a temporary problem, never as an ended
+  // subscription.
+  const library = await getDataRoomDocumentsForSubscriber(principal.id, { previousVisit })
 
-  if (drContext) {
+  if (library.state === "unavailable") return <TemporaryProblem principal={principal} />
+  if (library.state === "ready") {
+    // Permitted documents still being prepared: reconcile after the response,
+    // so "try again shortly" is true. Leased and backed off, so a busy or
+    // repeatedly failing run is not restarted on every refresh. Never emails.
+    if (library.preparing > 0) {
+      after(async () => {
+        try {
+          await reconcileIfDue(principal.id)
+        } catch {}
+      })
+    }
     return (
       <DataRoomPortal
         principal={principal}
-        documents={drContext.documents}
-        linkUrl={drContext.linkUrl}
-        allowDownload={drContext.allowDownload}
+        documents={library.documents}
+        preparing={library.preparing}
+        awaitingDetails={library.awaitingDetails}
         previousVisit={previousVisit}
       />
     )
   }
 
+  // No Data Room is assigned: the legacy library, for a subscriber who has one.
   return <LegacyPortal principal={principal} previousVisit={previousVisit} />
 }
 
@@ -78,14 +99,13 @@ export default async function PortalPage() {
 async function DataRoomPortal({
   principal,
   documents,
-  linkUrl,
-  allowDownload,
-  previousVisit,
+  preparing,
+  awaitingDetails,
 }: {
   principal: CurrentSubscriber
   documents: DataRoomDocument[]
-  linkUrl: string
-  allowDownload: boolean
+  preparing: number
+  awaitingDetails: number
   previousVisit: string | null
 }) {
   await touchLastViewed(principal.id)
@@ -109,14 +129,22 @@ async function DataRoomPortal({
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-2 leading-tight tracking-tight">
           Your library
         </h1>
-        <p className="text-sm text-foreground/60 mb-12">
+        <p className="text-sm text-foreground/60 mb-8">
           {total === 0
             ? "Nothing has been issued to you yet."
             : `${total} ${total === 1 ? "document" : "documents"} issued to you.`}
         </p>
 
+        {preparing > 0 && (
+          <div className="border border-accent/40 bg-accent/5 p-5 mb-12" role="status">
+            <p className="text-sm text-foreground/80 leading-relaxed">
+              Your access is being prepared. Please try again shortly.
+            </p>
+          </div>
+        )}
+
         <PortalSection title="Latest">
-          {latest ? <DataRoomGrid documents={[latest]} featured /> : <EmptyLibrary />}
+          {latest ? <DataRoomGrid documents={[latest]} featured /> : <EmptyLibrary awaitingDetails={awaitingDetails > 0} />}
         </PortalSection>
 
         <LibraryNavigation counts={Object.fromEntries(PORTAL_SERIES.map((series) => [series, libraries[series].length])) as Record<PortalSeries, number>} />
@@ -154,6 +182,12 @@ async function LegacyPortal({
   previousVisit: string | null
 }) {
   const library = await getLibraryFor(principal)
+  if (library === null) return <TemporaryProblem principal={principal} />
+  // A current subscriber with no Data Room and nothing in the legacy library
+  // has a library still to be configured -- not an empty one.
+  if (library.length === 0 && !principal.libraryLinkUrl && !principal.papermarkFolderId) {
+    return <LibrarySetup principal={principal} />
+  }
   await touchLastViewed(principal.id)
 
   const portalLibrary = library.filter((item) => isPortalSeries(item.series))
@@ -317,6 +351,11 @@ function DataRoomCard({ document, featured = false }: { document: DataRoomDocume
           </div>
         </div>
         <div className="flex gap-3 shrink-0 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border sm:items-start sm:pt-1">
+          {document.delivery === "preparing" ? (
+            <span className="text-xs text-muted-foreground py-2 sm:py-1 max-w-[12rem] sm:text-right">
+              Being prepared. Please try again shortly.
+            </span>
+          ) : (
           <TrackedAccessLink
             href={`/portal/document/${encodeURIComponent(document.id)}`}
             eventType="subscriber_document_view_clicked"
@@ -326,6 +365,7 @@ function DataRoomCard({ document, featured = false }: { document: DataRoomDocume
           >
             View <span aria-hidden>&rarr;</span>
           </TrackedAccessLink>
+          )}
         </div>
       </div>
       {/* Only a view Papermark recorded for this subscriber counts. Opening the
@@ -358,8 +398,41 @@ function LibraryNavigation({ counts }: { counts: Record<PortalSeries, number> })
   )
 }
 
-function EmptyLibrary() {
-  return <div className="border border-border bg-card/30 px-5 py-10 sm:px-8"><h3 className="font-serif text-lg text-foreground">Your library is ready</h3><p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">No PLM, MIN or AIU editions are currently assigned to your subscription. New authorised editions will appear here when issued.</p></div>
+/**
+ * Nothing to list. Either editions are still being made ready (an
+ * administrator has details to settle), or none falls inside the subscription
+ * yet: two different situations, told apart.
+ */
+function EmptyLibrary({ awaitingDetails = false }: { awaitingDetails?: boolean }) {
+  if (awaitingDetails) {
+    return <div className="border border-border bg-card/30 px-5 py-10 sm:px-8"><h3 className="font-serif text-lg text-foreground">Your library is being prepared</h3><p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">Your access is being prepared. Please try again shortly.</p></div>
+  }
+  return <div className="border border-border bg-card/30 px-5 py-10 sm:px-8"><h3 className="font-serif text-lg text-foreground">No editions are available to you yet</h3><p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">Editions dated within your subscription will appear here when they are issued.</p></div>
+}
+
+/** Access could not be checked: a temporary problem, and said so. */
+function TemporaryProblem({ principal }: { principal: CurrentSubscriber }) {
+  return (
+    <NoticeShell title="Your library is temporarily unavailable">
+      <p className="text-sm text-foreground/70 leading-relaxed mb-8">
+        {principal.fullName ? `Thank you, ${principal.fullName}. ` : ""}We could not load your library just now.
+        Your subscription is not affected. Please try again in a few minutes.
+      </p>
+    </NoticeShell>
+  )
+}
+
+/** A current subscription with no library configured yet. */
+function LibrarySetup({ principal }: { principal: CurrentSubscriber }) {
+  return (
+    <NoticeShell title="Your library is being set up">
+      <p className="text-sm text-foreground/70 leading-relaxed mb-8">
+        {principal.fullName ? `Thank you, ${principal.fullName}. ` : ""}Your access is being prepared. Please try
+        again shortly. If this continues, contact APRI and we will sort it out.
+      </p>
+      <ContactButton subject="APRI library setup" label="Contact APRI" />
+    </NoticeShell>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +488,7 @@ function LegacyDocumentCard({ document }: { document: SyncedClientDocument }) {
 // Legacy publication rows (copies/entitlement)
 // ---------------------------------------------------------------------------
 
-type Item = Awaited<ReturnType<typeof getLibraryFor>>[number]
+type Item = NonNullable<Awaited<ReturnType<typeof getLibraryFor>>>[number]
 
 function PublicationRow({ item }: { item: Item }) {
   const meta = [formatDate(item.editionDate), item.code].filter(Boolean).join(" · ")
@@ -483,6 +556,98 @@ function LegacyViewed({ item }: { item: Item }) {
   return <p className="mt-3 text-right text-[0.7rem] text-muted-foreground">Viewed</p>
 }
 
+/**
+ * Why a signed-in subscriber cannot open their library, one message per
+ * subscription state. Renewal is offered only when the subscription has ended.
+ */
+function SubscriptionNotice({ principal }: { principal: CurrentSubscriber }) {
+  const name = principal.fullName
+  const thanks = name ? `Thank you, ${name}. ` : ""
+  switch (principal.subscription.state) {
+    case "expired":
+      return <LockedLibrary name={name} />
+    case "suspended":
+      return (
+        <NoticeShell title="Your access is paused">
+          <p className="text-sm text-foreground/70 leading-relaxed mb-8">
+            {thanks}Your subscription is currently suspended, so your library is not available.
+            Please contact APRI and we will help.
+          </p>
+          <ContactButton subject="APRI access" label="Contact APRI" />
+        </NoticeShell>
+      )
+    case "not_started":
+      return (
+        <NoticeShell title="Your subscription has not started yet">
+          <p className="text-sm text-foreground/70 leading-relaxed mb-8">
+            {thanks}Your library opens on {formatDate(principal.subscription.termStart)}. Sign in again
+            from that date to read your publications.
+          </p>
+        </NoticeShell>
+      )
+    case "term_missing":
+      return (
+        <NoticeShell title="Your library is being set up">
+          <p className="text-sm text-foreground/70 leading-relaxed mb-8">
+            {thanks}We are completing the details of your subscription. Please try again shortly. If this
+            continues, contact APRI and we will sort it out.
+          </p>
+          <ContactButton subject="APRI library setup" label="Contact APRI" />
+        </NoticeShell>
+      )
+    default:
+      return (
+        <NoticeShell title="This account is not active">
+          <p className="text-sm text-foreground/70 leading-relaxed mb-8">
+            {thanks}This subscription is not active yet. If you believe this is incorrect, please contact APRI.
+          </p>
+          <ContactButton subject="APRI access" label="Contact APRI" />
+        </NoticeShell>
+      )
+  }
+}
+
+function ContactButton({ subject, label }: { subject: string; label: string }) {
+  return (
+    <a
+      href={`mailto:${CONTACT}?subject=${encodeURIComponent(subject)}`}
+      className="inline-flex items-center bg-foreground text-background px-8 py-4 text-base font-medium tracking-wide hover:bg-foreground/90 transition-colors"
+    >
+      {label}
+    </a>
+  )
+}
+
+function NoticeShell({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <header className="border-b border-border">
+        <div className="max-w-md mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
+          <Link href="/" className="font-serif text-base text-foreground tracking-tight">
+            APRI
+          </Link>
+          <form action={subscriberSignOut}>
+            <button
+              type="submit"
+              className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer py-2"
+            >
+              Sign out
+            </button>
+          </form>
+        </div>
+      </header>
+      <main className="flex-1 max-w-md w-full mx-auto px-4 sm:px-6 py-16">
+        <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-4 leading-tight tracking-tight">{title}</h1>
+        {children}
+      </main>
+      <div className="max-w-md w-full mx-auto px-4 sm:px-6 pb-10">
+        <SiteFooter />
+      </div>
+    </div>
+  )
+}
+
+/** Only for a subscription whose term has genuinely ended, or a lapsed seat. */
 function LockedLibrary({ name }: { name: string }) {
   return (
     <div className="min-h-screen bg-background flex flex-col">

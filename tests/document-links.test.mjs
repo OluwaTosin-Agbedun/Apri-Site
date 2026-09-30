@@ -258,7 +258,8 @@ test('portal: no PAPERMARK_API_TOKEN reference', () => {
 
 test('document-links service is server-only', () => {
   const src = read('src/lib/document-links.ts')
-  assert.match(src, /import 'server-only'/)
+  // Either quote style; it must be the module's first statement.
+  assert.match(src, /^import ['"]server-only['"]/)
 })
 
 // ---------------------------------------------------------------------------
@@ -291,10 +292,27 @@ test('lifecycle: revokeAllDataRoomLinks also revokes document links', () => {
   assert.match(src, /revokeAllDocumentLinks/)
 })
 
-test('lifecycle: reassignDataRoomOnLevelChange revokes then recreates document links', () => {
+test('lifecycle: reassignDataRoomOnLevelChange assigns the new room, then reconciles', () => {
+  // Deliberately changed: a level change no longer revokes every personal link
+  // first (ensureAllDocumentLinks is gone). The new room is assigned and one
+  // reconciliation issues its links and withdraws links to documents that are
+  // no longer in the subscriber's room.
   const src = read('src/lib/dataroom-lifecycle.ts')
-  assert.match(src, /revokeAllDocumentLinks/)
-  assert.match(src, /ensureAllDocumentLinks/)
+  const start = src.indexOf('export async function reassignDataRoomOnLevelChange')
+  assert.ok(start > -1)
+  const fn = src.slice(start, src.indexOf('\nexport ', start + 10))
+  assert.doesNotMatch(fn, /revokeAllDocumentLinks/)
+  assert.doesNotMatch(fn, /ensureAllDocumentLinks/)
+  // No unrestricted room link is minted on a level change.
+  assert.doesNotMatch(fn, /createDataRoomLink/)
+  // An override is never moved by a level change.
+  assert.match(fn, /papermark_dataroom_override\) return \{ action: 'skipped' \}/)
+  const assign = fn.indexOf('assignDataRoomToSubscriber(sub.id, newRoom.dataroomId)')
+  const reconcile = fn.indexOf("reconcileSubscriberAccess(sub.id, { trigger: 'level_change' })")
+  assert.ok(assign > -1, 'the new room is assigned')
+  assert.ok(reconcile > assign, 'reconciliation runs after the new room is assigned')
+  // The module still revokes personal links when a subscriber's access ends.
+  assert.match(src, /revokeAllDocumentLinks\(args\.subscriberId\)/)
 })
 
 test('lifecycle: updateDataRoomLinkExpiry also updates document link expiry', () => {
@@ -344,11 +362,25 @@ test('admin: level backfill does not call syncAndNotify', () => {
   assert.doesNotMatch(fn, /notifySubscribers/)
 })
 
-test('admin: level backfill reports created/skipped/failed counts', () => {
+test('admin: level backfill reports created/repaired/withdrawn counts', () => {
+  // The level backfill now reconciles every subscriber assigned to the room
+  // (prepareRoomLinks) and reports through describeRoomLinks, which counts
+  // outcomes and is ok only when every subscriber is settled.
   const fn = levelBackfillFn()
-  assert.match(fn, /totalCreated/)
-  assert.match(fn, /totalSkipped/)
-  assert.match(fn, /totalFailed/)
+  assert.match(fn, /prepareRoomLinks\(room\.dataroomId/)
+  assert.match(fn, /describeRoomLinks\(summary\)/)
+  assert.match(fn, /ok: summary\.complete/)
+  const src = read('src/lib/document-links.ts')
+  const start = src.indexOf('export function describeRoomLinks')
+  assert.ok(start > -1)
+  const describe = src.slice(start, src.indexOf('\n}', start))
+  assert.match(describe, /sum\("created"\)/)
+  assert.match(describe, /sum\("repaired"\)/)
+  assert.match(describe, /sum\("revoked"\)/)
+  assert.match(describe, /sum\("unresolved"\)/)
+  assert.match(describe, /summary\.errors/)
+  // Counts only: the report never carries a link or a subscriber's address.
+  assert.doesNotMatch(describe, /linkUrl|link_url|email/i)
 })
 
 test('admin: level backfill does not expose Papermark API details in errors', () => {
@@ -647,24 +679,59 @@ test('client library: DataRoomDocument type has editorial fields', () => {
   assert.match(typeDef, /editorialPageCount: number \| null/)
 })
 
+function accessDocumentQuery() {
+  const src = read('src/lib/access-policy-dal.ts')
+  const fn = src.slice(src.indexOf('export async function loadSubscriberAccess'))
+  const start = fn.indexOf('from papermark_dataroom_documents dd')
+  assert.ok(start > -1, 'loadSubscriberAccess reads the room documents')
+  return fn.slice(start, fn.indexOf('`', start))
+}
+
 test('client library: list query LEFT JOINs documents table', () => {
+  // The list has no SQL of its own now: it reads the access policy's record,
+  // whose room-document query LEFT JOINs the editorial documents table.
   const src = read('src/lib/papermark-client-library.ts')
-  const fn = src.slice(src.indexOf('async function getDataRoomDocumentsForSubscriber'))
-  assert.match(fn, /left join documents d on d\.id = dd\.publication_id/i)
+  const fn = src.slice(
+    src.indexOf('async function getDataRoomDocumentsForSubscriber'),
+    src.indexOf('async function getDataRoomDocumentForSubscriber'),
+  )
+  assert.match(fn, /loadSubscriberAccess\(subscriberId\)/)
+  assert.doesNotMatch(fn, /papermark_dataroom_documents/)
+  const query = accessDocumentQuery()
+  assert.match(query, /left join documents d on d\.id = dd\.publication_id/i)
+  // Scoped to the subscriber's assigned room and to documents still present.
+  assert.match(query, /dd\.papermark_dataroom_id = \$\{room\.dataroomId\} and dd\.is_present = true/)
 })
 
 test('client library: single-doc query LEFT JOINs documents table', () => {
   const src = read('src/lib/papermark-client-library.ts')
-  const fn = src.slice(src.indexOf('async function getDataRoomDocumentForSubscriber'))
-  assert.match(fn, /left join documents d on d\.id = dd\.publication_id/i)
+  const start = src.indexOf('async function getDataRoomDocumentForSubscriber')
+  const fn = src.slice(start, src.indexOf('export function groupDataRoomByCategory', start))
+  assert.match(fn, /loadSubscriberAccess\(subscriberId\)/)
+  assert.doesNotMatch(fn, /papermark_dataroom_documents/)
+  // Only a document in this subscriber's own policy record, and never a hidden one.
+  assert.match(fn, /access\.documents\.find\(\(d\) => d\.rowId === documentRowId\)/)
+  assert.match(fn, /found\.delivery === "hidden"\) return null/)
+  assert.match(accessDocumentQuery(), /left join documents d on d\.id = dd\.publication_id/i)
 })
 
 test('client library: every Data Room title comes from the synced Papermark name', () => {
   const src = read('src/lib/papermark-client-library.ts')
-  const uses = src.match(/displayTitle: portalDocumentTitle\(\{ syncedName: row\.title, editorialTitle: row\.ed_title,/g) ?? []
-  assert.equal(uses.length, 2, 'the library and the viewer both use it')
+  // One builder, portalDocument(), shapes every Data Room title, and the
+  // library and the viewer both go through it.
+  const uses = src.match(/displayTitle: portalDocumentTitle\(\{ syncedName: d\.fileTitle, editorialTitle: d\.editorialTitle, editorialTitleIsOverride: d\.titleOverride \}\)/g) ?? []
+  assert.equal(uses.length, 1, 'one builder shapes every title')
+  // No other assignment of displayTitle (the type declaration aside).
+  assert.equal((src.match(/displayTitle: (?!string\b)/g) ?? []).length, 1)
+  const calls = src.match(/= portalDocument\(|\.map\(\(d\) => portalDocument\(/g) ?? []
+  assert.equal(calls.length, 2, 'the library and the viewer both use it')
+  // fileTitle is the synced Papermark name.
+  const dal = read('src/lib/access-policy-dal.ts')
+  assert.match(dal, /select dd\.id, dd\.papermark_document_id, dd\.title,/)
+  assert.match(dal, /fileTitle: \(r\.title as string \| null\)/)
   // A stored editorial title no longer wins on its own: sync generates one.
-  assert.doesNotMatch(src, /row\.ed_title \|\|/)
+  assert.doesNotMatch(src, /editorialTitle \|\|/)
+  assert.doesNotMatch(src, /ed_title \|\|/)
   assert.doesNotMatch(src, /humaniseFilename/)
 })
 

@@ -652,11 +652,25 @@ describe('instrumented surfaces', () => {
       assert.match(before, /if \(!(document|item)\.downloadedBySubscriber\) return null/)
     }
     // ...which comes only from a recorded download event, for this exact document.
+    // The library is now built from loadSubscriberAccess, so the download
+    // events are read once per subscriber (scoped by the session's id) and
+    // matched to each document by its exact Papermark document id.
+    const lib = read('src/lib/papermark-client-library.ts')
     assert.match(
-      read('src/lib/papermark-client-library.ts'),
-      /exists \(select 1 from document_download_events de\s+where de\.subscriber_id = \$\{subscriberId\}::uuid\s+and de\.papermark_document_id = dd\.papermark_document_id\) as downloaded_by_subscriber/,
+      lib,
+      /select distinct de\.papermark_document_id as key\s+from document_download_events de where de\.subscriber_id = \$\{subscriberId\}::uuid/,
     )
-    assert.match(read('src/lib/subscriber-dal.ts'), /select 1 from document_download_events de/)
+    assert.match(lib, /downloadedBySubscriber: options\.downloaded\.has\(d\.papermarkDocumentId\)/)
+    // The legacy library (getLibraryFor) now takes the flag from
+    // loadLegacyPublicationAccess, which checks a recorded download event for
+    // this subscriber and this exact publication.
+    const legacy = read('src/lib/subscriber-dal.ts')
+    assert.match(legacy, /loadLegacyPublicationAccess\(subscriber\.id\)/)
+    assert.match(legacy, /downloadedBySubscriber: item\.downloadedBySubscriber/)
+    assert.match(
+      read('src/lib/access-policy-dal.ts'),
+      /exists \(select 1 from document_download_events de where de\.subscriber_id = \$\{subscriberId\}::uuid and de\.publication_id = d\.id\) as downloaded/,
+    )
   })
 })
 

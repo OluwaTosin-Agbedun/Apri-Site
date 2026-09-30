@@ -83,12 +83,17 @@ export default async function AdminSubscribersPage({ searchParams }: {
           : `${total} subscribers: ${active} active, ${pending} awaiting activation.`
       }
       actions={
-        <Link
-          href="/admin/subscribers/new"
-          className="bg-accent text-white px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-accent-hover transition-colors shrink-0"
-        >
-          New subscriber
-        </Link>
+        <span className="flex flex-wrap items-center gap-4 shrink-0">
+          <Link href="/admin/subscribers/access-health" className="text-sm text-accent hover:text-accent-hover">
+            Access Health
+          </Link>
+          <Link
+            href="/admin/subscribers/new"
+            className="bg-accent text-white px-5 py-2.5 text-sm font-medium tracking-wide hover:bg-accent-hover transition-colors shrink-0"
+          >
+            New subscriber
+          </Link>
+        </span>
       }
     >
       {deleted && <div className="mb-6 border border-accent/30 bg-accent/5 p-4 text-sm">Subscriber deleted from APRI. Revoke their Papermark link separately.</div>}

@@ -513,27 +513,55 @@ test('no link builder produces the old name | email | date format', () => {
 // 24. Callers migrated from watermarkText to subscriberWatermarkText
 // ---------------------------------------------------------------------------
 
-test('document-links.ts uses subscriberWatermarkText', () => {
+test('personal document links are issued with the Subscriber Edition watermark', () => {
+  // document-links.ts no longer mints links (ensureAllDocumentLinks was
+  // removed): it fans a room out to reconcileSubscriberAccess, which is the
+  // only issuer and records the Subscriber Edition watermark on the link row.
   const src = read('src/lib/document-links.ts')
-  assert.match(src, /subscriberWatermarkText/)
   assert.doesNotMatch(src, /watermarkText\(/)
+  assert.doesNotMatch(src, /createDocumentLink\(/)
+  assert.match(src, /reconcileSubscriberAccess\(subscriberId/)
+  // Renewal keeps the identity the link was issued with.
+  assert.match(src, /assignedEmail: link\.assigned_email/)
+
+  const rec = read('src/lib/subscriber-access-reconciliation.ts')
+  assert.match(rec, /import \{ subscriberWatermarkText[^}]*\} from "\.\/papermark-dataroom-contract"/)
+  assert.doesNotMatch(rec, /watermarkText\(/)
+  assert.match(rec, /createDocumentLink\(\{[\s\S]*?assignedEmail: sub\.email,/)
+  assert.match(
+    rec,
+    /assigned_name, assigned_email, watermark_text,[\s\S]*?\$\{sub\.fullName\}, \$\{sub\.email\}, \$\{subscriberWatermarkText\(sub\.email\)\}/
+  )
 })
 
-test('dataroom-lifecycle.ts uses subscriberWatermarkText', () => {
-  const src = read('src/lib/dataroom-lifecycle.ts')
-  assert.match(src, /subscriberWatermarkText/)
-  assert.doesNotMatch(src, /watermarkText\(/)
+test('personal links are recorded with the Subscriber Edition watermark, and the lifecycle mints none of its own', () => {
+  // Reconciliation is the only place a personal link is minted and recorded.
+  const recon = read('src/lib/subscriber-access-reconciliation.ts')
+  assert.match(recon, /subscriberWatermarkText\(sub\.email\)/)
+  const lifecycle = read('src/lib/dataroom-lifecycle.ts')
+  assert.doesNotMatch(lifecycle, /createDataRoomLink|createDocumentLink/)
+  assert.doesNotMatch(lifecycle, /watermarkText\(/)
 })
 
-test('subscribers action issues its room link with the Subscriber Edition watermark', () => {
+test('subscribers action prepares access through reconciliation, never an unwatermarked room link', () => {
   const src = read('src/app/actions/subscribers.ts')
   assert.doesNotMatch(src, /watermarkText\(/)
-  // Activation's room link is created by ensureSubscriberLibraryAccess, which
-  // applies subscriberWatermarkText to it.
+  // Deliberate change: activation no longer mints an unrestricted room link.
+  // ensureSubscriberLibraryAccess assigns the room and reconciles, and the
+  // personal links reconciliation issues carry subscriberWatermarkText.
   assert.match(src, /ensureSubscriberLibraryAccess\(/)
+  assert.doesNotMatch(src, /createDataRoomLink\(/)
+  assert.doesNotMatch(read('src/lib/subscriber-activation.ts'), /createDataRoomLink\(/)
   const lifecycle = read('src/lib/dataroom-lifecycle.ts')
-  const fn = lifecycle.slice(lifecycle.indexOf('export async function ensureSubscriberLibraryAccess'))
-  assert.match(fn, /watermarkText: subscriberWatermarkText\(args\.assignedEmail\)/)
+  const start = lifecycle.indexOf('export async function ensureSubscriberLibraryAccess')
+  assert.ok(start >= 0)
+  const end = lifecycle.indexOf('\nexport ', start + 1)
+  const fn = lifecycle.slice(start, end === -1 ? undefined : end)
+  assert.doesNotMatch(fn, /createDataRoomLink\(/)
+  assert.match(fn, /assignDataRoomToSubscriber\(args\.subscriberId, room\.dataroomId\)/)
+  assert.match(fn, /reconcileSubscriberAccess\(args\.subscriberId,/)
+  const rec = read('src/lib/subscriber-access-reconciliation.ts')
+  assert.match(rec, /\$\{subscriberWatermarkText\(sub\.email\)\}/)
 })
 
 test('datarooms action uses subscriberWatermarkText', () => {

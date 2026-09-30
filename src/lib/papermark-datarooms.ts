@@ -456,6 +456,14 @@ export async function readSubscriberDocumentLink(linkId: string): Promise<Paperm
       targetType: link.target_type ?? null,
       // Absent is not the same as "never expires": only a reported null is.
       expiresAt: 'expires_at' in link ? (link.expires_at ?? null) : undefined,
+      // Undefined wherever Papermark did not report the field.
+      settings: {
+        allowDownload: typeof link.allow_download === 'boolean' ? link.allow_download : undefined,
+        watermark: typeof link.enable_watermark === 'boolean' ? link.enable_watermark : undefined,
+        watermarkText: typeof link.watermark_config?.text === 'string' ? link.watermark_config.text : undefined,
+        screenshotProtection:
+          typeof link.enable_screenshot_protection === 'boolean' ? link.enable_screenshot_protection : undefined,
+      },
     }
   }
   if (result.status === 404) return { state: 'gone' }

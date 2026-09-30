@@ -192,8 +192,10 @@ describe("when the button is offered", () => {
 describe("the decision module", () => {
   const src = read(DECISION)
 
-  it("has no imports, so it holds no data source of its own", () => {
-    assert.doesNotMatch(src, /^\s*import\s/m)
+  it("holds no data source of its own: its only import is the pure term rule", () => {
+    const imports = src.split(/\r?\n/).filter((line) => /^\s*import\s/.test(line))
+    assert.deepEqual(imports, [`import { dateOnly, lagosToday } from "./subscription-term.ts"`])
+    assert.doesNotMatch(read("src/lib/subscription-term.ts"), /^\s*import\s/m, "and that rule imports nothing")
   })
 
   it("does not build or accept a tokened link", () => {

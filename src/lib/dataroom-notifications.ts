@@ -2,7 +2,7 @@ import "server-only"
 import { getSql } from "./db"
 import { sendEditionAlert } from "./subscriber-email"
 import { recordClientEvent } from "./client-engagement"
-import { ensureAllDocumentLinks } from "./document-links"
+import { loadSubscriberAccess } from "./access-policy-dal"
 
 /**
  * Automatic new-document emails stay off unless DATAROOM_NEW_DOCUMENT_EMAILS
@@ -110,9 +110,10 @@ export async function notifyNewDataRoomDocuments(
 
   for (const doc of newDocs) {
     for (const recipient of recipients) {
-      // Only once the link it leads to exists. Held, not claimed, so a later
-      // run inside the window can still send it once the link is ready.
-      if (recipient.hasRoomLink && !(await personalLinkReady(recipient.subscriberId, doc))) {
+      // Only to a subscriber the access policy lets open this document, and
+      // only once their own link exists. Held, not claimed, so a later run
+      // inside the window can still send it once the link is ready.
+      if (!(await personalLinkReady(recipient.subscriberId, doc))) {
         held++
         continue
       }
@@ -142,7 +143,9 @@ export async function notifyNewDataRoomDocuments(
           series: "",
           editionDate: null,
           summary: "",
-          linkUrl: recipient.linkUrl?.startsWith("https://") ? recipient.linkUrl : null,
+          // The portal, never a Papermark room URL: it opens only what the
+          // subscriber is permitted, through their own link.
+          linkUrl: null,
         }, `dataroom-alert:${claimed[0]!.id}`)
         if (outcome.status !== "accepted") {
           // Not sent (or not known to be). A message the provider refused or
@@ -171,14 +174,17 @@ export async function notifyNewDataRoomDocuments(
   return { sent, skipped, held }
 }
 
-/** Whether a subscriber's personal link to one document exists, preparing it if not. */
+/**
+ * Whether the access policy lets this subscriber open this document and their
+ * personal link to it is recorded. Links are prepared by reconciliation (sync
+ * and the webhook run it first); this only checks.
+ */
 async function personalLinkReady(subscriberId: string, doc: NewDocument): Promise<boolean> {
   try {
-    const outcome = await ensureAllDocumentLinks(subscriberId, {
-      dataroomId: doc.dataroomId,
-      papermarkDocumentId: doc.papermarkDocumentId,
-    })
-    return outcome.state === "prepared" && outcome.report.total === 1 && outcome.report.complete
+    const access = await loadSubscriberAccess(subscriberId)
+    if (access.state !== "ok" || access.room?.dataroomId !== doc.dataroomId) return false
+    const found = access.documents.find((d) => d.papermarkDocumentId === doc.papermarkDocumentId)
+    return found?.delivery === "open"
   } catch {
     return false
   }

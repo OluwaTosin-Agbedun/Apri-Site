@@ -1,3 +1,4 @@
+import { dateOnly, lagosToday } from './subscription-term.ts'
 const OFFICIAL_HOSTS = new Set(['papermark.com', 'www.papermark.com', 'app.papermark.com'])
 const APRI_HOSTS = new Set(['docs.athenacentre.org'])
 
@@ -80,10 +81,8 @@ export function subscriberLibraryEmbedUrl(args: {
   }
   if (args.status.toLowerCase() !== 'active') return null
   if (args.termEnd) {
-    const end = new Date(args.termEnd)
-    const now = args.now ?? new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    if (Number.isNaN(end.getTime()) || end < today) return null
+    const end = dateOnly(args.termEnd)
+    if (!end || end < lagosToday(args.now ?? new Date())) return null
   }
   return papermarkEmbedUrl(args.libraryLinkUrl, args.customDomain)
 }

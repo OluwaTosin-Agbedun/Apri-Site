@@ -153,14 +153,47 @@ describe("Data Rooms shows what the paid portal uses", () => {
 
 describe("the paid portals read the same records as before", () => {
   it("the Data Room portal still takes series, edition date and the title override from the record", () => {
+    // The room query moved out of the library into the access policy's loader
+    // (loadSubscriberAccess); the library now shapes that loader's records.
     const lib = read("src/lib/papermark-client-library.ts")
-    assert.match(lib, /left join documents d on d\.id = dd\.publication_id/)
-    assert.match(lib, /order by d\.edition_date desc nulls last/)
-    assert.match(lib, /portal_title_override = true/)
+    assert.match(lib, /import \{ loadSubscriberAccess, type DocumentAccess \} from "\.\/access-policy-dal"/)
+    assert.match(
+      lib,
+      /portalDocumentTitle\(\{ syncedName: d\.fileTitle, editorialTitle: d\.editorialTitle, editorialTitleIsOverride: d\.titleOverride \}\)/,
+    )
+    assert.match(lib, /editionDate: d\.editionDate,/)
+    assert.match(lib, /series: d\.series \|\| null,/)
+    const policyDal = read("src/lib/access-policy-dal.ts")
+    assert.match(policyDal, /left join documents d on d\.id = dd\.publication_id/)
+    assert.match(policyDal, /order by d\.edition_date desc nulls last/)
+    assert.match(policyDal, /\(to_jsonb\(d\) ->> 'portal_title_override'\)::boolean/)
+    assert.match(policyDal, /titleOverride: r\.title_override === true/)
   })
-  it("the legacy portal still lists published, entitled records", () => {
-    const dal = read("src/lib/subscriber-dal.ts")
-    assert.match(dal, /d\.status\s*=\s*'published'/)
-    assert.match(dal, /visibility <> 'OPEN'/)
+  it("the legacy portal still lists published, entitled records", async () => {
+    // The published / entitled filter moved from SQL in subscriber-dal.ts into
+    // the single access decision: loadLegacyPublicationAccess excludes OPEN
+    // records and hands each record's editorial status to decideAccess.
+    const subDal = read("src/lib/subscriber-dal.ts")
+    assert.match(subDal, /loadLegacyPublicationAccess\(subscriber\.id\)/)
+    assert.match(subDal, /\.filter\(\(item\) => item\.delivery !== "hidden"\)/)
+    const policyDal = read("src/lib/access-policy-dal.ts")
+    assert.match(policyDal, /from documents d\s+left join publication_access pa[^\n]*\n\s*where d\.visibility <> 'OPEN'/)
+    assert.match(policyDal, /editorialStatus: \(r\.editorial_status as string \| null\) \?\? null,/)
+
+    const { decideAccess } = await import("../src/lib/access-policy.ts")
+    const decide = (publication, level = "L2") =>
+      decideAccess({
+        subscription: { state: "active", termStart: "2026-01-01", termEnd: "2026-12-31" },
+        level,
+        periods: [{ startsOn: "2026-01-01", endsOn: "2026-12-31", level }],
+        periodsKnown: true,
+        exception: null,
+        publication: { publicationId: paid.id, editionDate: "2026-06-01", visibility: "L2", series: "MIN", paidRelease: null, ...publication },
+      })
+    assert.equal(decide({ editorialStatus: "published" }).outcome, "allowed", "a published, entitled record is listed")
+    assert.notEqual(decide({ editorialStatus: "draft" }).outcome, "allowed", "a draft is never listed")
+    assert.equal(decide({ editorialStatus: "archived" }).outcome, "excluded")
+    assert.equal(decide({ editorialStatus: "published" }, "L1").outcome, "excluded", "a record above the level is not listed")
+    assert.equal(decide({ editorialStatus: "published", visibility: "OPEN" }).outcome, "excluded", "OPEN reading is not a paid item")
   })
 })

@@ -247,3 +247,52 @@ export async function setAutoSync(enabled: boolean): Promise<FormState> {
   revalidatePath('/admin/documents')
   return { ok: true, message: `Auto-sync ${enabled ? 'enabled' : 'disabled'}.` }
 }
+
+// ---------------------------------------------------------------------------
+// Release to paid subscribers
+// ---------------------------------------------------------------------------
+
+const RELEASE_STATES = ['released', 'withheld', 'undecided'] as const
+
+/**
+ * Releases an edition to paid subscribers, withholds it, or returns it to
+ * undecided -- separately from its editorial status and from Complimentary
+ * Review publication or withdrawal. Only paid (not OPEN) records. The
+ * decision, administrator and reason are kept in publication_release_events.
+ *
+ * Every subscriber served from a Data Room holding the edition is then
+ * reconciled: a release issues verified personal links to those the paid
+ * periods cover, a withholding withdraws them. No email is sent.
+ */
+export async function setPaidRelease(_prev: FormState, formData: FormData): Promise<FormState> {
+  const admin = await requireAdmin()
+  const id = String(formData.get('publicationId') ?? '')
+  const state = String(formData.get('state') ?? '')
+  const reason = String(formData.get('reason') ?? '').trim().slice(0, 500)
+  if (!UUID.test(id)) return { message: 'Unknown publication.' }
+  if (!(RELEASE_STATES as readonly string[]).includes(state)) return { message: 'Unknown release decision.' }
+  if (!reason) return { message: 'Record why (for example "Issued to paid subscribers on 1 September").' }
+  const sql = getSql()
+  const { accessHealthSchemaReady, ACCESS_HEALTH_MIGRATION_PENDING } = await import('@/lib/access-health-schema')
+  if (!(await accessHealthSchemaReady(sql))) return { message: ACCESS_HEALTH_MIGRATION_PENDING }
+
+  const rows = (await sql`
+    update documents
+    set paid_release_state = ${state === 'undecided' ? null : state},
+        paid_release_changed_at = now(), paid_release_changed_by = ${admin.id}::uuid,
+        paid_release_reason = ${reason}, updated_at = now()
+    where id = ${id}::uuid and visibility <> 'OPEN'
+    returning id
+  `) as { id: string }[]
+  if (!rows[0]) return { message: 'Only a paid (not public) publication record can be released to subscribers.' }
+  await sql`
+    insert into publication_release_events (publication_id, state, reason, administrator_id)
+    values (${id}::uuid, ${state}, ${reason}, ${admin.id}::uuid)
+  `
+
+  const { reconcileRoomsHoldingPublication } = await import('@/lib/access-release')
+  const summary = await reconcileRoomsHoldingPublication(id, 'release')
+  refreshDocumentAdminPaths()
+  const label = state === 'released' ? 'Released to paid subscribers.' : state === 'withheld' ? 'Withheld from paid subscribers.' : 'Returned to undecided.'
+  return { ok: summary.complete, message: `${label} ${summary.message}` }
+}

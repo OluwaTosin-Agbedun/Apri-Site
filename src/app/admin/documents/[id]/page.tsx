@@ -4,6 +4,7 @@ import { portalTitleOverrideReady } from '@/lib/portal-title-schema'
 import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
 import DocumentForm, { type DocumentDraft } from './document-form'
+import { PaidReleaseForm } from '@/app/admin/subscribers/[id]/access-forms'
 
 export const dynamic = 'force-dynamic'
 
@@ -142,6 +143,18 @@ export default async function EditDocumentPage({
       : null,
   }
 
+  // Release to paid subscribers: separate from editorial status and from
+  // Complimentary Review publication. Paid records only.
+  const releaseRows = (await sql`
+    select to_jsonb(d) ->> 'paid_release_state' as state, to_jsonb(d) ->> 'paid_release_reason' as reason,
+           to_jsonb(d) ->> 'paid_release_changed_at' as changed_at,
+           (select a.name from admins a where a.id::text = to_jsonb(d) ->> 'paid_release_changed_by') as changed_by
+    from documents d where d.id = ${id}::uuid limit 1
+  `) as { state: string | null; reason: string | null; changed_at: string | null; changed_by: string | null }[]
+  const release = releaseRows[0]
+  const explicit = release?.state === 'released' || release?.state === 'withheld' ? release.state : null
+  const effective = explicit ?? (row.status === 'published' ? 'released' : row.status === 'archived' ? 'withheld' : null)
+
   return (
     <AdminShell
       admin={admin}
@@ -149,6 +162,26 @@ export default async function EditDocumentPage({
       title={row.title || 'Publication record'}
       description={`Status: ${row.status}. Editorial fields here are never overwritten by a Papermark sync.`}
     >
+      {row.visibility !== 'OPEN' && (
+        <section className="mb-6 border border-border bg-card/30 p-6">
+          <h2 className="font-serif text-xl mb-1">Release to paid subscribers</h2>
+          <p className="text-sm text-foreground/80">
+            {effective === 'released' ? 'Released' : effective === 'withheld' ? 'Withheld' : 'Undecided'}
+            {explicit ? '' : effective ? ' (from its editorial status; no explicit decision yet)' : ': issued to no subscriber until released'}
+          </p>
+          {release?.reason && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {release.changed_by ?? 'An administrator'}{release.changed_at ? ` on ${new Date(release.changed_at).toLocaleDateString('en-GB')}` : ''}: {release.reason}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground mt-2 mb-4 max-w-3xl">
+            A released edition is issued to each subscriber whose paid periods cover its edition date, at or below its
+            level, through their own verified link. Releasing never makes it public, and does not depend on the
+            Complimentary Review. Withholding withdraws subscribers&rsquo; links to it.
+          </p>
+          <PaidReleaseForm publicationId={row.id} current={explicit} />
+        </section>
+      )}
       <DocumentForm draft={draft} />
     </AdminShell>
   )

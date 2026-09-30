@@ -10,6 +10,7 @@ import {
 import { getSql } from '@/lib/db'
 import { notifyNewDataRoomDocuments } from '@/lib/dataroom-notifications'
 import { prepareRoomLinks } from '@/lib/document-links'
+import { autoCreatePublicationsForRoom } from '@/lib/dataroom-dal'
 
 export const dynamic = 'force-dynamic'
 
@@ -310,10 +311,16 @@ async function handleDocumentEvent(
       updated_at = now()
   `
 
-  // The document is now present in the room, so every subscriber of the room
-  // is shown its card -- and the card only opens through that subscriber's own
-  // link. Prepared before any notification, for this one document.
-  const links = await prepareRoomLinks(dataroomId, { papermarkDocumentId: documentId })
+  // Linked to its publication record, as a sync would, so the access policy
+  // can decide on it. A new record starts as a draft: undecided until an
+  // administrator releases it, so it is issued to no one before then.
+  try {
+    await autoCreatePublicationsForRoom(dataroomId)
+  } catch {}
+
+  // Every subscriber served from this room is reconciled: a permitted document
+  // gets their own verified link before any notification.
+  const links = await prepareRoomLinks(dataroomId, { trigger: 'webhook' })
 
   if (/created/i.test(eventType)) {
     // Notification is a side effect; a mail failure must not lose the document
@@ -328,11 +335,11 @@ async function handleDocumentEvent(
     // Papermark deliver it again; the retry repeats nothing that succeeded and
     // prepares only what is still missing. Counts only -- no names or links.
     throw new Error(
-      `Personal document links are not ready for every subscriber of this Data Room (${links.report.failed + links.report.unconfirmed + links.errors} not ready).`,
+      `Personal document links are not ready for every subscriber of this Data Room (${links.outcomes.filter((o) => o.result.state !== 'complete' && o.result.state !== 'not_applicable').length + links.errors} not ready).`,
     )
   }
 
-  return { stored: 1, personalLinksCreated: links.report.created }
+  return { stored: 1, personalLinksCreated: links.outcomes.reduce((n, o) => n + o.result.counts.created, 0) }
 }
 
 // ---------------------------------------------------------------------------

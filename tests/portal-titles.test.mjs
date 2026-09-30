@@ -87,7 +87,22 @@ describe("every paid surface uses it", () => {
   const viewer = read("src/app/portal/document/[id]/page.tsx")
 
   it("the library list and the single-document lookup both build displayTitle from the synced name", () => {
-    assert.equal((library.match(/displayTitle: portalDocumentTitle\(\{ syncedName: row\.title/g) ?? []).length, 2)
+    // Both now shape documents through one portalDocument(), built from the
+    // access policy's record, so displayTitle is made in exactly one place.
+    assert.equal((library.match(/displayTitle: portalDocumentTitle\(/g) ?? []).length, 1)
+    assert.match(
+      library,
+      /displayTitle: portalDocumentTitle\(\{ syncedName: d\.fileTitle, editorialTitle: d\.editorialTitle, editorialTitleIsOverride: d\.titleOverride \}\)/,
+    )
+    const list = library.slice(library.indexOf("export async function getDataRoomDocumentsForSubscriber("), library.indexOf("export async function getDataRoomDocumentForSubscriber("))
+    const single = library.slice(library.indexOf("export async function getDataRoomDocumentForSubscriber("), library.indexOf("export function groupDataRoomByCategory("))
+    assert.match(list, /portalDocument\(d, /)
+    assert.match(single, /portalDocument\(found, /)
+    // fileTitle is the synced Papermark name; the publication's title is only the editorial one.
+    const dal = read("src/lib/access-policy-dal.ts")
+    assert.match(dal, /select dd\.id, dd\.papermark_document_id, dd\.title,/)
+    assert.match(dal, /d\.title as editorial_title/)
+    assert.match(dal, /fileTitle: \(r\.title as string \| null\) \?\? ""/)
   })
 
   it("Latest and every library render the same card, which shows displayTitle", () => {
@@ -114,13 +129,17 @@ describe("activity indicators", () => {
   it("the download icon needs a recorded download of this exact document", () => {
     assert.match(card, /if \(!document\.downloadedBySubscriber\) return null/)
     const library = read("src/lib/papermark-client-library.ts")
-    assert.match(library, /de\.subscriber_id = \$\{subscriberId\}::uuid\s+and de\.papermark_document_id = dd\.papermark_document_id\) as downloaded_by_subscriber/)
-    assert.doesNotMatch(library, /de\.publication_id = d\.id/, "a download of another document of the same publication does not count")
+    // Downloads are now read once per subscriber, keyed by Papermark document
+    // id, and matched against each document's own id.
+    assert.match(library, /select distinct de\.papermark_document_id as key\s+from document_download_events de where de\.subscriber_id = \$\{subscriberId\}::uuid/)
+    assert.match(library, /downloadedBySubscriber: options\.downloaded\.has\(d\.papermarkDocumentId\)/)
+    assert.doesNotMatch(library, /de\.publication_id/, "a download of another document of the same publication does not count")
   })
 
   it("views are recorded for this subscriber", () => {
     const library = read("src/lib/papermark-client-library.ts")
-    assert.match(library, /select 1 from document_views v\s+where v\.subscriber_id = \$\{subscriberId\}::uuid/)
+    assert.match(library, /from document_views v where v\.subscriber_id = \$\{subscriberId\}::uuid/)
+    assert.match(library, /viewedBySubscriber: options\.viewed\.has\(d\.papermarkDocumentId\)/)
   })
 
   it("views and downloads are written only from Papermark's own events, never from a portal click", () => {
@@ -165,10 +184,14 @@ describe("an explicit title override", () => {
   })
 
   it("is read only once the migration exists, so the code is safe to deploy first", () => {
-    const library = read("src/lib/papermark-client-library.ts")
-    const fn = library.slice(library.indexOf("async function titleOverrides("))
-    assert.match(fn.slice(0, 700), /if \(ids\.length === 0 \|\| !\(await portalTitleOverrideReady\(sql\)\)\) return new Set\(\)/)
-    assert.match(fn.slice(0, 900), /where portal_title_override = true and id = any\(\$\{ids\}::uuid\[\]\)/)
+    // The portal's documents now come from the access policy's one query,
+    // which reads the flag through to_jsonb so it never names a column that
+    // may not exist yet, and treats a missing or non-true value as no override.
+    const dal = read("src/lib/access-policy-dal.ts")
+    assert.match(dal, /coalesce\(\(to_jsonb\(d\) ->> 'portal_title_override'\)::boolean, false\) as title_override/)
+    assert.doesNotMatch(dal.replace(/to_jsonb\(d\) ->> 'portal_title_override'/g, ""), /portal_title_override/, "never read as a bare column")
+    assert.match(dal, /titleOverride: r\.title_override === true/)
+    assert.doesNotMatch(read("src/lib/papermark-client-library.ts"), /portal_title_override/, "the library has no query of its own")
   })
 
   it("is set only by an administrator's explicit tick, never by saving the form", () => {

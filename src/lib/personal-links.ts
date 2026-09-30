@@ -43,6 +43,26 @@ export type StoredLink = {
   papermarkDocumentId: string
   papermarkLinkId: string
   expiresAt: string | Date | null
+  /**
+   * What the link was issued with, as recorded: checked against what
+   * Papermark reports, never changed by a repair. Absent for older callers.
+   */
+  issued?: IssuedSettings
+}
+
+export type IssuedSettings = {
+  allowDownload: boolean
+  screenshotProtection: boolean
+  /** The address the watermark names: the person the link was issued to. */
+  email: string
+}
+
+/** Security settings Papermark reported; undefined where it did not say. */
+export type ReportedSettings = {
+  allowDownload?: boolean
+  watermark?: boolean
+  watermarkText?: string
+  screenshotProtection?: boolean
 }
 
 /** What Papermark reported for one stored link. */
@@ -54,6 +74,7 @@ export type PapermarkLinkRead =
       targetType: string | null
       /** Undefined when Papermark did not report an expiry at all. */
       expiresAt: string | null | undefined
+      settings?: ReportedSettings
     }
   /** A 404. Papermark revokes a link by soft-deleting it, so this means revoked or deleted. */
   | { state: "gone" }
@@ -79,6 +100,33 @@ export type PersonalLinkDeps = {
   correctExpiry(link: StoredLink): Promise<{ ok: true } | { ok: false; message: string }>
 }
 
+/**
+ * Whether a link's security settings still match what it was issued with.
+ *
+ * "wrong" when the watermark names someone else -- the link is not this
+ * subscriber's -- and "changed" when download, watermarking or screenshot
+ * protection differ from what was issued. A changed setting is reported, not
+ * corrected: the download and watermark policy is an editorial decision this
+ * repair does not make. Only what Papermark reported is judged.
+ */
+export function settingsVerdict(
+  reported: ReportedSettings | undefined,
+  issued: IssuedSettings | undefined,
+): { verdict: "ok" } | { verdict: "wrong"; problem: string } | { verdict: "changed"; problem: string } {
+  if (!reported || !issued) return { verdict: "ok" }
+  const email = issued.email.trim().toLowerCase()
+  if (email && typeof reported.watermarkText === "string" && !reported.watermarkText.toLowerCase().includes(email)) {
+    return { verdict: "wrong", problem: "carries a watermark naming someone else" }
+  }
+  const changed: string[] = []
+  if (reported.watermark === false) changed.push("watermarking is off")
+  if (typeof reported.allowDownload === "boolean" && reported.allowDownload !== issued.allowDownload) {
+    changed.push(reported.allowDownload ? "downloads are on" : "downloads are off")
+  }
+  if (reported.screenshotProtection === false && issued.screenshotProtection) changed.push("screenshot protection is off")
+  return changed.length ? { verdict: "changed", problem: `settings differ from those issued (${changed.join(", ")})` } : { verdict: "ok" }
+}
+
 export type PersonalLinkOptions = {
   /**
    * Check every stored link with Papermark. Without it, a stored row counts as
@@ -88,6 +136,11 @@ export type PersonalLinkOptions = {
   verify: boolean
   /** The subscription's last day as YYYY-MM-DD, or null when it has none. */
   termEndDate: string | null
+  /**
+   * Read every newly created link back from Papermark before counting it as
+   * ready: that it exists and opens this exact document.
+   */
+  confirmCreated?: boolean
 }
 
 export type DocumentResult =
@@ -217,9 +270,24 @@ export async function preparePersonalLinks(
     if (!minted.ok) return { document, status: "failed", reason: "Papermark could not be reached." }
     if (!minted.value.ok) return { document, status: "failed", reason: minted.value.message }
     const recorded = await record(document, minted.value)
-    if (recorded === "recorded") return { document, status: "created" }
     if (recorded === "already") return { document, status: "stored" }
-    return { document, status: "failed", reason: "The new link could not be recorded, so it was withdrawn again." }
+    if (recorded !== "recorded") {
+      return { document, status: "failed", reason: "The new link could not be recorded, so it was withdrawn again." }
+    }
+    if (!options.confirmCreated) return { document, status: "created" }
+    // A created link counts only once Papermark confirms it opens this document.
+    const read = await settle(() => deps.read(minted.value.ok ? minted.value.linkId : ""))
+    if (!read.ok || read.value.state === "unknown") {
+      return { document, status: "unconfirmed", reason: "The new link was created, but Papermark could not confirm it yet." }
+    }
+    if (read.value.state === "gone") {
+      return { document, status: "failed", reason: "The new link was created, but Papermark no longer reports it." }
+    }
+    const target = targetVerdict(read.value, document.papermarkDocumentId)
+    if (target.verdict !== "ok") {
+      return { document, status: "unconfirmed", reason: target.verdict === "wrong" ? `The new link ${target.problem}.` : "Papermark did not say which document the new link opens." }
+    }
+    return { document, status: "created" }
   }
 
   async function correct(document: RoomDocument, link: StoredLink, problem: string): Promise<DocumentResult> {
@@ -337,6 +405,17 @@ export async function preparePersonalLinks(
     const target = targetVerdict(state, id)
     if (target.verdict === "wrong") {
       results.push(await replaceMisdirected(document, link, target.problem))
+      continue
+    }
+    const settings = settingsVerdict(state.settings, link.issued)
+    if (settings.verdict === "wrong") {
+      // Issued to someone else's identity: withdrawn and replaced, like a link
+      // that opens the wrong document.
+      results.push(await replaceMisdirected(document, link, settings.problem))
+      continue
+    }
+    if (settings.verdict === "changed") {
+      results.push({ document, status: "unconfirmed", reason: `The stored link's ${settings.problem}. Review it in Papermark.` })
       continue
     }
     if (target.verdict === "unclear") {

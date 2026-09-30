@@ -46,7 +46,13 @@ test("activity comes only from confirmed Papermark view and download rows scoped
   assert.match(dal, /v\.subscriber_id = \$\{subscriberId\}/)
   assert.match(dal, /from document_download_events de/)
   assert.match(dal, /de\.subscriber_id = \$\{subscriberId\}/)
-  assert.match(dal, /papermark_document_id = dd\.papermark_document_id/)
+  // Activity is now read once per subscriber and matched to each document in
+  // code rather than by a per-row SQL join: a download counts only for that
+  // exact Papermark document, and a view for that publication or document.
+  assert.match(dal, /select distinct de\.papermark_document_id as key\s+from document_download_events de/)
+  assert.match(dal, /downloadedBySubscriber: options\.downloaded\.has\(d\.papermarkDocumentId\)/)
+  assert.match(dal, /select distinct coalesce\(v\.publication_id::text, v\.papermark_document_id\) as key\s+from document_views v/)
+  assert.match(dal, /viewedBySubscriber: options\.viewed\.has\(d\.papermarkDocumentId\) \|\| \(d\.publicationId !== null && options\.viewed\.has\(d\.publicationId\)\)/)
 
   const portal = read("src/app/portal/page.tsx")
   // "Viewed" is small text at the bottom right, shown only for a recorded view.

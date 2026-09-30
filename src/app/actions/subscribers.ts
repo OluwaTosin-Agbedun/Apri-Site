@@ -88,7 +88,10 @@ import {
   ensureSubscriberLibraryAccess,
 } from "@/lib/dataroom-lifecycle"
 import { activateSubscriberRecord, activationDone } from "@/lib/subscriber-activation"
-import { describePersonalLinks } from "@/lib/personal-links"
+import { queueSubscriberAccessReconciliation, reconcileSubscriberAccess } from "@/lib/subscriber-access-reconciliation"
+import { accessHealthSchemaReady, ACCESS_HEALTH_MIGRATION_PENDING } from "@/lib/access-health-schema"
+import { readSubscriberTerm } from "@/lib/subscriber-principal"
+import { signInDecision } from "@/lib/subscription-term"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -234,7 +237,7 @@ export async function saveSubscriber(
     let existingPapermarkFolderId: string | null = null
     if (id) {
       const before = (await sql`
-        select level, public_tier, term_end, library_link_url, papermark_folder_id
+        select level, public_tier, to_char(term_end, 'YYYY-MM-DD') as term_end, library_link_url, papermark_folder_id
         from subscribers where id = ${id} limit 1
       `) as { level: string | null; public_tier: string | null; term_end: string | null; library_link_url: string | null; papermark_folder_id: string | null }[]
       previousLevel = before[0]?.level ?? null
@@ -284,11 +287,26 @@ export async function saveSubscriber(
       ? id
       : String(((await sql`select id from subscribers where lower(email)=${d.email} limit 1`) as { id:string }[])[0]?.id ?? "")
     if (periodOwner && termStart && termEnd && level) {
-      await sql`insert into subscriber_subscription_periods(subscriber_id,starts_on,ends_on,level,source)
-        values(${periodOwner}::uuid,${termStart}::date,${termEnd}::date,${level},'admin-agreed-term') on conflict do nothing`
-      await sql`insert into subscriber_access_reconciliations(subscriber_id,generation,state,requested_at)
-        values(${periodOwner}::uuid,1,'pending',now()) on conflict(subscriber_id) do update
-        set generation=subscriber_access_reconciliations.generation+1,state='pending',requested_at=now(),completed_at=null`
+      // The agreed term is a paid period. A period with these exact dates that
+      // was voided as a mistake stays voided: the conflict leaves it alone.
+      const added = (await sql`
+        insert into subscriber_subscription_periods (subscriber_id, starts_on, ends_on, level, source)
+        values (${periodOwner}::uuid, ${termStart}::date, ${termEnd}::date, ${level}, 'admin-agreed-term')
+        on conflict do nothing
+        returning id
+      `) as { id: string }[]
+      if (added[0] && (await accessHealthSchemaReady(sql))) {
+        await sql`
+          update subscriber_subscription_periods set created_by = ${admin.id}::uuid where id = ${added[0].id}::uuid
+        `
+        await sql`
+          insert into subscriber_period_events (subscriber_id, period_id, action, starts_on, ends_on, level, reason, administrator_id)
+          values (${periodOwner}::uuid, ${added[0].id}::uuid, 'added', ${termStart}::date, ${termEnd}::date, ${level},
+                  'Agreed term saved on the subscriber record', ${admin.id}::uuid)
+        `
+        linkNote += " The agreed term was added to the paid periods; if it corrects an earlier term, void the mistaken period under Paid periods."
+      }
+      await queueSubscriberAccessReconciliation(periodOwner, "admin_change")
     }
     if (id) {
       outcome = await applyLevelChange({
@@ -326,11 +344,15 @@ export async function saveSubscriber(
       }
       if (previousLevel !== level || previousTermEnd !== termEnd) {
         try {
-          const {queueSubscriberAccessReconciliation,reconcileSubscriberAccess}=await import("@/lib/subscriber-access-reconciliation")
-          await queueSubscriberAccessReconciliation(id)
-          const reconciled=await reconcileSubscriberAccess(id)
-          if(reconciled.state!=="complete")linkNote+=` Publication access reconciliation is ${reconciled.state}; retry it on this page.`
-        } catch { linkNote+=" Publication access reconciliation failed; retry it on this page." }
+          const trigger = previousLevel !== level ? "level_change" : "renewal"
+          await queueSubscriberAccessReconciliation(id, trigger)
+          const reconciled = await reconcileSubscriberAccess(id, { trigger })
+          if (reconciled.state !== "complete" && reconciled.state !== "not_applicable") {
+            linkNote += ` Document access: ${reconciled.message} Use Repair document links on this page to retry.`
+          }
+        } catch {
+          linkNote += " Document access could not be updated just now. Use Repair document links on this page to retry."
+        }
       }
     }
   } catch (error) {
@@ -361,52 +383,81 @@ export async function saveSubscriber(
   return { ok: true, message: `Saved.${linkNote}` }
 }
 
-export async function setPublicationException(formData: FormData): Promise<void> {
+/**
+ * Automatic / Allow / Block for one subscriber and one publication, with the
+ * administrator and reason recorded -- including a return to Automatic, which
+ * removes the exception. Allow never lifts the subscriber above their level,
+ * outside an active subscription or out of their library; Block always wins.
+ * Access is then reconciled at once, and the result shown on the page.
+ */
+export async function setPublicationException(_prev: FormState, formData: FormData): Promise<FormState> {
   const admin = await requireAdmin()
   const subscriberId = String(formData.get("subscriberId") ?? "")
   const publicationId = String(formData.get("publicationId") ?? "")
   const decision = String(formData.get("decision") ?? "automatic")
-  const reason = String(formData.get("reason") ?? "").trim()
-  if (!UUID.test(subscriberId) || !UUID.test(publicationId)) throw new Error("Unknown subscriber or publication.")
-  if (!["automatic", "allow", "block"].includes(decision)) throw new Error("Unknown access control.")
-  if (decision !== "automatic" && !reason) throw new Error("Record a reason before changing access.")
+  const reason = String(formData.get("reason") ?? "").trim().slice(0, 500)
+  if (!UUID.test(subscriberId) || !UUID.test(publicationId)) return { message: "Unknown subscriber or publication." }
+  if (!["automatic", "allow", "block"].includes(decision)) return { message: "Unknown access control." }
+  if (!reason) return { message: "Record a reason before changing access." }
   const sql = getSql()
-  const {editionEntitlementSchemaReady,EDITION_ENTITLEMENT_MIGRATION_PENDING}=await import("@/lib/edition-entitlement-schema")
-  if(!(await editionEntitlementSchemaReady(sql)))throw new Error(EDITION_ENTITLEMENT_MIGRATION_PENDING)
+  const { editionEntitlementSchemaReady, EDITION_ENTITLEMENT_MIGRATION_PENDING } = await import("@/lib/edition-entitlement-schema")
+  if (!(await editionEntitlementSchemaReady(sql))) return { message: EDITION_ENTITLEMENT_MIGRATION_PENDING }
+  if (!(await accessHealthSchemaReady(sql))) return { message: ACCESS_HEALTH_MIGRATION_PENDING }
+  const known = (await sql`
+    select 1 from subscribers s, documents d
+    where s.id = ${subscriberId}::uuid and s.client_type = 'subscriber' and d.id = ${publicationId}::uuid
+  `) as unknown[]
+  if (known.length === 0) return { message: "Unknown subscriber or publication." }
   if (decision === "automatic") {
-    await sql`delete from subscriber_publication_exceptions where subscriber_id=${subscriberId}::uuid and publication_id=${publicationId}::uuid`
+    await sql`delete from subscriber_publication_exceptions where subscriber_id = ${subscriberId}::uuid and publication_id = ${publicationId}::uuid`
   } else {
-    await sql`insert into subscriber_publication_exceptions(subscriber_id,publication_id,decision,reason,administrator_id)
-      values(${subscriberId}::uuid,${publicationId}::uuid,${decision},${reason},${admin.id}::uuid)
-      on conflict(subscriber_id,publication_id) do update set decision=excluded.decision,reason=excluded.reason,administrator_id=excluded.administrator_id,updated_at=now()`
+    await sql`
+      insert into subscriber_publication_exceptions (subscriber_id, publication_id, decision, reason, administrator_id)
+      values (${subscriberId}::uuid, ${publicationId}::uuid, ${decision}, ${reason}, ${admin.id}::uuid)
+      on conflict (subscriber_id, publication_id) do update
+        set decision = excluded.decision, reason = excluded.reason, administrator_id = excluded.administrator_id, updated_at = now()
+    `
   }
-  await sql`insert into subscriber_access_reconciliations(subscriber_id,generation,state,requested_at)
-    values(${subscriberId}::uuid,1,'pending',now()) on conflict(subscriber_id) do update
-    set generation=subscriber_access_reconciliations.generation+1,state='pending',requested_at=now(),completed_at=null`
-  const {reconcileSubscriberAccess}=await import("@/lib/subscriber-access-reconciliation")
-  await reconcileSubscriberAccess(subscriberId)
+  await sql`
+    insert into subscriber_exception_events (subscriber_id, publication_id, decision, reason, administrator_id)
+    values (${subscriberId}::uuid, ${publicationId}::uuid, ${decision}, ${reason}, ${admin.id}::uuid)
+  `
+  await queueSubscriberAccessReconciliation(subscriberId, "admin_change")
+  const reconciled = await reconcileSubscriberAccess(subscriberId, { trigger: "admin_change" })
   revalidatePath(`/admin/subscribers/${subscriberId}`)
+  const label = decision === "automatic" ? "Automatic" : decision === "allow" ? "Allow" : "Block"
+  return { ok: reconciled.state === "complete", message: `${label} recorded. ${reconciled.message}` }
 }
 
-export async function reconcilePublicationAccess(formData:FormData):Promise<void>{
+/**
+ * Repair document links: recalculate the subscriber's entitlement, create what
+ * is missing, repair what is wrong, withdraw what is no longer permitted, and
+ * verify. Never sends email. The reconciliation record is created when it
+ * does not exist yet.
+ */
+export async function reconcilePublicationAccess(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireOwner()
-  const subscriberId=String(formData.get("subscriberId")??"")
-  if(!UUID.test(subscriberId))throw new Error("Unknown subscriber.")
-  const {reconcileSubscriberAccess}=await import("@/lib/subscriber-access-reconciliation")
-  await reconcileSubscriberAccess(subscriberId)
+  const subscriberId = String(formData.get("subscriberId") ?? "")
+  if (!UUID.test(subscriberId)) return { message: "Unknown subscriber." }
+  await queueSubscriberAccessReconciliation(subscriberId, "admin_repair")
+  const reconciled = await reconcileSubscriberAccess(subscriberId, { trigger: "admin_repair" })
   revalidatePath(`/admin/subscribers/${subscriberId}`)
+  revalidatePath("/admin/subscribers/access-health")
+  return { ok: reconciled.state === "complete" || reconciled.state === "not_applicable", message: reconciled.message }
 }
 
 /** What a level change did to the new room's personal links, when it needs saying. */
 function levelChangeLinkNote(moved: Awaited<ReturnType<typeof reassignDataRoomOnLevelChange>>): string {
+  if (moved.action === "no_room") {
+    return " The new level has no Data Room mapped, so the subscriber keeps their current library. Map one under Data Rooms."
+  }
   if (moved.action !== "reassigned" && moved.action !== "created") return ""
   const links = moved.links
   if (!links) {
-    return " The new Data Room's personal document links could not be checked. Use Check and repair document links on this page."
+    return " The new Data Room's personal document links could not be checked. Use Repair document links on this page."
   }
-  if (links.state === "not_eligible") return ` ${links.message}`
-  if (links.report.complete) return ""
-  return ` ${describePersonalLinks(links.report)} Use Check and repair document links on this page to retry.`
+  if (links.state === "complete" || links.state === "not_applicable") return ` ${links.message}`
+  return ` ${links.message} Use Repair document links on this page to retry.`
 }
 /**
  * Activate one seat: verify its library, make it active, then send its two
@@ -468,23 +519,24 @@ async function libraryGate(id: string, admin: { id: string; name: string }): Pro
   const row = rows[0]
   if (!row) return "That subscriber no longer exists."
   if (row.status.toLowerCase() !== "active") return "Only an active seat can be sent onboarding or sign-in emails."
+  // The portal's own sign-in rule: an email whose link would be refused is not sent.
+  const term = await readSubscriberTerm({ id })
+  const signIn = term ? signInDecision(term.subscription) : { ok: false as const, reason: "inactive" as const }
+  if (!signIn.ok) {
+    return signIn.reason === "subscription-expired"
+      ? "This subscriber's term has ended, so the portal would refuse their sign-in. Nothing was sent."
+      : "This subscriber cannot sign in at the moment, so nothing was sent."
+  }
   const access = await ensureSubscriberLibraryAccess({
     subscriberId: id,
     publicTier: row.public_tier,
-    assignedName: row.full_name || row.name,
-    assignedEmail: row.email,
-    termEnd: row.term_end,
-    createRoomLink: false,
+    trigger: "resend",
     changedById: admin.id,
     changedByName: admin.name,
   })
-  // No room link means they are still on the legacy library, which the
-  // portal serves them: nothing of a room's to prepare. Refused only when a
-  // room's links are incomplete or blocked.
-  if (access.state === "incomplete" || (access.state === "blocked" && access.reason !== "term_ended")) {
-    return `${access.message} Use Check and repair document links on this page, then try again.`
-  }
-  return null
+  // No Data Room: the legacy library, which the portal serves them.
+  if (access.state === "no_room" || access.state === "ready") return null
+  return `${access.message} Use Repair document links on this page, then try again.`
 }
 
 /** Permanently remove one subscriber and their dependent portal access records. */
@@ -610,4 +662,87 @@ function refresh() {
   revalidatePath("/admin")
   revalidatePath("/admin/subscribers")
   revalidatePath("/portal")
+}
+
+// ---------------------------------------------------------------------------
+// Paid periods: added and voided with the administrator and reason recorded
+// ---------------------------------------------------------------------------
+
+const PERIOD_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Adds a paid period: the dates a subscriber paid for, at a level. Editions
+ * dated inside any period (at or below its level) are covered. A renewal is a
+ * new period; an unpaid gap is simply the absence of one.
+ */
+export async function addPaidPeriod(_prev: FormState, formData: FormData): Promise<FormState> {
+  const admin = await requireAdmin()
+  const subscriberId = String(formData.get("subscriberId") ?? "")
+  const startsOn = String(formData.get("startsOn") ?? "")
+  const endsOn = String(formData.get("endsOn") ?? "")
+  const level = String(formData.get("level") ?? "")
+  const reason = String(formData.get("reason") ?? "").trim().slice(0, 500)
+  if (!UUID.test(subscriberId)) return { message: "Unknown subscriber." }
+  if (!PERIOD_DATE.test(startsOn) || !PERIOD_DATE.test(endsOn) || Number.isNaN(Date.parse(startsOn)) || Number.isNaN(Date.parse(endsOn))) {
+    return { message: "Enter both dates." }
+  }
+  if (endsOn < startsOn) return { message: "The period must end on or after the day it starts." }
+  if (!(LEVELS as readonly string[]).includes(level)) return { message: "Choose the level that was paid for." }
+  if (!reason) return { message: "Record why this period is being added (for example the invoice or agreement)." }
+  const sql = getSql()
+  if (!(await accessHealthSchemaReady(sql))) return { message: ACCESS_HEALTH_MIGRATION_PENDING }
+  const known = (await sql`select 1 from subscribers where id = ${subscriberId}::uuid and client_type = 'subscriber'`) as unknown[]
+  if (known.length === 0) return { message: "Unknown subscriber." }
+  const rows = (await sql`
+    insert into subscriber_subscription_periods (subscriber_id, starts_on, ends_on, level, source, created_by, note)
+    values (${subscriberId}::uuid, ${startsOn}::date, ${endsOn}::date, ${level}, 'admin-period', ${admin.id}::uuid, ${reason})
+    on conflict (subscriber_id, starts_on, ends_on, level) do nothing
+    returning id
+  `) as { id: string }[]
+  if (!rows[0]) return { message: "That exact period is already recorded. Restore it instead if it was voided." }
+  await sql`
+    insert into subscriber_period_events (subscriber_id, period_id, action, starts_on, ends_on, level, reason, administrator_id)
+    values (${subscriberId}::uuid, ${rows[0].id}::uuid, 'added', ${startsOn}::date, ${endsOn}::date, ${level}, ${reason}, ${admin.id}::uuid)
+  `
+  await queueSubscriberAccessReconciliation(subscriberId, "admin_change")
+  const reconciled = await reconcileSubscriberAccess(subscriberId, { trigger: "admin_change" })
+  revalidatePath(`/admin/subscribers/${subscriberId}`)
+  return { ok: true, message: `Paid period added. ${reconciled.message}` }
+}
+
+/**
+ * Voids a period recorded by mistake, or restores one voided in error. A
+ * voided period grants nothing but stays in the history with who voided it
+ * and why, so a correction never silently rewrites what was paid.
+ */
+export async function setPaidPeriodVoided(_prev: FormState, formData: FormData): Promise<FormState> {
+  const admin = await requireAdmin()
+  const subscriberId = String(formData.get("subscriberId") ?? "")
+  const periodId = String(formData.get("periodId") ?? "")
+  const action = String(formData.get("action") ?? "")
+  const reason = String(formData.get("reason") ?? "").trim().slice(0, 500)
+  if (!UUID.test(subscriberId) || !UUID.test(periodId)) return { message: "Unknown period." }
+  if (action !== "void" && action !== "restore") return { message: "Unknown action." }
+  if (!reason) return { message: "Record why." }
+  const sql = getSql()
+  if (!(await accessHealthSchemaReady(sql))) return { message: ACCESS_HEALTH_MIGRATION_PENDING }
+  const rows = (await sql`
+    update subscriber_subscription_periods
+    set voided_at = case when ${action === "void"}::boolean then now() else null end,
+        voided_by = case when ${action === "void"}::boolean then ${admin.id}::uuid else null end,
+        void_reason = case when ${action === "void"}::boolean then ${reason} else null end
+    where id = ${periodId}::uuid and subscriber_id = ${subscriberId}::uuid
+      and ((${action === "void"}::boolean and voided_at is null) or (${action === "restore"}::boolean and voided_at is not null))
+    returning starts_on, ends_on, level
+  `) as { starts_on: string; ends_on: string; level: string }[]
+  if (!rows[0]) return { message: "That period has already been changed. Refresh the page." }
+  await sql`
+    insert into subscriber_period_events (subscriber_id, period_id, action, starts_on, ends_on, level, reason, administrator_id)
+    values (${subscriberId}::uuid, ${periodId}::uuid, ${action === "void" ? "voided" : "restored"},
+            ${rows[0].starts_on}::date, ${rows[0].ends_on}::date, ${rows[0].level}, ${reason}, ${admin.id}::uuid)
+  `
+  await queueSubscriberAccessReconciliation(subscriberId, "admin_change")
+  const reconciled = await reconcileSubscriberAccess(subscriberId, { trigger: "admin_change" })
+  revalidatePath(`/admin/subscribers/${subscriberId}`)
+  return { ok: true, message: `Period ${action === "void" ? "voided" : "restored"}. ${reconciled.message}` }
 }

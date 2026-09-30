@@ -13,7 +13,9 @@ import {
   ONBOARDING_MIGRATION_PENDING,
 } from './subscription-schema'
 import { editionEntitlementSchemaReady, EDITION_ENTITLEMENT_MIGRATION_PENDING } from './edition-entitlement-schema'
-import { reconcileSubscriberAccess } from './subscriber-access-reconciliation'
+import { queueSubscriberAccessReconciliation } from './subscriber-access-reconciliation'
+import { accessHealthSchemaReady, ACCESS_HEALTH_MIGRATION_PENDING } from './access-health-schema'
+import { dateOnly, lagosToday } from './subscription-term'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LEGACY_REQUEST_NOTE = /^Activated from review prospect ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
@@ -38,12 +40,6 @@ export type SubscriberActivation =
       wasActive: boolean
       message: string
     }
-
-function startOfToday(): Date {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
 
 /**
  * The acquisition gate, for a subscriber created from an Individual or
@@ -213,7 +209,9 @@ export async function activateSubscriberRecord(args: {
   } catch {
     return blocked('Activation checks could not be completed. Please try again.')
   }
-  if (new Date(row.term_end) < startOfToday()) {
+  const termEndDay = dateOnly(row.term_end)
+  if (!termEndDay) return blocked('The term end date could not be read. Save it again before activating.')
+  if (termEndDay < lagosToday()) {
     return blocked('That term end date is in the past. Extend it before activating.')
   }
 
@@ -246,22 +244,34 @@ export async function activateSubscriberRecord(args: {
   }
 
   if (!(await editionEntitlementSchemaReady(sql))) return blocked(`${EDITION_ENTITLEMENT_MIGRATION_PENDING} Nothing was changed.`)
-  await sql`insert into subscriber_access_reconciliations(subscriber_id,generation,state,requested_at)
-    values(${id}::uuid,1,'pending',now()) on conflict(subscriber_id) do update
-    set generation=subscriber_access_reconciliations.generation+1,state='pending',requested_at=now(),completed_at=null`
+  if (!(await accessHealthSchemaReady(sql))) return blocked(`${ACCESS_HEALTH_MIGRATION_PENDING} Nothing was changed.`)
+
+  // The agreed term is a paid period: recorded once, idempotently, so a new
+  // seat is never judged with no paid-period history. A period voided as a
+  // mistake is not recreated (the same dates conflict and are left alone).
+  try {
+    await sql`
+      insert into subscriber_subscription_periods (subscriber_id, starts_on, ends_on, level, source)
+      select ${id}::uuid, coalesce(s.term_start, (now() at time zone 'Africa/Lagos')::date), s.term_end, s.level, 'activation-agreed-term'
+      from subscribers s
+      where s.id = ${id}::uuid and s.term_end is not null and s.level in ('L1', 'L2', 'L3', 'L4')
+        and coalesce(s.term_start, (now() at time zone 'Africa/Lagos')::date) <= s.term_end
+      on conflict do nothing
+    `
+    await queueSubscriberAccessReconciliation(id, 'activation')
+  } catch {
+    return blocked('The paid period for this term could not be recorded. Nothing was changed; try again.')
+  }
 
   // 1. The library, prepared and verified BEFORE the subscriber is made active:
-  //    the room link and a Papermark-confirmed personal link for every
-  //    document. A pending subscriber can be prepared (allowPending), so
-  //    activation never needs the subscriber active before their links exist.
+  //    a Papermark-confirmed personal link for every document the access policy
+  //    permits. A pending seat is judged as it will be once active
+  //    (prospective), so activation never needs it active before its links exist.
   const access = await ensureSubscriberLibraryAccess({
     subscriberId: id,
     publicTier: row.public_tier,
-    assignedName: row.full_name || row.name,
-    assignedEmail: row.email,
-    termEnd: row.term_end,
-    createRoomLink: true,
-    allowPending: !wasActive,
+    prospective: !wasActive,
+    trigger: 'activation',
     changedById: args.admin.id,
     changedByName: args.admin.name,
   })
@@ -296,14 +306,9 @@ export async function activateSubscriberRecord(args: {
     }
     accessKind = 'legacy'
     accessNote = 'Their legacy library opens.'
-  } else if (access.state === 'no_room_link') {
-    return notReady('their Data Room link is missing. Create it from the Data Room panel, then activate again.')
   } else {
     return notReady(`${access.message} ${retryHint(access)}`)
   }
-
-  const reconciled=await reconcileSubscriberAccess(id,{allowPending:!wasActive})
-  if(reconciled.state!=="complete")return notReady(reconciled.message)
 
   // 2. Only now, with the library verified, is the subscriber made active --
   //    after their onboarding rows exist, so no failure between the two steps
@@ -413,7 +418,7 @@ async function validatedLegacyLibrary(
 }
 
 function retryHint(access: Extract<LibraryAccess, { state: 'incomplete' | 'blocked' }>): string {
-  return access.state === 'blocked' && /Data Room link (could not|was created)/.test(access.message)
-    ? 'Create the Data Room link from the Data Room panel on this page, then activate again.'
-    : 'Fix what is listed (Check and repair document links on the subscriber page), then activate again.'
+  return access.state === 'blocked' && /already being prepared/.test(access.message)
+    ? 'Wait a moment, then activate again.'
+    : 'Fix what is listed (Repair document links on the subscriber page), then activate again.'
 }

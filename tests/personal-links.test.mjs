@@ -28,6 +28,7 @@ import {
   combineReports,
   expiryProblem,
 } from "../src/lib/personal-links.ts"
+import { decideAccess } from "../src/lib/access-policy.ts"
 
 const ROOT = resolve(import.meta.dirname, "..")
 const read = (p) => readFileSync(join(ROOT, p), "utf8")
@@ -506,6 +507,8 @@ const SERVICE = "src/lib/document-links.ts"
 const LIFECYCLE = "src/lib/dataroom-lifecycle.ts"
 const NOTIFY = "src/lib/dataroom-notifications.ts"
 const WEBHOOK = "src/app/api/papermark/webhook/route.ts"
+const RECONCILE = "src/lib/subscriber-access-reconciliation.ts"
+const POLICY_DAL = "src/lib/access-policy-dal.ts"
 
 describe("activation", () => {
   // The action delegates to the one function every activation takes.
@@ -517,21 +520,33 @@ describe("activation", () => {
     assert.match(action, /ok: activationDone\(result\)/)
   })
 
-  it("prepares and verifies the library -- room link and every personal link -- before the seat is made active", () => {
+  it("prepares and verifies the library -- every permitted personal link -- before the seat is made active", () => {
     const access = fn.indexOf("ensureSubscriberLibraryAccess(")
     const flip = fn.indexOf("set status = 'active'")
     assert.ok(access > 0 && flip > access, "the library comes first")
-    assert.match(fn.slice(access, access + 400), /createRoomLink: true/)
-    // A pending subscriber can be prepared, so activation never needs itself.
-    assert.match(fn.slice(access, access + 400), /allowPending: !wasActive/)
+    // Deliberately changed: activation no longer mints an unrestricted room
+    // link (createRoomLink is gone); the library is the assigned room and a
+    // verified personal link for each document the access policy permits.
+    assert.doesNotMatch(fn, /createRoomLink|createDataRoomLink\(/)
+    assert.match(fn.slice(access, access + 400), /trigger: 'activation'/)
+    // A pending seat is judged as it will be once active, so activation never needs itself.
+    assert.match(fn.slice(access, access + 400), /prospective: !wasActive/)
+    // The agreed term is recorded as a paid period, and a reconciliation queued, before the library is judged.
+    const period = fn.indexOf("insert into subscriber_subscription_periods")
+    const queued = fn.indexOf("queueSubscriberAccessReconciliation(id, 'activation')")
+    assert.ok(period > 0 && period < queued && queued < access, "the paid period exists before access is decided")
     assert.ok(fn.indexOf("sendOnboardingEmails(") > flip, "emails only after the seat is active")
     assert.doesNotMatch(fn, /issueToken\(|sendWelcome\(/, "activation itself never issues a link or sends")
   })
 
   it("every library state that is not verified returns before the status change, sending nothing", () => {
     const flip = fn.indexOf("set status = 'active'")
+    // Only a verified library goes on to the status change as a Data Room library.
+    assert.match(fn, /if \(access\.state === 'ready'\) \{\s*accessKind = 'data_room'/)
     for (const branch of [
-      "access.state === 'no_room_link'",
+      // The no_room_link state was removed with the room link itself; a room
+      // with no mapping is the remaining not-ready state that needs its own branch.
+      "} else if (access.state === 'no_room') {",
       "no Data Room is mapped for ${row.public_tier}. Map one under Admin",
       "this subscriber has no legacy library to open",
       "return notReady(`${access.message} ${retryHint(access)}`)",
@@ -601,9 +616,17 @@ describe("activation", () => {
 
   it("the library step verifies stored links with Papermark", () => {
     const fn2 = body(read(LIFECYCLE), "ensureSubscriberLibraryAccess")
-    assert.match(fn2, /const linkOptions = \{ verify: true, dataroomId: room\.dataroomId, allowPending: args\.allowPending === true \}/)
-    assert.match(fn2, /ensureAllDocumentLinks\(args\.subscriberId, linkOptions\)/)
-    assert.match(fn2, /revokeDataRoomLink\(minted\.value\.linkId\)/, "an unrecorded room link is withdrawn")
+    // The room is recorded on the subscriber, then one reconciliation settles it.
+    const assign = fn2.indexOf("assignDataRoomToSubscriber(args.subscriberId, room.dataroomId)")
+    const reconcile = fn2.indexOf("reconcileSubscriberAccess(args.subscriberId, { trigger: args.trigger, prospective: args.prospective === true })")
+    assert.ok(assign > 0 && reconcile > assign, "the room is assigned before it is reconciled")
+    // Ready only when reconciliation verified everything.
+    assert.match(fn2, /if \(result\.state === 'complete'\) return \{ state: 'ready'/)
+    // Deliberately changed: no unrestricted room link is minted here any more,
+    // so there is no unrecorded room link left to withdraw.
+    assert.doesNotMatch(fn2, /createDataRoomLink\(|saveDataRoomLink\(/)
+    // Reconciliation reads every stored link back from Papermark, and every new one before it counts.
+    assert.match(body(read(RECONCILE), "prepareAllowed"), /\{ verify: true, termEndDate: termEnd, confirmCreated: true \}/)
   })
 })
 
@@ -614,7 +637,15 @@ describe("resend sign-in link", () => {
     const gate = fn.indexOf("libraryGate(id, admin)")
     assert.ok(gate > 0 && gate < fn.indexOf("resendSecureAccessEmail(id)"))
     assert.doesNotMatch(fn, /sendWelcome|sendOnboardingEmails|issueToken/)
-    assert.match(body(read(SUBSCRIBERS), "libraryGate"), /createRoomLink: false/)
+    // The gate prepares an active seat's library through the same step as
+    // activation, which never creates a room link (createRoomLink is gone).
+    const gate2 = body(read(SUBSCRIBERS), "libraryGate")
+    const active = gate2.indexOf('if (row.status.toLowerCase() !== "active") return')
+    const ensure = gate2.indexOf("ensureSubscriberLibraryAccess(")
+    assert.ok(active > 0 && ensure > active, "only an active seat is prepared")
+    assert.match(gate2, /trigger: "resend"/)
+    assert.doesNotMatch(gate2, /createRoomLink|createDataRoomLink|createSubscriberDataRoomLink|prospective/)
+    assert.match(gate2, /if \(access\.state === "no_room" \|\| access\.state === "ready"\) return null/)
   })
 
   it("the retry action is admin only, checks the library, and never starts onboarding retrospectively", () => {
@@ -632,14 +663,27 @@ describe("the repair actions", () => {
 
   it("per subscriber: owner only, checks every stored link with Papermark", () => {
     assert.match(one, /await requireOwner\(\)/)
-    assert.match(one, /ensureAllDocumentLinks\(subscriberId, \{ verify: true \}\)/)
-    assert.match(one, /ok: outcome\.report\.complete/)
+    const owner = one.indexOf("await requireOwner()")
+    const reconcile = one.indexOf('reconcileSubscriberAccess(subscriberId, { trigger: "admin_repair" })')
+    assert.ok(owner > 0 && reconcile > owner, "authorised before anything is read or changed")
+    assert.match(one, /ok: reconciled\.state === "complete" \|\| reconciled\.state === "not_applicable"/)
+    // Reconciliation verifies every stored link with Papermark.
+    assert.match(body(read(RECONCILE), "prepareAllowed"), /\{ verify: true, termEndDate: termEnd, confirmCreated: true \}/)
   })
 
   it("level-wide: owner only, every subscriber of the room", () => {
     assert.match(level, /await requireOwner\(\)/)
-    assert.match(level, /prepareRoomLinks\(room\.dataroomId\)/)
+    assert.match(level, /prepareRoomLinks\(room\.dataroomId, \{ trigger: "admin_repair" \}\)/)
     assert.match(level, /ok: summary\.complete/)
+    // "Every subscriber of the room" means everyone assigned to it -- by
+    // override, level or stored room -- not whoever holds a room share link.
+    const fan = body(read(SERVICE), "prepareRoomLinks")
+    assert.match(fan, /subscriberIds = await subscribersAssignedToRoom\(dataroomId\)/)
+    assert.match(fan, /reconcileSubscriberAccess\(subscriberId, \{ trigger \}\)/)
+    const assigned = body(read(RECONCILE), "subscribersAssignedToRoom")
+    assert.match(assigned, /coalesce\(s\.papermark_dataroom_override, lr\.papermark_dataroom_id, s\.papermark_dataroom_id\) = \$\{dataroomId\}/)
+    assert.match(assigned, /s\.client_type = 'subscriber'/)
+    assert.doesNotMatch(assigned, /papermark_dataroom_links/)
   })
 
   it("neither sends any email", () => {
@@ -654,7 +698,12 @@ describe("documents arriving in a room", () => {
 
   it("sync prepares every subscriber's links after saving the documents, and says when it could not", () => {
     const sync = body(src, "syncRoomForLevel")
-    assert.ok(sync.indexOf("prepareRoomLinks(mapping.dataroomId)") > sync.indexOf("syncDataRoomDocuments("))
+    const prepare = sync.indexOf('prepareRoomLinks(mapping.dataroomId, { trigger: "sync" })')
+    const saved = sync.indexOf("syncDataRoomDocuments(")
+    const linked = sync.indexOf("autoCreatePublicationsForRoom(")
+    assert.ok(saved > 0 && prepare > saved)
+    // After publication records are linked, so the access policy can decide on each document.
+    assert.ok(linked > 0 && prepare > linked)
     const action = body(src, "syncDataRoomForLevel")
     assert.match(action, /await requireAdmin\(\)/)
     assert.match(action, /ok: synced\.links\.complete/)
@@ -674,8 +723,13 @@ describe("documents arriving in a room", () => {
   it("the webhook prepares links for the new document before notifying, and fails the event until they are ready", () => {
     const src = read(WEBHOOK)
     const handler = body(src, "handleDocumentEvent")
-    const prepare = handler.indexOf("prepareRoomLinks(dataroomId, { papermarkDocumentId: documentId })")
+    // Reconciliation works on a subscriber's whole room, so the webhook
+    // reconciles every assigned subscriber rather than one document; it only
+    // prepares what is still missing.
+    const prepare = handler.indexOf("prepareRoomLinks(dataroomId, { trigger: 'webhook' })")
     assert.ok(prepare > 0 && prepare < handler.indexOf("notifyNewDataRoomDocuments("))
+    const linked = handler.indexOf("autoCreatePublicationsForRoom(dataroomId)")
+    assert.ok(linked > 0 && linked < prepare, "the document is linked to its record first")
     assert.match(handler, /if \(!links\.complete\) \{[\s\S]*?throw new Error/)
   })
 
@@ -702,75 +756,143 @@ describe("documents arriving in a room", () => {
 
 describe("other paths that issue a room link", () => {
   const src = read(DATAROOMS)
-  it("Create Data Room link prepares the personal links, and withdraws a link it cannot record", () => {
-    const fn = body(src, "createSubscriberDataRoomLink")
-    assert.ok(fn.indexOf("ensureAllDocumentLinks(") > fn.indexOf("saveDataRoomLink("))
-    assert.match(fn, /revokeDataRoomLink\(result\.value\.linkId\)/)
+  // Deliberately changed: these paths no longer mint an unrestricted room link
+  // at all (so there is no unrecorded one to withdraw). Each assigns the room
+  // and reconciles, which issues the verified personal links.
+  it("Prepare library access and migration assign the room and prepare the personal links, creating no room link", () => {
+    for (const name of ["createSubscriberDataRoomLink", "migrateSubscriberToDataRoom"]) {
+      const fn = body(src, name)
+      assert.match(fn, /const admin = await require(Admin|Owner)\(\)/, `${name} authorises itself`)
+      const assign = fn.indexOf("assignDataRoomToSubscriber(sub.id, room.dataroomId)")
+      const reconcile = fn.indexOf('reconcileSubscriberAccess(sub.id, { trigger: "admin_repair" })')
+      assert.ok(assign > 0 && reconcile > assign, `${name} assigns the room, then reconciles`)
+      assert.doesNotMatch(fn, /createDataRoomLink\(|saveDataRoomLink\(/, `${name} creates no room link`)
+      assert.match(fn, /ok: reconciled\.state === "complete"/)
+    }
   })
 
   it("a level change reports the new room's links instead of swallowing them", () => {
     const fn = body(read(LIFECYCLE), "reassignDataRoomOnLevelChange")
-    assert.doesNotMatch(fn, /try \{ await ensureAllDocumentLinks\(sub\.id\) \} catch \{\}/)
-    assert.match(fn, /links = await ensureAllDocumentLinks\(sub\.id, \{ dataroomId: newRoom\.dataroomId \}\)/)
+    // Deliberately changed: nothing is revoked first and no room link is minted;
+    // reconciliation withdraws what the new room no longer holds.
+    assert.doesNotMatch(fn, /revokeAllDocumentLinks\(|revokeAllDataRoomLinks\(|createDataRoomLink\(|markLinkRevoked\(/)
+    const noRoom = fn.indexOf("if (!newRoom) return { action: 'no_room' }")
+    const assign = fn.indexOf("await assignDataRoomToSubscriber(sub.id, newRoom.dataroomId)")
+    assert.ok(noRoom > 0 && assign > noRoom, "without a new room the subscriber keeps what they have")
+    assert.ok(fn.indexOf("links = await reconcileSubscriberAccess(sub.id, { trigger: 'level_change' })") > assign)
     assert.match(read(SUBSCRIBERS), /linkNote = levelChangeLinkNote\(moved\)/)
+    // A reconciliation that could not run is reported, not swallowed.
+    assert.match(read(SUBSCRIBERS), /if \(!links\) \{\s*return " The new Data Room's personal document links could not be checked/)
+  })
+
+  it("only reconciliation issues a personal document link", () => {
+    for (const file of [SUBSCRIBERS, DATAROOMS, SERVICE, LIFECYCLE, WEBHOOK, "src/lib/subscriber-activation.ts"]) {
+      assert.doesNotMatch(read(file), /createDocumentLink\(/, `${file} never mints a personal link itself`)
+    }
+    assert.match(body(read(RECONCILE), "prepareAllowed"), /await createDocumentLink\(\{/)
   })
 })
 
 describe("who can be given a personal link", () => {
+  // The per-document service is gone: reconciliation is the only path that
+  // issues a link, and the access policy decides from what
+  // loadSubscriberAccess reads for the one subscriber id it is given.
   const src = read(SERVICE)
-  const loader = body(src, "loadSubscriberForDocLinks")
-  const ensure = body(src, "ensureAllDocumentLinks")
+  const loader = body(read(POLICY_DAL), "loadSubscriberAccess")
+  const reconcile = read(RECONCILE)
+  const prepare = body(reconcile, "prepareAllowed")
+
+  // A document the policy would otherwise allow: released, at L1, inside the paid period.
+  const owed = (over = {}) =>
+    decideAccess({
+      subscription: { state: "active", termStart: "2026-01-01", termEnd: "2026-12-31" },
+      level: "L1",
+      periods: [{ startsOn: "2026-01-01", endsOn: "2026-12-31", level: "L1" }],
+      periodsKnown: true,
+      exception: null,
+      publication: { publicationId: "p1", editionDate: "2026-03-01", visibility: "L1", series: "MIN", paidRelease: "released", editorialStatus: "published" },
+      ...over,
+    })
 
   it("only an active subscriber, read from the database by id -- or a pending one only when activation asks", () => {
-    // Activation may prepare any seat not yet active -- pending, or a lapsed,
-    // suspended or declined seat being reactivated; nothing else may.
-    assert.match(loader, /and \(lower\(s\.status\) = 'active' or \$\{allowPending\}::boolean\)/)
-    assert.match(src, /async function loadSubscriberForDocLinks\([^)]*allowPending = false,/)
-    assert.match(ensure, /loadSubscriberForDocLinks\(subscriberId, options\.allowPending === true\)/)
+    assert.match(loader, /if \(!UUID\.test\(subscriberId\)\) return \{ state: "not_found" \}/)
+    assert.match(loader, /where s\.id = \$\{subscriberId\}::uuid/)
+    // Activation may judge any seat not yet active as it will be once active; nothing else may.
+    assert.match(loader, /const status = options\.prospective && row\.status\.toLowerCase\(\) !== "active" \? "active" : row\.status/)
+    assert.match(body(read(LIFECYCLE), "ensureSubscriberLibraryAccess"), /prospective: args\.prospective === true/)
     // Only activation, which verifies before it activates, may prepare a pending subscriber.
     for (const file of ["src/app/actions/subscribers.ts", "src/app/actions/datarooms.ts", "src/app/actions/review-admin.ts"]) {
-      assert.doesNotMatch(read(file), /allowPending/, `${file} never prepares a pending subscriber`)
+      assert.doesNotMatch(read(file), /allowPending|prospective/, `${file} never prepares a pending subscriber`)
     }
-    assert.match(read("src/lib/subscriber-activation.ts"), /allowPending: !wasActive/)
-    assert.match(loader, /s\.client_type = 'subscriber'/)
-    assert.match(loader, /UUID\.test\(subscriberId\)/)
+    assert.match(read("src/lib/subscriber-activation.ts"), /prospective: !wasActive/)
+    // Anything but a current subscription is a confirmed exclusion.
+    assert.equal(owed().outcome, "allowed")
+    for (const state of ["inactive", "suspended", "expired", "not_started"]) {
+      assert.equal(owed({ subscription: { state } }).outcome, "excluded", `${state} is never issued a link`)
+    }
+    // An engagement client carries no level (schema), so it is never owed a paid link.
+    assert.notEqual(owed({ level: null }).outcome, "allowed")
+    assert.match(body(reconcile, "subscribersAssignedToRoom"), /s\.client_type = 'subscriber'/)
   })
 
   it("only inside their term and assigned room, without requiring an unrestricted room URL", () => {
-    assert.match(ensure, /if \(sub\.termEnded\) return notEligible/)
-    assert.doesNotMatch(ensure, /if \(!sub\.hasRoomLink\) return notEligible/)
-    assert.match(ensure, /getEligibleRoomDocumentsForSubscriber/)
-    assert.match(ensure, /options\.dataroomId !== sub\.dataroomId/)
-    assert.match(loader, /l\.revoke_state = 'live'/)
+    assert.deepEqual(owed({ subscription: { state: "expired" } }), { outcome: "excluded", reason: "subscription_ended" })
+    // The room is the assignment -- override, else level room, else stored room -- never a live room link.
+    assert.match(loader, /const roomId = row\.override_room \|\| row\.level_room \|\| row\.stored_room/)
+    assert.doesNotMatch(loader, /papermark_dataroom_links/)
+    assert.match(loader, /where dd\.papermark_dataroom_id = \$\{room\.dataroomId\} and dd\.is_present = true/)
+    assert.match(loader, /where subscriber_id = \$\{subscriberId\}::uuid and revoke_state = 'live'/)
+    // No caller can name a different room: the options carry none.
+    const options = reconcile.slice(reconcile.indexOf("export type ReconcileOptions"), reconcile.indexOf("export async function reconcileSubscriberAccess"))
+    assert.ok(options.length > 0)
+    assert.doesNotMatch(options, /dataroomId/)
+    // With no assigned room nothing is prepared.
+    const run = body(reconcile, "runOnce")
+    assert.ok(run.indexOf("if (!access.room) {") > 0 && run.indexOf("if (!access.room) {") < run.indexOf("prepareAllowed("))
   })
 
   it("links are named for the subscriber, watermarked with their email and expire with their term", () => {
-    assert.match(ensure, /assignedName: sub\.fullName/)
-    assert.match(ensure, /assignedEmail: sub\.email/)
-    assert.match(ensure, /watermarkText: subscriberWatermarkText\(sub\.email\)/)
-    assert.match(ensure, /expiresAt: sub\.termEnd/)
+    assert.match(prepare, /const termEnd = sub\.subscription\.termEnd/)
+    assert.match(prepare, /assignedName: sub\.fullName/)
+    assert.match(prepare, /assignedEmail: sub\.email/)
+    assert.match(prepare, /expiresAt: termEnd/)
+    // The recorded row carries the Subscriber Edition watermark, and is written
+    // only while this run's generation and lease still hold.
+    assert.match(prepare, /\$\{sub\.fullName\}, \$\{sub\.email\}, \$\{subscriberWatermarkText\(sub\.email\)\}/)
+    assert.match(prepare, /where exists \([\s\S]*?r\.generation = \$\{fence\.generation\}[\s\S]*?r\.lease_token = \$\{fence\.token\}::uuid/)
   })
 
   it("the service is server-only and the decision module imports nothing", () => {
-    assert.match(src, /^import 'server-only'/)
+    for (const file of [SERVICE, RECONCILE, POLICY_DAL]) {
+      assert.match(read(file), /^import ["']server-only["']/, `${file} is server-only`)
+    }
     assert.doesNotMatch(read("src/lib/personal-links.ts"), /^import /m)
   })
 
   it("the old single-document helper that could leave an untracked link is gone", () => {
     assert.doesNotMatch(src, /export async function ensureDocumentLink\(/)
+    // So is the per-subscriber issuer that bypassed reconciliation.
+    assert.doesNotMatch(src, /export async function ensureAllDocumentLinks\(/)
   })
 })
 
 describe("Admin visibility", () => {
-  it("the subscriber page shows each missing link and offers owners Check and repair", () => {
+  it("the subscriber page shows each missing link and offers owners Repair document links", () => {
     const panel = read("src/components/DataRoomPanel.tsx")
-    assert.match(panel, /Check and repair document links/)
+    assert.match(panel, /Repair document links/)
     assert.match(panel, /prepareDocumentLinks\(subscriberId\)/)
     assert.match(panel, /Missing: /)
-    assert.match(panel, /confirmed with Papermark only when Check and repair runs/)
+    // A recorded link is only a record: Papermark confirms it when repair runs.
+    assert.match(panel, /Repair document\s+links confirms each one with Papermark/)
     const page = read("src/app/admin/subscribers/[id]/page.tsx")
     assert.match(page, /canRepair=\{admin\.role === "owner"\}/)
-    assert.match(page, /getPersonalLinkStatus\(row\.id\)/)
+    // The counts are the policy's permitted documents for this subscriber, not every document in the room.
+    assert.match(page, /const snapshot = await loadSubscriberAccess\(row\.id\)/)
+    assert.match(page, /snapshot\.documents\.filter\(\(d\) => d\.decision\.outcome === "allowed"\)/)
+    // The per-document reasons and the owner-only repair form sit beside it.
+    assert.match(page, /<AccessPanel subscriberId=\{row\.id\} canRepair=\{admin\.role === "owner"\} \/>/)
+    assert.match(read("src/app/admin/subscribers/[id]/access-panel.tsx"), /\{canRepair && <RepairForm subscriberId=\{subscriberId\} \/>\}/)
+    assert.match(body(read(SUBSCRIBERS), "reconcilePublicationAccess"), /await requireOwner\(\)/)
   })
 
   it("the page hands the panel titles and counts, never a personal link", () => {

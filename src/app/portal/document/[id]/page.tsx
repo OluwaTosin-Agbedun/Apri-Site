@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { requirePortalPrincipal } from "@/lib/subscriber-dal"
 import { tierDisplayName } from "@/lib/entitlements"
 import {
@@ -8,6 +8,7 @@ import {
 } from "@/lib/papermark-client-library"
 import { papermarkEmbedUrl, papermarkDocumentEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
+import { hasAssignedDataRoom } from "@/lib/access-policy-dal"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import SiteFooter from "@/components/SiteFooter"
 import PortalHeader from "@/components/PortalHeader"
@@ -27,7 +28,7 @@ export default async function PortalDocumentPage({
   params: Promise<{ id: string }>
 }) {
   const principal = await requirePortalPrincipal()
-  if (!principal.hasAccess) notFound()
+  if (!principal.hasAccess) redirect("/portal")
 
   const { id } = await params
   const decodedId = decodeURIComponent(id)
@@ -50,6 +51,9 @@ export default async function PortalDocumentPage({
     }
   }
 
+  // The client-folder library is only for a subscriber with no Data Room: a
+  // Data Room subscriber never falls back to another library.
+  if (principal.type === "subscriber" && (await hasAssignedDataRoom(principal.id))) notFound()
   const document = await getSyncedClientDocument(principal, decodedId)
   if (!document) notFound()
 
@@ -231,7 +235,9 @@ async function DataRoomDocumentView({
         ) : (
           <div className="border border-border bg-card/30 p-8" role="alert">
             <p className="text-sm text-foreground/70 leading-relaxed">
-              Document viewer unavailable. Your personal link is being prepared.
+              {documentLinkUrl
+                ? "Document viewer unavailable. Your personal link is being prepared."
+                : "Your access to this document is being prepared. Please try again shortly."}
             </p>
             {documentLinkUrl && (
               <a

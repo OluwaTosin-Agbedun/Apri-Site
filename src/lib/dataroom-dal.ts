@@ -778,36 +778,6 @@ export async function getRoomDocumentsForLinks(
   return rows.map((r) => ({ papermarkDocumentId: r.papermark_document_id, title: r.title ?? '' }))
 }
 
-/** Present room documents that the named subscriber may receive right now. */
-export async function getEligibleRoomDocumentsForSubscriber(
-  subscriberId: string,
-  dataroomId: string,
-  allowPending = false,
-): Promise<{ papermarkDocumentId: string; title: string }[]> {
-  const sql = getSql()
-  const {editionEntitlementSchemaReady}=await import('./edition-entitlement-schema')
-  if(!(await editionEntitlementSchemaReady(sql)))return []
-  const rows = (await sql`
-    select dd.papermark_document_id, dd.title
-    from papermark_dataroom_documents dd
-    join documents d on d.id=dd.publication_id
-    join subscribers s on s.id=${subscriberId}::uuid
-    where dd.papermark_dataroom_id=${dataroomId} and dd.is_present=true
-      and (lower(s.status)='active' or ${allowPending}::boolean) and s.term_start is not null and current_date between s.term_start and s.term_end
-      and d.status='published' and d.edition_date is not null and d.visibility<>'OPEN'
-      and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end
-          <= case s.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end
-      and not exists(select 1 from subscriber_publication_exceptions x where x.subscriber_id=s.id and x.publication_id=d.id and x.decision='block')
-      and (exists(select 1 from subscriber_publication_exceptions x where x.subscriber_id=s.id and x.publication_id=d.id and x.decision='allow')
-        or exists(select 1 from subscriber_subscription_periods p where p.subscriber_id=s.id
-          and d.edition_date between p.starts_on and p.ends_on
-          and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end
-              <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
-    order by d.edition_date, dd.title
-  `) as { papermark_document_id:string; title:string|null }[]
-  return rows.map((r)=>({papermarkDocumentId:r.papermark_document_id,title:r.title ?? ''}))
-}
-
 export type LivePersonalLink = {
   rowId: string
   papermarkDocumentId: string
@@ -931,38 +901,28 @@ export async function getPersonalLinkStatus(subscriberId: string): Promise<Perso
 }
 
 /**
- * Per Data Room: how many documents active subscribers holding a live room
- * link can see but have no personal link for, and how many subscribers that
- * affects. A room with no gaps is absent from the map.
+ * Per Data Room: how many permitted documents its subscribers have no personal
+ * link for yet, and how many subscribers that affects -- decided by the access
+ * policy, not by who holds a room share link. A room with no gaps is absent.
  */
 export async function getPersonalLinkGaps(): Promise<Map<string, { missing: number; subscribers: number }>> {
   const sql = getSql()
+  const { loadSubscriberAccess } = await import("./access-policy-dal")
   const rows = (await sql`
-    select dd.papermark_dataroom_id as dataroom_id,
-           count(*)::int as missing,
-           count(distinct s.id)::int as subscribers
-    from subscribers s
-    join papermark_dataroom_documents dd
-      on dd.papermark_dataroom_id = coalesce(s.papermark_dataroom_override, s.papermark_dataroom_id)
-     and dd.is_present = true
-    where s.client_type = 'subscriber'
-      and lower(s.status) = 'active'
-      and (s.term_end is null or s.term_end >= current_date)
-      and exists (
-        select 1 from papermark_dataroom_links l
-        where l.subscriber_id = s.id
-          and l.papermark_dataroom_id = dd.papermark_dataroom_id
-          and l.revoke_state = 'live'
-      )
-      and not exists (
-        select 1 from papermark_subscriber_document_links dl
-        where dl.subscriber_id = s.id
-          and dl.papermark_document_id = dd.papermark_document_id
-          and dl.revoke_state = 'live'
-      )
-    group by dd.papermark_dataroom_id
-  `) as { dataroom_id: string; missing: number; subscribers: number }[]
-  return new Map(rows.map((r) => [r.dataroom_id, { missing: r.missing, subscribers: r.subscribers }]))
+    select id from subscribers where client_type = 'subscriber' and lower(status) = 'active' limit 500
+  `) as { id: string }[]
+  const gaps = new Map<string, { missing: number; subscribers: number }>()
+  for (const { id } of rows) {
+    const access = await loadSubscriberAccess(id)
+    if (access.state !== "ok" || !access.room) continue
+    const missing = access.documents.filter((d) => d.delivery === "preparing").length
+    if (missing === 0) continue
+    const entry = gaps.get(access.room.dataroomId) ?? { missing: 0, subscribers: 0 }
+    entry.missing += missing
+    entry.subscribers += 1
+    gaps.set(access.room.dataroomId, entry)
+  }
+  return gaps
 }
 
 function mapDocLinkRow(r: Record<string, unknown>): DocumentLinkRecord {

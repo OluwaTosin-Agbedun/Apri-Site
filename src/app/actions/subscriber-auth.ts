@@ -29,6 +29,8 @@
 // been activated, or has been suspended deliberately, should not learn its
 // own state from an automated message.
 
+import { readSubscriberTerm } from "@/lib/subscriber-principal"
+import { signInDecision } from "@/lib/subscription-term"
 import { redirect } from "next/navigation"
 import { headers } from "next/headers"
 import * as z from "zod"
@@ -90,28 +92,12 @@ export async function requestSignInLink(
     values (${key}, ${ip}, false)
   `
 
-  const rows = (await sql`
-    select id, email, full_name, name, status, term_end
-    from subscribers
-    where lower(email) = ${email}
-    limit 1
-  `) as {
-    id: string
-    email: string
-    full_name: string | null
-    name: string
-    status: string
-    term_end: string | null
-  }[]
-
-  const subscriber = rows[0]
+  const subscriber = await readSubscriberTerm({ email })
   if (!subscriber) return NEUTRAL
 
-  const status = subscriber.status.toLowerCase()
-  const termEnd = subscriber.term_end
-  const termCurrent = !termEnd || new Date(termEnd) >= startOfToday()
-  const fullName = subscriber.full_name || subscriber.name || ""
-  if (status === "active" && termCurrent) {
+  const fullName = subscriber.fullName
+  const decision = signInDecision(subscriber.subscription)
+  if (decision.ok) {
     const token = await issueToken(subscriber.id)
     try {
       await sendSignInLink({ subscriberId:subscriber.id, email: subscriber.email, fullName, token })
@@ -119,7 +105,8 @@ export async function requestSignInLink(
     return NEUTRAL
   }
 
-  if (status === "active" || status === "lapsed") {
+  // Only a subscription that has genuinely ended is told about renewal.
+  if (subscriber.subscription.state === "expired") {
     try {
       await sendLapsedNotice({ email: subscriber.email, fullName })
     } catch {}
@@ -132,7 +119,3 @@ export async function subscriberSignOut(): Promise<void> {
   redirect("/portal/sign-in")
 }
 
-function startOfToday(): Date {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
-}

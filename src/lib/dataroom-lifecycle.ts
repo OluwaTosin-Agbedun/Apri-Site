@@ -2,26 +2,18 @@ import 'server-only'
 import { getSql } from './db'
 import {
   resolveDataRoom,
-  getDataRoomLink,
-  saveDataRoomLink,
   markLinkRevoked,
   recordAssignment,
   assignDataRoomToSubscriber,
 } from './dataroom-dal'
+import { revokeDataRoomLink, updateDataRoomLink } from './papermark-datarooms'
+import { revokeAllDocumentLinks, updateDocumentLinkExpiry } from './document-links'
 import {
-  createDataRoomLink,
-  revokeDataRoomLink,
-  updateDataRoomLink,
-} from './papermark-datarooms'
-import { subscriberWatermarkText } from './papermark-dataroom-contract'
-import {
-  revokeAllDocumentLinks,
-  ensureAllDocumentLinks,
-  updateDocumentLinkExpiry,
-  type NotEligibleReason,
-  type SubscriberLinkOutcome,
-} from './document-links'
-import { describePersonalLinks } from './personal-links'
+  queueSubscriberAccessReconciliation,
+  reconcileSubscriberAccess,
+  type ReconcileResult,
+  type ReconcileTrigger,
+} from './subscriber-access-reconciliation'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -39,7 +31,7 @@ async function loadSubscriber(subscriberId: string): Promise<SubscriberRow | nul
   if (!UUID.test(subscriberId)) return null
   const sql = getSql()
   const rows = (await sql`
-    select id, full_name, email, public_tier, term_end,
+    select id, full_name, email, public_tier, to_char(term_end, 'YYYY-MM-DD') as term_end,
            papermark_dataroom_id, papermark_dataroom_override
     from subscribers where id = ${subscriberId} and client_type = 'subscriber' limit 1
   `) as SubscriberRow[]
@@ -47,11 +39,15 @@ async function loadSubscriber(subscriberId: string): Promise<SubscriberRow | nul
 }
 
 /**
- * Reassigns a subscriber's Data Room when their level changes.
+ * Moves a subscriber to their new level's Data Room when their level changes.
  *
- * If the old and new levels map to the same room, the link is left alone.
- * Otherwise the old link is revoked and a new one created for the new room.
- * An override trumps the level mapping and is never touched by this.
+ * Nothing is revoked first. The record is pointed at the new room and one
+ * reconciliation settles the rest from the access policy: it issues and
+ * verifies the new room's links, withdraws links to documents that are no
+ * longer in the subscriber's room, and only then retires an unrestricted room
+ * link. If the new level has no room, the subscriber keeps what they have and
+ * the result says so. An override trumps the level mapping and is never
+ * touched by this.
  */
 export async function reassignDataRoomOnLevelChange(args: {
   subscriberId: string
@@ -60,115 +56,60 @@ export async function reassignDataRoomOnLevelChange(args: {
   changedById: string
   changedByName: string
 }): Promise<{
-  action: 'reassigned' | 'revoked' | 'created' | 'unchanged' | 'skipped'
-  /** The new room's personal links. Undefined when they could not be checked at all. */
-  links?: SubscriberLinkOutcome
+  action: 'reassigned' | 'created' | 'unchanged' | 'skipped' | 'no_room'
+  /** The reconciliation that settled the new room. Undefined when none ran. */
+  links?: ReconcileResult
 }> {
   const sub = await loadSubscriber(args.subscriberId)
   if (!sub) return { action: 'skipped' }
-
   if (sub.papermark_dataroom_override) return { action: 'skipped' }
 
-  const oldRoom = args.oldPublicTier
-    ? await resolveDataRoom({ subscriberId: sub.id, publicTier: args.oldPublicTier })
-    : null
-  const newRoom = args.newPublicTier
-    ? await resolveDataRoom({ subscriberId: sub.id, publicTier: args.newPublicTier })
-    : null
-
-  if (oldRoom?.dataroomId === newRoom?.dataroomId) return { action: 'unchanged' }
-
-  if (oldRoom) {
-    const oldLink = await getDataRoomLink({ subscriberId: sub.id, dataroomId: oldRoom.dataroomId })
-    if (oldLink) {
-      await revokeDataRoomLink(oldLink.papermarkLinkId)
-      await markLinkRevoked(oldLink.id)
-      await recordAssignment({
-        subscriberId: sub.id,
-        previousDataroomId: oldRoom.dataroomId,
-        previousLinkId: oldLink.papermarkLinkId,
-        reason: `Level changed from ${args.oldPublicTier ?? 'none'} to ${args.newPublicTier ?? 'none'}`,
-        changedById: args.changedById,
-        changedByName: args.changedByName,
-      })
-    }
-    await revokeAllDocumentLinks(sub.id)
+  const oldRoom = args.oldPublicTier ? await resolveDataRoom({ publicTier: args.oldPublicTier }) : null
+  const newRoom = args.newPublicTier ? await resolveDataRoom({ publicTier: args.newPublicTier }) : null
+  if (oldRoom?.dataroomId === newRoom?.dataroomId && sub.papermark_dataroom_id === (newRoom?.dataroomId ?? sub.papermark_dataroom_id)) {
+    return { action: 'unchanged' }
   }
-
-  if (!newRoom) {
-    return oldRoom ? { action: 'revoked' } : { action: 'unchanged' }
-  }
-
-  if (!sub.term_end) return oldRoom ? { action: 'revoked' } : { action: 'skipped' }
-
-  const result = await createDataRoomLink({
-    dataroomId: newRoom.dataroomId,
-    assignedName: sub.full_name,
-    assignedEmail: sub.email,
-    expiresAt: sub.term_end,
-  })
-
-  if (!result.ok) return oldRoom ? { action: 'revoked' } : { action: 'skipped' }
-
-  await saveDataRoomLink({
-    subscriberId: sub.id,
-    dataroomId: newRoom.dataroomId,
-    papermarkLinkId: result.value.linkId,
-    linkUrl: result.value.url,
-    assignedName: sub.full_name,
-    assignedEmail: sub.email,
-    watermarkEnabled: true,
-    watermarkText: subscriberWatermarkText(sub.email),
-    allowDownload: result.value.settings.allow_download,
-    screenshotProtection: result.value.settings.enable_screenshot_protection,
-    expiresAt: result.value.settings.expires_at,
-  })
+  if (!newRoom) return { action: 'no_room' }
 
   await assignDataRoomToSubscriber(sub.id, newRoom.dataroomId)
-
   await recordAssignment({
     subscriberId: sub.id,
+    previousDataroomId: oldRoom?.dataroomId,
     newDataroomId: newRoom.dataroomId,
-    newLinkId: result.value.linkId,
-    reason: `Level changed to ${args.newPublicTier}`,
+    reason: `Level changed from ${args.oldPublicTier ?? 'none'} to ${args.newPublicTier}`,
     changedById: args.changedById,
     changedByName: args.changedByName,
   })
 
-  // The new room link is not enough on its own: every card needs its personal
-  // link. The outcome goes back to the caller to report, not into a catch.
-  let links: SubscriberLinkOutcome | undefined
+  let links: ReconcileResult | undefined
   try {
-    links = await ensureAllDocumentLinks(sub.id, { dataroomId: newRoom.dataroomId })
-    const {queueSubscriberAccessReconciliation,reconcileSubscriberAccess}=await import('./subscriber-access-reconciliation')
-    await queueSubscriberAccessReconciliation(sub.id)
-    const reconciled=await reconcileSubscriberAccess(sub.id)
-    if(reconciled.state!=="complete")links=undefined
+    await queueSubscriberAccessReconciliation(sub.id, 'level_change')
+    links = await reconcileSubscriberAccess(sub.id, { trigger: 'level_change' })
   } catch {
     links = undefined
   }
-
   return oldRoom ? { action: 'reassigned', links } : { action: 'created', links }
 }
 
 export type LibraryAccess =
-  /** The level has no Data Room, so there is nothing of a room's to prepare. */
+  /** No Data Room is assigned: there is nothing of a room's to prepare. */
   | { state: 'no_room' }
-  /** The subscriber holds no room link and none was to be created: not on Data Rooms. */
-  | { state: 'no_room_link' }
-  | { state: 'ready'; message: string }
-  | { state: 'incomplete'; message: string }
-  | { state: 'blocked'; message: string; reason?: NotEligibleReason }
+  | { state: 'ready'; message: string; result: ReconcileResult }
+  | { state: 'incomplete'; message: string; result: ReconcileResult }
+  | { state: 'blocked'; message: string }
 
 /**
  * Makes sure a subscriber's Data Room library opens before anything tells them
- * it is open: their room link, and a personal link -- checked with Papermark --
- * for every document it lists.
+ * it is open: their room recorded on their record, then one reconciliation
+ * that issues and verifies a personal link for every document the access
+ * policy permits them. No unrestricted room link is created.
  *
- * `createRoomLink` is for activation, which issues the room link when there is
- * none. Without it (a resent sign-in email) a subscriber with no room link is
- * left as they are: they are on the legacy library, with nothing of a room's to
- * prepare.
+ * `prospective` is for activation: the pending seat is judged as it will be
+ * once active, so its library is ready before the status changes.
+ *
+ * Ready means every permitted document is verified. Documents still awaiting a
+ * release decision or publication details do not hold the library back; an
+ * access check that could not run at all does.
  *
  * Never sends email. The caller decides what `incomplete` and `blocked` mean
  * for the email it was about to send.
@@ -176,12 +117,8 @@ export type LibraryAccess =
 export async function ensureSubscriberLibraryAccess(args: {
   subscriberId: string
   publicTier: string
-  assignedName: string
-  assignedEmail: string
-  termEnd: string | Date | null
-  createRoomLink: boolean
-  /** Activation only: prepare a subscriber who is not active yet. */
-  allowPending?: boolean
+  prospective?: boolean
+  trigger: ReconcileTrigger
   changedById: string
   changedByName: string
 }): Promise<LibraryAccess> {
@@ -193,91 +130,27 @@ export async function ensureSubscriberLibraryAccess(args: {
   }
   if (!room) return { state: 'no_room' }
 
-  let existing: Awaited<ReturnType<typeof getDataRoomLink>>
   try {
-    existing = await getDataRoomLink({ subscriberId: args.subscriberId, dataroomId: room.dataroomId })
-  } catch {
-    return { state: 'blocked', message: 'The Data Room link could not be checked. Try again.' }
-  }
-
-  let note = ''
-  if (!existing) {
-    if (!args.createRoomLink) return { state: 'no_room_link' }
-
-    const minted = await createDataRoomLink({
-      dataroomId: room.dataroomId,
-      assignedName: args.assignedName,
-      assignedEmail: args.assignedEmail,
-      expiresAt: args.termEnd,
-    })
-    if (!minted.ok) {
-      return { state: 'blocked', message: `The Data Room link could not be created: ${minted.message}` }
-    }
-
-    try {
-      await saveDataRoomLink({
-        subscriberId: args.subscriberId,
-        dataroomId: room.dataroomId,
-        papermarkLinkId: minted.value.linkId,
-        linkUrl: minted.value.url,
-        assignedName: args.assignedName,
-        assignedEmail: args.assignedEmail,
-        watermarkEnabled: true,
-        watermarkText: subscriberWatermarkText(args.assignedEmail),
-        allowDownload: minted.value.settings.allow_download,
-        screenshotProtection: minted.value.settings.enable_screenshot_protection,
-        expiresAt: minted.value.settings.expires_at,
-      })
-    } catch {
-      // Minted but not recorded: withdrawn again, so no working room link is
-      // left that nothing tracks or revokes.
-      const withdrawn = await revokeDataRoomLink(minted.value.linkId)
-      return {
-        state: 'blocked',
-        message: withdrawn.ok
-          ? 'The new Data Room link could not be recorded, so it was withdrawn again. Try again.'
-          : 'The new Data Room link could not be recorded or withdrawn. Revoke it in Papermark by name, then try again.',
-      }
-    }
-
-    try {
+    const sub = await loadSubscriber(args.subscriberId)
+    if (sub && sub.papermark_dataroom_id !== room.dataroomId) {
       await assignDataRoomToSubscriber(args.subscriberId, room.dataroomId)
       await recordAssignment({
         subscriberId: args.subscriberId,
+        previousDataroomId: sub.papermark_dataroom_id ?? undefined,
         newDataroomId: room.dataroomId,
-        newLinkId: minted.value.linkId,
-        reason: 'Auto-created on activation',
+        reason: args.trigger === 'activation' ? 'Assigned on activation' : 'Assigned while preparing access',
         changedById: args.changedById,
         changedByName: args.changedByName,
       })
-    } catch {
-      return {
-        state: 'blocked',
-        message: 'The Data Room link was created, but its assignment could not be recorded. Try again.',
-      }
-    }
-    note = 'Data Room link created. '
-  }
-
-  let outcome: SubscriberLinkOutcome
-  try {
-    const linkOptions = { verify: true, dataroomId: room.dataroomId, allowPending: args.allowPending === true }
-    outcome = await ensureAllDocumentLinks(args.subscriberId, linkOptions)
-    if (outcome.state === 'not_eligible' && outcome.reason === 'no_room') {
-      // The room link exists but was never assigned: an earlier attempt stopped
-      // between the two. Finished here, so a retry cannot stall on it.
-      await assignDataRoomToSubscriber(args.subscriberId, room.dataroomId)
-      outcome = await ensureAllDocumentLinks(args.subscriberId, linkOptions)
     }
   } catch {
-    return { state: 'blocked', message: `${note}The personal document links could not be checked. Try again.` }
+    return { state: 'blocked', message: 'The Data Room assignment could not be recorded. Try again.' }
   }
 
-  if (outcome.state === 'not_eligible') {
-    return { state: 'blocked', message: `${note}${outcome.message}`, reason: outcome.reason }
-  }
-  const message = `${note}${describePersonalLinks(outcome.report)}`
-  return outcome.report.complete ? { state: 'ready', message } : { state: 'incomplete', message }
+  const result = await reconcileSubscriberAccess(args.subscriberId, { trigger: args.trigger, prospective: args.prospective === true })
+  if (result.state === 'complete') return { state: 'ready', message: result.message, result }
+  if (result.state === 'failed' && result.outcome === 'partial') return { state: 'incomplete', message: result.message, result }
+  return { state: 'blocked', message: result.message }
 }
 
 /**
@@ -337,10 +210,10 @@ export async function updateDataRoomLinkExpiry(args: {
   const sql = getSql()
 
   const links = (await sql`
-    select id, papermark_link_id, assigned_name, assigned_email
+    select id, papermark_link_id, assigned_name, assigned_email, allow_download
     from papermark_dataroom_links
     where subscriber_id = ${args.subscriberId}::uuid and revoke_state = 'live'
-  `) as { id: string; papermark_link_id: string; assigned_name: string; assigned_email: string }[]
+  `) as { id: string; papermark_link_id: string; assigned_name: string; assigned_email: string; allow_download: boolean }[]
 
   let count = 0
   for (const link of links) {
@@ -349,6 +222,7 @@ export async function updateDataRoomLinkExpiry(args: {
       assignedName: link.assigned_name,
       assignedEmail: link.assigned_email,
       expiresAt: args.newTermEnd,
+      allowDownload: link.allow_download,
     })
 
     if (result.ok) {

@@ -20,6 +20,7 @@ import {
   tierNameForVisibility,
   levelForPublicTier,
 } from '../src/lib/entitlements.ts'
+import { decideAccess } from '../src/lib/access-policy.ts'
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
@@ -323,9 +324,46 @@ test('Papermark sync route is retired (Phase 3)', () => {
 // 15. Subscriber DAL uses visibilitiesForLevel
 // ---------------------------------------------------------------------------
 
+// The library no longer filters with its own `visibility in visibilitiesForLevel`
+// SQL: getLibraryFor now takes the one access decision (decideAccess, via
+// loadLegacyPublicationAccess). The guarantee is unchanged -- a subscriber's
+// library holds exactly the canonical levels for their level, never OPEN and
+// never above -- so it is checked against visibilitiesForLevel directly.
 test('subscriber library query uses visibilitiesForLevel', () => {
-  const src = read('src/lib/subscriber-dal.ts')
-  assert.match(src, /visibilitiesForLevel/)
+  const dal = read('src/lib/subscriber-dal.ts')
+  assert.match(dal, /loadLegacyPublicationAccess\(subscriber\.id\)/)
+  assert.doesNotMatch(dal, /visibility\s+in\s*\(/i, 'no second, hand-written level filter')
+
+  const policyDal = read('src/lib/access-policy-dal.ts')
+  const legacy = policyDal.slice(policyDal.indexOf('export async function loadLegacyPublicationAccess'))
+  assert.match(legacy, /decideAccess\(/)
+  assert.match(legacy, /visibility <> 'OPEN'/)
+
+  const policy = read('src/lib/access-policy.ts')
+  assert.match(policy, /import \{[^}]*\bisEntitled\b[^}]*\} from "\.\/entitlements\.ts"/)
+
+  const decide = (level, visibility, exception = null) =>
+    decideAccess({
+      subscription: { state: 'active', termStart: '2026-01-01', termEnd: '2026-12-31' },
+      level,
+      periods: [{ startsOn: '2026-01-01', endsOn: '2026-12-31', level }],
+      periodsKnown: true,
+      exception,
+      publication: {
+        publicationId: 'p1',
+        editionDate: '2026-03-01',
+        visibility,
+        series: 'MIN',
+        paidRelease: 'released',
+        editorialStatus: 'published',
+      },
+    }).outcome
+  for (const level of LEVELS) {
+    for (const exception of [null, 'allow']) {
+      const allowed = [...LEVELS, 'OPEN'].filter((v) => decide(level, v, exception) === 'allowed')
+      assert.deepEqual(allowed, visibilitiesForLevel(level), `${level} (exception ${exception})`)
+    }
+  }
 })
 
 // ---------------------------------------------------------------------------

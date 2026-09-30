@@ -1,3 +1,5 @@
+import { readSubscriberTerm } from "./subscriber-principal"
+import { signInDecision } from "./subscription-term"
 import "server-only"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { getSql } from "./db"
@@ -153,7 +155,7 @@ export type SignInResult = {
   principalType: "subscriber"
 } | {
   ok: false
-  reason: "invalid" | "expired" | "used" | "inactive" | "subscription-expired"
+  reason: "invalid" | "expired" | "used" | "inactive" | "suspended" | "subscription-expired"
 }
 
 async function failedTokenReason(hash: string): Promise<SignInResult> {
@@ -194,28 +196,17 @@ export async function signInWithToken(token: string): Promise<SignInResult> {
   // fifteen minutes since the link was sent must not still let its holder in.
   if (principal.type !== "subscriber") return { ok: false, reason: "inactive" }
 
-  const rows = (await sql`
-    select id, status, term_end from subscribers where id = ${principal.id} limit 1
-  `) as { id: string; status: string; term_end: string | null }[]
-
-  const subscriber = rows[0]
+  // Status and term only, in Lagos days (src/lib/subscription-term.ts). Which
+  // documents the subscription covers, and whether their links are ready, are
+  // the portal's to explain -- never a reason to refuse a valid sign-in.
+  const subscriber = await readSubscriberTerm({ id: principal.id })
   if (!subscriber) return { ok: false, reason: "invalid" }
-
-  const status = subscriber.status.toLowerCase()
-  const termCurrent =
-    !subscriber.term_end || new Date(subscriber.term_end) >= startOfToday()
-
-  if (status !== "active") return { ok: false, reason: "inactive" }
-  if (!termCurrent) return { ok: false, reason: "subscription-expired" }
+  const decision = signInDecision(subscriber.subscription)
+  if (!decision.ok) return { ok: false, reason: decision.reason }
 
   await createSubscriberSession(subscriber.id, "subscriber")
   try { await recordClientEvent({type:"subscriber",id:subscriber.id},"signin_completed") } catch {}
   return { ok: true, principalType: "subscriber" }
-}
-
-function startOfToday(): Date {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
 }
 
 /** Housekeeping: drop spent and expired tokens. Safe to call at any time. */

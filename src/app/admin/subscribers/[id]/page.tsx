@@ -2,18 +2,18 @@ import { notFound } from "next/navigation"
 import { requireAdmin } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
-import { getReachMonths } from "@/lib/provisioning"
 import SubscriberForm, { type SubscriberDraft } from "./subscriber-form"
 import SeatActions from "../seat-actions"
 import DataRoomPanel from "@/components/DataRoomPanel"
-import { resolveDataRoom, getDataRoomLink, getPersonalLinkStatus } from "@/lib/dataroom-dal"
+import { resolveDataRoom, getDataRoomLink } from "@/lib/dataroom-dal"
 import { portalSignInUrl } from "@/lib/app-url"
 import { decidePortalLinkCopy } from "@/lib/portal-link-copy"
 import CopyPortalLink from "./copy-portal-link"
 import { getOnboardingStatus, onboardingStatusLabel } from "@/lib/subscriber-onboarding"
-import PublicationAccessControl from "./publication-access-control"
-import { reconcilePublicationAccess } from "@/app/actions/subscribers"
-import { editionEntitlementSchemaReady, EDITION_ENTITLEMENT_MIGRATION_PENDING } from "@/lib/edition-entitlement-schema"
+import AccessPanel from "./access-panel"
+import { loadSubscriberAccess } from "@/lib/access-policy-dal"
+import { portalDocumentTitle } from "@/lib/papermark-dataroom-contract"
+import { expiryProblem } from "@/lib/personal-links"
 
 export const dynamic = "force-dynamic"
 
@@ -112,7 +112,6 @@ export default async function EditSubscriberPage({
   const row = rows[0]
   if (!row) notFound()
 
-  const reachMonths = await getReachMonths()
 
   // Published editions this person could be granted, and whether they already
   // hold a live copy. Board papers included: an engagement client's paper is
@@ -147,40 +146,28 @@ export default async function EditSubscriberPage({
     ? await getDataRoomLink({ subscriberId: row.id, dataroomId: room.dataroomId })
     : null
 
-  // What the database records, labelled as such on the page: a stored link is
-  // not called working until Check and repair has confirmed it with Papermark.
-  const linkStatus = drLink ? await getPersonalLinkStatus(row.id) : null
+  // Personal links for the documents the access policy permits -- not for
+  // every document in the room, most of which a subscriber may not be owed.
+  const snapshot = await loadSubscriberAccess(row.id)
+  const permitted = snapshot.state === "ok" ? snapshot.documents.filter((d) => d.decision.outcome === "allowed") : []
+  // Titles as the portal shows them; expiries checked against the term as recorded.
+  const portalTitle = (d: (typeof permitted)[number]) =>
+    portalDocumentTitle({ syncedName: d.fileTitle, editorialTitle: d.editorialTitle, editorialTitleIsOverride: d.titleOverride })
   const personalLinks =
-    linkStatus && linkStatus.hasRoomLink
+    snapshot.state === "ok" && snapshot.room
       ? {
-          total: linkStatus.documents.length,
-          linked: linkStatus.documents.filter((d) => d.linked).length,
-          missing: linkStatus.documents.filter((d) => !d.linked).map((d) => d.title || "Untitled document"),
-          expiryIssues: linkStatus.documents
-            .filter((d) => d.expiryProblem)
-            .map((d) => d.title || "Untitled document"),
+          total: permitted.length,
+          linked: permitted.filter((d) => d.link).length,
+          missing: permitted.filter((d) => !d.link).map(portalTitle),
+          expiryIssues: permitted
+            .filter((d) => d.link && expiryProblem(d.link.expiresAt, snapshot.subscriber.subscription.termEnd))
+            .map(portalTitle),
+          roomDocuments: snapshot.documents.length,
         }
       : null
 
   const status = row.status.toLowerCase()
   const onboarding = await getOnboardingStatus(row.id)
-  const entitlementReady=await editionEntitlementSchemaReady(sql)
-  const publications = entitlementReady ? (await sql`
-    select d.id, d.title, d.series, d.edition_date, x.decision,
-      case
-        when lower(${status}) <> 'active' or ${row.term_end}::date < current_date then 'inactive subscription'
-        when d.edition_date is null then 'missing metadata'
-        when x.decision = 'block' then 'manually blocked'
-        when x.decision = 'allow' then 'manually allowed'
-        when exists(select 1 from subscriber_subscription_periods p where p.subscriber_id=${row.id}::uuid and d.edition_date between p.starts_on and p.ends_on) then 'within covered dates'
-        when d.edition_date < (select min(starts_on) from subscriber_subscription_periods p where p.subscriber_id=${row.id}::uuid) then 'before coverage'
-        else 'uncovered gap' end as reason,
-      coalesce((select state from subscriber_access_reconciliations where subscriber_id=${row.id}::uuid),'pending') as enforcement
-    from documents d left join subscriber_publication_exceptions x on x.publication_id=d.id and x.subscriber_id=${row.id}::uuid
-    where d.status='published' and d.visibility <> 'OPEN'
-    order by d.edition_date desc nulls last
-  `) as { id:string; title:string; series:string; edition_date:string|null; decision:string|null; reason:string; enforcement:string }[] : []
-
   // This subscriber's own latest access email that Resend accepted, and
   // whether it later bounced. Filtered by this record's id only, so another
   // subscriber's delivery can never unlock the button here.
@@ -255,13 +242,8 @@ export default async function EditSubscriberPage({
           />
         )}
         <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground leading-relaxed max-w-xl">
-          Entitlement reaches back {reachMonths} month
-          {reachMonths === 1 ? "" : "s"} from today
-          {row.term_start
-            ? `, or to ${new Date(row.term_start).toLocaleDateString("en-GB")} if that is later.`
-            : ", or to their term start if that is later."}{" "}
-          Editions published before that are not owed and will not appear in
-          Copies needed.
+          Which editions this subscriber receives is decided by their paid periods and each edition&rsquo;s date,
+          release and level, with any individual Allow or Block: see Document access below.
         </p>
       </div>
 
@@ -285,20 +267,7 @@ export default async function EditSubscriberPage({
         canRepair={admin.role === "owner"}
       />
 
-      <section className="my-6 border border-border bg-card/30 p-6">
-        <h2 className="font-serif text-xl mb-2">Publication access</h2>
-        {!entitlementReady&&<p className="text-sm text-red-700 mb-4">{EDITION_ENTITLEMENT_MIGRATION_PENDING}</p>}
-        <p className="text-xs text-muted-foreground mb-5">Changes apply only to this named subscriber. Allow remains bounded by an active subscription and content level. Saving queues Papermark reconciliation.</p>
-        <form action={reconcilePublicationAccess} className="mb-5"><input type="hidden" name="subscriberId" value={row.id}/><button className="btn-secondary" type="submit">Reconcile and verify Papermark access</button></form>
-        <div className="space-y-3">
-          {publications.map((publication) => (
-            <div key={publication.id} className="border border-border p-4 grid gap-3 md:grid-cols-[1fr_auto]">
-              <div><p className="text-sm font-medium">{publication.title}</p><p className="text-xs text-muted-foreground">{publication.series} · {publication.edition_date ? dateInput(publication.edition_date) : "Edition date missing"} · {publication.reason} · Papermark: {publication.enforcement}</p></div>
-              <PublicationAccessControl subscriberId={row.id} publicationId={publication.id} title={publication.title} current={publication.decision}/>
-            </div>
-          ))}
-        </div>
-      </section>
+      <AccessPanel subscriberId={row.id} canRepair={admin.role === "owner"} />
 
       <SubscriberForm draft={draft} />
     </AdminShell>

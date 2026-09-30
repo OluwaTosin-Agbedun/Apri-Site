@@ -110,7 +110,9 @@ test('a document route resolves through the session, never through the URL', () 
   assert.match(viewer, /getDataRoomDocumentForSubscriber\(principal\.id, decodedId\)/)
   assert.match(viewer, /getSyncedClientDocument\(principal, decodedId\)/)
   assert.match(viewer, /if \(!document\) notFound\(\)/)
-  assert.match(viewer, /if \(!principal\.hasAccess\) notFound\(\)/)
+  // Outside a current subscription no document opens; the portal page, not a
+  // bare 404, explains which state the subscription is in.
+  assert.match(viewer, /if \(!principal\.hasAccess\) redirect\("\/portal"\)/)
 
   // No share URL, email or token is ever read from the page's query string.
   // url.searchParams.set() is used to construct a deep-link URL, not to read

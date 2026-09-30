@@ -32,6 +32,8 @@ export default async function SignInPage({
         ? "That sign-in link has expired. Links expire after 15 minutes; request a fresh one below."
         : reason === "inactive"
           ? "This APRI account is not active. Contact APRI if you believe this is incorrect."
+          : reason === "suspended"
+            ? "This APRI subscription is currently suspended. Contact APRI for help."
           : reason === "subscription-expired"
             ? "This subscription has expired. Contact APRI to renew access."
             : "That sign-in link is invalid. Request a fresh link below."

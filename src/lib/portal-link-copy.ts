@@ -1,3 +1,4 @@
+import { dateOnly, lagosToday } from "./subscription-term.ts"
 /**
  * When Admin may offer "Copy portal link" for one subscriber, and what it
  * copies.
@@ -60,15 +61,14 @@ export function isStableSignInUrl(url: string): boolean {
 }
 
 /**
- * The portal's own term rule at sign-in (src/lib/magic-link.ts), mirrored:
- * no end date, or an end date no earlier than today. An unreadable date is not
- * current, which is what the portal's comparison does with it too.
+ * The portal's own sign-in rule (src/lib/subscription-term.ts): a seat whose
+ * term has ended is refused there, so no link is offered for it here.
  */
 function termCurrent(termEnd: string | Date | null, now: Date): boolean {
   if (termEnd === null || termEnd === "") return true
-  const end = new Date(termEnd)
-  if (Number.isNaN(end.getTime())) return false
-  return end >= new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const end = dateOnly(termEnd)
+  if (!end) return false
+  return end >= lagosToday(now)
 }
 
 export function decidePortalLinkCopy(args: {

@@ -15,6 +15,8 @@ export type PersonalLinkSummary = {
   linked: number
   missing: string[]
   expiryIssues: string[]
+  /** Documents present in the room, permitted or not. */
+  roomDocuments?: number
 }
 
 type LinkRecord = {
@@ -132,54 +134,6 @@ export default function DataRoomPanel({
             </div>
           </div>
 
-          {personalLinks && (
-            <div className="pt-3 border-t border-border">
-              <p className="text-xs text-muted-foreground">Personal document links</p>
-              {personalLinks.total === 0 ? (
-                <p className="text-sm text-foreground">No documents are synced into this Data Room yet.</p>
-              ) : personalLinks.missing.length === 0 && personalLinks.expiryIssues.length === 0 ? (
-                <p className="text-sm text-foreground">
-                  All {personalLinks.total} documents have a stored personal link. Stored links are
-                  confirmed with Papermark only when Check and repair runs.
-                </p>
-              ) : (
-                <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 p-3 mt-1" role="status">
-                  <p>
-                    {personalLinks.linked} of {personalLinks.total} documents have a stored personal link.
-                    The subscriber cannot open the others.
-                  </p>
-                  {personalLinks.missing.length > 0 && (
-                    <p className="mt-2">
-                      Missing: {personalLinks.missing.slice(0, 5).join("; ")}
-                      {personalLinks.missing.length > 5 ? `; and ${personalLinks.missing.length - 5} more` : ""}
-                    </p>
-                  )}
-                  {personalLinks.expiryIssues.length > 0 && (
-                    <p className="mt-2">
-                      Expiry does not match the subscription: {personalLinks.expiryIssues.slice(0, 5).join("; ")}
-                      {personalLinks.expiryIssues.length > 5 ? `; and ${personalLinks.expiryIssues.length - 5} more` : ""}
-                    </p>
-                  )}
-                </div>
-              )}
-              {canRepair ? (
-                <button
-                  type="button"
-                  onClick={handleRepair}
-                  disabled={repairing}
-                  className="mt-3 border border-border px-4 py-2 text-xs hover:bg-black/5 transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  {repairing ? "Checking with Papermark..." : "Check and repair document links"}
-                </button>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  An owner can check and repair these links. Resend sign-in link also prepares any that
-                  are missing before it sends.
-                </p>
-              )}
-            </div>
-          )}
-
           <div className="flex gap-3 pt-3 border-t border-border">
             <button
               type="button"
@@ -213,8 +167,60 @@ export default function DataRoomPanel({
             disabled={creating || !dataroomId}
             className="bg-foreground text-background px-6 py-3 text-sm font-medium hover:bg-foreground/90 transition-colors disabled:opacity-50 cursor-pointer"
           >
-            {creating ? "Creating link..." : "Create Data Room link"}
+            {creating ? "Preparing..." : "Prepare library access"}
           </button>
+        </div>
+      )}
+
+      {personalLinks && (
+        <div className="pt-3 border-t border-border">
+          <p className="text-xs text-muted-foreground">Personal document links (permitted documents)</p>
+          {personalLinks.total === 0 ? (
+            <p className="text-sm text-foreground">
+              {(personalLinks.roomDocuments ?? 0) === 0
+                ? "No documents are synced into this Data Room yet."
+                : `None of the ${personalLinks.roomDocuments} documents in this Data Room is permitted for this subscriber yet. Document access below says why for each.`}
+            </p>
+          ) : personalLinks.missing.length === 0 && personalLinks.expiryIssues.length === 0 ? (
+            <p className="text-sm text-foreground">
+              All {personalLinks.total} permitted documents have a personal link recorded. Repair document
+              links confirms each one with Papermark.
+            </p>
+          ) : (
+            <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 p-3 mt-1" role="status">
+              <p>
+                {personalLinks.linked} of {personalLinks.total} permitted documents have a personal link.
+                The subscriber cannot open the others until they are prepared.
+              </p>
+              {personalLinks.missing.length > 0 && (
+                <p className="mt-2">
+                  Missing: {personalLinks.missing.slice(0, 5).join("; ")}
+                  {personalLinks.missing.length > 5 ? `; and ${personalLinks.missing.length - 5} more` : ""}
+                </p>
+              )}
+              {personalLinks.expiryIssues.length > 0 && (
+                <p className="mt-2">
+                  Expiry does not match the subscription: {personalLinks.expiryIssues.slice(0, 5).join("; ")}
+                  {personalLinks.expiryIssues.length > 5 ? `; and ${personalLinks.expiryIssues.length - 5} more` : ""}
+                </p>
+              )}
+            </div>
+          )}
+          {canRepair ? (
+            <button
+              type="button"
+              onClick={handleRepair}
+              disabled={repairing}
+              className="mt-3 border border-border px-4 py-2 text-xs hover:bg-black/5 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {repairing ? "Checking with Papermark..." : "Repair document links"}
+            </button>
+          ) : (
+            <p className="mt-2 text-xs text-muted-foreground">
+              An owner can check and repair these links. Resend sign-in link also prepares any that
+              are missing before it sends.
+            </p>
+          )}
         </div>
       )}
 

@@ -14,8 +14,7 @@ import {
   type PortalCategoryKey,
 } from "./papermark-dataroom-contract"
 import { getDocumentLinkByDocRowId } from "./dataroom-dal"
-import { portalTitleOverrideReady } from "./portal-title-schema"
-import { editionEntitlementSchemaReady } from "./edition-entitlement-schema"
+import { loadSubscriberAccess, type DocumentAccess } from "./access-policy-dal"
 
 export type SyncedClientDocument = {
   id: string
@@ -53,155 +52,115 @@ export type DataRoomDocument = {
   editorialPageCount: number | null
   viewedBySubscriber: boolean
   downloadedBySubscriber: boolean
-}
-
-export type SubscriberDataRoomContext = {
-  documents: DataRoomDocument[]
-  linkUrl: string
-  linkId: string
-  dataroomId: string
-  allowDownload: boolean
+  /** Opens now ("open", or "preserved" for a link issued earlier), or is still being prepared. */
+  delivery: "open" | "preparing" | "preserved"
 }
 
 /**
- * Load Data Room documents for a subscriber who has an active DR link.
+ * A subscriber's Data Room library, or why it cannot be shown.
  *
- * The query is scoped to the subscriber's own DR link record — never by email,
- * URL parameter or client-provided Data Room ID. Returns null when no active
- * DR link exists (the caller should fall back to the legacy pipeline).
+ *  - ready        documents the access policy lets them read, each open or
+ *                 still being prepared;
+ *  - no_room      no Data Room is assigned (the legacy library may apply);
+ *  - unavailable  access could not be checked: shown as a temporary problem,
+ *                 never as an empty library or an ended subscription.
  */
-export async function getDataRoomDocumentsForSubscriber(
-  subscriberId: string,
-  options: { previousVisit?: string | null } = {},
-): Promise<SubscriberDataRoomContext | null> {
-  const sql = getSql()
-  if (!(await editionEntitlementSchemaReady(sql))) return null
-
-  const links = (await sql`
-    select id, papermark_link_id, link_url, papermark_dataroom_id, allow_download
-    from papermark_dataroom_links
-    where subscriber_id = ${subscriberId}::uuid
-      and revoke_state = 'live'
-    order by created_at desc
-    limit 1
-  `) as {
-    id: string
-    papermark_link_id: string
-    link_url: string
-    papermark_dataroom_id: string
-    allow_download: boolean
-  }[]
-
-  const link = links[0]
-  if (!link) return null
-
-  const rows = (await sql`
-    select dd.id, dd.papermark_document_id, dd.dataroom_document_id, dd.publication_id,
-           dd.title, dd.category, dd.folder_path, dd.num_pages, dd.content_type,
-           dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
-           d.title as ed_title, d.kicker as ed_kicker, d.summary as ed_summary,
-           d.edition_date as ed_edition_date, d.page_count as ed_page_count,
-           d.series as ed_series,
-           exists (select 1 from document_views v
-             where v.subscriber_id = ${subscriberId}::uuid
-               and (v.publication_id = d.id or (v.publication_id is null and v.papermark_document_id = dd.papermark_document_id))) as viewed_by_subscriber,
-           -- Downloads are confirmed by Papermark per document, so the icon
-           -- is shown only for a download of this exact document.
-           exists (select 1 from document_download_events de
-             where de.subscriber_id = ${subscriberId}::uuid
-               and de.papermark_document_id = dd.papermark_document_id) as downloaded_by_subscriber
-    from papermark_dataroom_documents dd
-    left join documents d on d.id = dd.publication_id
-    join subscribers s on s.id = ${subscriberId}::uuid
-    where dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
-      and dd.is_present = true
-      and d.edition_date is not null
-      and d.status = 'published'
-      and not exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'block')
-      and (exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'allow')
-           or exists (select 1 from subscriber_subscription_periods p where p.subscriber_id = s.id and d.edition_date between p.starts_on and p.ends_on
-             and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
-    order by d.edition_date desc nulls last, dd.id asc
-  `) as {
-    id: string
-    papermark_document_id: string
-    dataroom_document_id: string | null
-    publication_id: string | null
-    title: string
-    category: string | null
-    folder_path: string | null
-    num_pages: number | null
-    content_type: string | null
-    papermark_created_at: string | null
-    papermark_updated_at: string | null
-    first_seen_at: string | null
-    ed_title: string | null
-    ed_kicker: string | null
-    ed_summary: string | null
-    ed_edition_date: string | null
-    ed_page_count: number | null
-    ed_series: string | null
-    viewed_by_subscriber: boolean
-    downloaded_by_subscriber: boolean
-  }[]
-
-  const previousVisit = options.previousVisit ?? null
-  const overrides = await titleOverrides(sql, rows.map((r) => r.publication_id))
-
-  const documents: DataRoomDocument[] = rows.map((row) => {
-    const cat = categoriseDataRoomDocument({
-      title: row.title,
-      category: row.category,
-      folderPath: row.folder_path,
-    })
-    return {
-      id: row.id,
-      papermarkDocumentId: row.papermark_document_id,
-      dataroomDocumentId: row.dataroom_document_id,
-      title: row.title,
-      displayTitle: portalDocumentTitle({ syncedName: row.title, editorialTitle: row.ed_title, editorialTitleIsOverride: row.publication_id !== null && overrides.has(row.publication_id) }),
-      category: cat,
-      categoryLabel: portalTypeLabel(cat),
-      numPages: row.ed_page_count ?? row.num_pages,
-      contentType: row.content_type,
-      papermarkCreatedAt: row.papermark_created_at
-        ? new Date(row.papermark_created_at).toISOString() : null,
-      papermarkUpdatedAt: row.papermark_updated_at
-        ? new Date(row.papermark_updated_at).toISOString() : null,
-      firstSeenAt: row.first_seen_at
-        ? new Date(row.first_seen_at).toISOString() : null,
-      badge: documentBadge({
-        firstSeenAt: row.first_seen_at,
-        updatedAt: row.papermark_updated_at,
-        previousVisit,
-      }),
-      summary: row.ed_summary || null,
-      kicker: row.ed_kicker || null,
-      editionDate: row.ed_edition_date
-        ? new Date(row.ed_edition_date).toISOString().slice(0, 10) : null,
-      series: row.ed_series || null,
-      editorialPageCount: row.ed_page_count,
-      viewedBySubscriber: row.viewed_by_subscriber,
-      downloadedBySubscriber: row.downloaded_by_subscriber,
+export type SubscriberDataRoomLibrary =
+  | {
+      state: "ready"
+      documents: DataRoomDocument[]
+      dataroomId: string
+      /** Allowed documents whose personal link is not ready yet. */
+      preparing: number
+      /** Documents whose release or details an administrator has still to settle. */
+      awaitingDetails: number
     }
-  })
+  | { state: "no_room" }
+  | { state: "unavailable"; message: string }
 
+/** One room document, shaped for the portal, from the access policy's record. */
+function portalDocument(
+  d: DocumentAccess,
+  options: { previousVisit: string | null; viewed: Set<string>; downloaded: Set<string> },
+): DataRoomDocument {
+  const cat = categoriseDataRoomDocument({ title: d.fileTitle, category: d.category, folderPath: d.folderPath })
   return {
-    documents,
-    linkUrl: link.link_url,
-    linkId: link.papermark_link_id,
-    dataroomId: link.papermark_dataroom_id,
-    allowDownload: link.allow_download,
+    id: d.rowId,
+    papermarkDocumentId: d.papermarkDocumentId,
+    dataroomDocumentId: null,
+    title: d.fileTitle,
+    displayTitle: portalDocumentTitle({ syncedName: d.fileTitle, editorialTitle: d.editorialTitle, editorialTitleIsOverride: d.titleOverride }),
+    category: cat,
+    categoryLabel: portalTypeLabel(cat),
+    numPages: d.pageCount ?? d.numPages,
+    contentType: d.contentType,
+    papermarkCreatedAt: d.papermarkCreatedAt,
+    papermarkUpdatedAt: d.papermarkUpdatedAt,
+    firstSeenAt: d.firstSeenAt,
+    badge: documentBadge({ firstSeenAt: d.firstSeenAt, updatedAt: d.papermarkUpdatedAt, previousVisit: options.previousVisit }),
+    summary: d.summary || null,
+    kicker: d.kicker || null,
+    editionDate: d.editionDate,
+    series: d.series || null,
+    editorialPageCount: d.pageCount,
+    viewedBySubscriber: options.viewed.has(d.papermarkDocumentId) || (d.publicationId !== null && options.viewed.has(d.publicationId)),
+    downloadedBySubscriber: options.downloaded.has(d.papermarkDocumentId),
+    delivery: d.delivery === "open" || d.delivery === "preserved" ? d.delivery : "preparing",
   }
 }
 
 /**
- * One Data Room document, but only if it belongs to this subscriber's room.
+ * A subscriber's Data Room library: every document in their assigned room
+ * that the access policy lets them read.
  *
- * Returns the per-document personal link URL when one exists. The viewer uses
- * this URL directly — it targets the specific document and produces a working
- * Papermark embed, unlike the old ?documentId= construction on the Data Room
- * link which is not a documented Papermark mechanism.
+ * The room is the subscriber's assignment, never a room share link: those are
+ * retired once exact-document links are verified, and the library keeps
+ * working. The subscriber id is the session's, never a URL parameter.
+ */
+export async function getDataRoomDocumentsForSubscriber(
+  subscriberId: string,
+  options: { previousVisit?: string | null } = {},
+): Promise<SubscriberDataRoomLibrary> {
+  const access = await loadSubscriberAccess(subscriberId)
+  if (access.state === "unavailable") return { state: "unavailable", message: access.message }
+  if (access.state === "not_found" || !access.room) return { state: "no_room" }
+
+  const listed = access.documents.filter((d) => d.delivery !== "hidden")
+  let viewed = new Set<string>()
+  let downloaded = new Set<string>()
+  try {
+    const sql = getSql()
+    const views = (await sql`
+      select distinct coalesce(v.publication_id::text, v.papermark_document_id) as key
+      from document_views v where v.subscriber_id = ${subscriberId}::uuid
+    `) as { key: string | null }[]
+    viewed = new Set(views.map((v) => v.key).filter((k): k is string => Boolean(k)))
+    // Downloads are confirmed by Papermark per document, so the icon is shown
+    // only for a download of this exact document.
+    const downloads = (await sql`
+      select distinct de.papermark_document_id as key
+      from document_download_events de where de.subscriber_id = ${subscriberId}::uuid
+    `) as { key: string | null }[]
+    downloaded = new Set(downloads.map((v) => v.key).filter((k): k is string => Boolean(k)))
+  } catch {
+    // Reading activity is decoration; the library itself does not depend on it.
+  }
+
+  const previousVisit = options.previousVisit ?? null
+  return {
+    state: "ready",
+    dataroomId: access.room.dataroomId,
+    documents: listed.map((d) => portalDocument(d, { previousVisit, viewed, downloaded })),
+    preparing: listed.filter((d) => d.delivery === "preparing").length,
+    awaitingDetails: access.documents.filter((d) => d.decision.outcome === "unresolved" && d.delivery === "hidden").length,
+  }
+}
+
+/**
+ * One Data Room document, only if the access policy lets this subscriber read
+ * it. Returns their personal link for that exact document when it is ready;
+ * a document still being prepared comes back without one, so the page can say
+ * so. The viewer embeds the personal link, which targets that one document.
  */
 export async function getDataRoomDocumentForSubscriber(
   subscriberId: string,
@@ -213,129 +172,21 @@ export async function getDataRoomDocumentForSubscriber(
   allowDownload: boolean
 } | null> {
   if (!documentRowId || documentRowId.length > 200) return null
-  const sql = getSql()
-  if (!(await editionEntitlementSchemaReady(sql))) return null
+  const access = await loadSubscriberAccess(subscriberId)
+  if (access.state !== "ok" || !access.room) return null
+  const found = access.documents.find((d) => d.rowId === documentRowId)
+  if (!found || found.delivery === "hidden") return null
 
-  const links = (await sql`
-    select papermark_link_id, link_url, papermark_dataroom_id, allow_download
-    from papermark_dataroom_links
-    where subscriber_id = ${subscriberId}::uuid
-      and revoke_state = 'live'
-    order by created_at desc
-    limit 1
-  `) as {
-    papermark_link_id: string
-    link_url: string
-    papermark_dataroom_id: string
-    allow_download: boolean
-  }[]
-
-  const link = links[0]
-  if (!link) return null
-
-  const rows = (await sql`
-    select dd.id, dd.papermark_document_id, dd.dataroom_document_id, dd.publication_id,
-           dd.title, dd.category, dd.folder_path, dd.num_pages, dd.content_type,
-           dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
-           d.title as ed_title, d.kicker as ed_kicker, d.summary as ed_summary,
-           d.edition_date as ed_edition_date, d.page_count as ed_page_count,
-           d.series as ed_series
-    from papermark_dataroom_documents dd
-    left join documents d on d.id = dd.publication_id
-    join subscribers s on s.id = ${subscriberId}::uuid
-    where dd.id = ${documentRowId}::uuid
-      and dd.papermark_dataroom_id = ${link.papermark_dataroom_id}
-      and dd.is_present = true
-      and d.edition_date is not null
-      and d.status = 'published'
-      and not exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'block')
-      and (exists (select 1 from subscriber_publication_exceptions x where x.subscriber_id = s.id and x.publication_id = d.id and x.decision = 'allow')
-           or exists (select 1 from subscriber_subscription_periods p where p.subscriber_id = s.id and d.edition_date between p.starts_on and p.ends_on
-             and case d.visibility when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 99 end <= case p.level when 'L1' then 1 when 'L2' then 2 when 'L3' then 3 when 'L4' then 4 else 0 end))
-    limit 1
-  `) as {
-    id: string
-    papermark_document_id: string
-    dataroom_document_id: string | null
-    publication_id: string | null
-    title: string
-    category: string | null
-    folder_path: string | null
-    num_pages: number | null
-    content_type: string | null
-    papermark_created_at: string | null
-    papermark_updated_at: string | null
-    first_seen_at: string | null
-    ed_title: string | null
-    ed_kicker: string | null
-    ed_summary: string | null
-    ed_edition_date: string | null
-    ed_page_count: number | null
-    ed_series: string | null
-  }[]
-
-  const row = rows[0]
-  if (!row) return null
-  const overrides = await titleOverrides(sql, [row.publication_id])
-
-  const docLink = await getDocumentLinkByDocRowId({
-    subscriberId,
-    documentRowId,
-  })
-
-  const cat = categoriseDataRoomDocument({
-    title: row.title,
-    category: row.category,
-    folderPath: row.folder_path,
-  })
+  // The live personal link for this subscriber and this exact document.
+  const docLink = found.link ? await getDocumentLinkByDocRowId({ subscriberId, documentRowId }) : null
+  const document = portalDocument(found, { previousVisit: null, viewed: new Set(), downloaded: new Set() })
   return {
-    document: {
-      id: row.id,
-      papermarkDocumentId: row.papermark_document_id,
-      dataroomDocumentId: row.dataroom_document_id,
-      title: row.title,
-      displayTitle: portalDocumentTitle({ syncedName: row.title, editorialTitle: row.ed_title, editorialTitleIsOverride: row.publication_id !== null && overrides.has(row.publication_id) }),
-      category: cat,
-      categoryLabel: portalTypeLabel(cat),
-      numPages: row.ed_page_count ?? row.num_pages,
-      contentType: row.content_type,
-      papermarkCreatedAt: row.papermark_created_at
-        ? new Date(row.papermark_created_at).toISOString() : null,
-      papermarkUpdatedAt: row.papermark_updated_at
-        ? new Date(row.papermark_updated_at).toISOString() : null,
-      firstSeenAt: row.first_seen_at
-        ? new Date(row.first_seen_at).toISOString() : null,
-      badge: null,
-      summary: row.ed_summary || null,
-      kicker: row.ed_kicker || null,
-      editionDate: row.ed_edition_date
-        ? new Date(row.ed_edition_date).toISOString().slice(0, 10) : null,
-      series: row.ed_series || null,
-      editorialPageCount: row.ed_page_count,
-      viewedBySubscriber: false,
-      downloadedBySubscriber: false,
-    },
+    document: { ...document, badge: null },
     documentLinkUrl: docLink?.linkUrl ?? null,
     papermarkLinkId: docLink?.papermarkLinkId ?? null,
-    allowDownload: docLink?.allowDownload ?? link.allow_download,
+    // The download setting the link was issued with; never widened here.
+    allowDownload: docLink?.allowDownload ?? false,
   }
-}
-
-/**
- * The publications whose editorial title an administrator has explicitly kept
- * in place of the Papermark name. Empty until the override migration has run.
- */
-async function titleOverrides(
-  sql: ReturnType<typeof getSql>,
-  publicationIds: (string | null)[],
-): Promise<Set<string>> {
-  const ids = [...new Set(publicationIds.filter((id): id is string => Boolean(id)))]
-  if (ids.length === 0 || !(await portalTitleOverrideReady(sql))) return new Set()
-  const rows = (await sql`
-    select id from documents
-    where portal_title_override = true and id = any(${ids}::uuid[])
-  `) as { id: string }[]
-  return new Set(rows.map((r) => r.id))
 }
 
 /** Group Data Room documents by portal category. */
