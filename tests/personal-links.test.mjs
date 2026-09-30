@@ -890,10 +890,15 @@ describe("Admin visibility", () => {
     // The counts are the policy's permitted documents for this subscriber, not every document in the room.
     assert.match(page, /const snapshot = await loadSubscriberAccess\(row\.id\)/)
     assert.match(page, /snapshot\.documents\.filter\(\(d\) => d\.decision\.outcome === "allowed"\)/)
-    // The per-document reasons and the owner-only repair form sit beside it.
-    assert.match(page, /<AccessPanel subscriberId=\{row\.id\} canRepair=\{admin\.role === "owner"\} \/>/)
+    // The per-document reasons and "Prepare library access" sit beside it, for
+    // every administrator; the action itself checks the administrator first.
+    assert.match(page, /<AccessPanel subscriberId=\{row\.id\} canRepair \/>/)
     assert.match(read("src/app/admin/subscribers/[id]/access-panel.tsx"), /\{canRepair && <RepairForm subscriberId=\{subscriberId\} \/>\}/)
-    assert.match(body(read(SUBSCRIBERS), "reconcilePublicationAccess"), /await requireOwner\(\)/)
+    const prepare = body(read(SUBSCRIBERS), "reconcilePublicationAccess")
+    assert.match(prepare, /const admin = await requireAdmin\(\)/)
+    assert.ok(prepare.indexOf("requireAdmin()") < prepare.indexOf("ensureSubscriberLibraryAccess("), "authorised before anything is prepared")
+    // A seat not yet active is never prepared from here: activation does that.
+    assert.ok(prepare.indexOf('if (sub.status !== "active")') < prepare.indexOf("ensureSubscriberLibraryAccess("))
   })
 
   it("the page hands the panel titles and counts, never a personal link", () => {

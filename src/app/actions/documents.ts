@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { requireAdmin, requireOwner } from '@/lib/dal'
 import { getSql } from '@/lib/db'
 import { DocumentSchema, fieldErrors, type FormState } from '@/lib/definitions'
@@ -269,13 +270,13 @@ export async function saveEditionAvailability(_prev: FormState, formData: FormDa
   const admin = await requireAdmin()
   const id = String(formData.get('publicationId') ?? '')
   const state = String(formData.get('state') ?? '')
-  const reason = String(formData.get('reason') ?? '').trim().slice(0, 500)
+  // A reason is optional; who made the change is always recorded.
+  const reason = String(formData.get('reason') ?? '').trim().slice(0, 500) || 'Set on the publication record'
   const { SUBSCRIPTION_CATALOGUE } = await import('@/lib/subscription-catalogue')
   const allowed = new Set<string>(SUBSCRIPTION_CATALOGUE.map((o) => o.storedName))
   const plans = [...new Set(formData.getAll('plans').map(String))].filter((p) => allowed.has(p))
   if (!UUID.test(id)) return { message: 'Unknown publication.' }
   if (!(RELEASE_STATES as readonly string[]).includes(state)) return { message: 'Choose On, Off or Not decided.' }
-  if (!reason) return { message: 'Record why (for example "Issued to Individual and Professional subscribers").' }
   const sql = getSql()
   const { accessHealthSchemaReady, ACCESS_HEALTH_MIGRATION_PENDING } = await import('@/lib/access-health-schema')
   const { publicationPlansReady } = await import('@/lib/access-policy-dal')
@@ -302,9 +303,16 @@ export async function saveEditionAvailability(_prev: FormState, formData: FormDa
     values (${id}::uuid, ${state}, ${`${reason} (plans: ${planNames})`}, ${admin.id}::uuid)
   `
 
-  const { reconcileSubscribersForPublication } = await import('@/lib/access-release')
-  const summary = await reconcileSubscribersForPublication(id, [...new Set([...before.map((b) => b.public_tier), ...plans])], 'release')
+  // Saved now; every affected subscriber's links are updated straight after
+  // the response, so the page answers at once. No email is sent.
+  const affectedPlans = [...new Set([...before.map((b) => b.public_tier), ...plans])]
+  after(async () => {
+    try {
+      const { reconcileSubscribersForPublication } = await import('@/lib/access-release')
+      await reconcileSubscribersForPublication(id, affectedPlans, 'release')
+    } catch {}
+  })
   refreshDocumentAdminPaths()
   const label = state === 'released' ? 'On for subscribers' : state === 'withheld' ? 'Off for subscribers' : 'Not decided yet'
-  return { ok: summary.complete, message: `Saved: ${label}, for ${planNames}. ${summary.message}` }
+  return { ok: true, message: `Saved: ${label}, for ${planNames}. Subscribers' libraries are being updated now.` }
 }

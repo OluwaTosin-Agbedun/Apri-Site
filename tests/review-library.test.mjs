@@ -201,9 +201,11 @@ test('getReviewLibrary: each series shows its latest edition first', () => {
   assert.equal((fn.match(/order by e\.series, e\.is_latest desc, e\.edition_date desc nulls last/g) ?? []).length, 2)
 })
 
-test('admin page: editions ordered by series, then latest first', () => {
+test('admin page: editions ordered by series, then the owner\'s order, then latest first', () => {
   const src = read('src/app/admin/review-library/page.tsx')
-  assert.match(src, /order by case e\.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,\s+e\.is_latest desc, e\.edition_sort_key desc/)
+  // An owner's arrangement (Order on the Publications page) comes first
+  // within each series; without one, the latest edition leads as before.
+  assert.match(src, /order by case e\.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,\s+\(to_jsonb\(e\) ->> 'display_position'\)::int asc nulls last,\s+e\.is_latest desc, e\.edition_sort_key desc/)
 })
 
 // ---------------------------------------------------------------------------

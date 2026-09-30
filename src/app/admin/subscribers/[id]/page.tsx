@@ -267,7 +267,7 @@ export default async function EditSubscriberPage({
         canRepair={admin.role === "owner"}
       />
 
-      <AccessPanel subscriberId={row.id} canRepair={admin.role === "owner"} />
+      <AccessPanel subscriberId={row.id} canRepair />
 
       <SubscriberForm draft={draft} />
     </AdminShell>

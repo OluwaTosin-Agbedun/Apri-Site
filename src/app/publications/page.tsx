@@ -44,10 +44,6 @@ export default async function PublicationsPage() {
               <h2 className="font-serif text-2xl sm:text-3xl text-foreground mb-6 tracking-tight">
                 Review Publication Archive
               </h2>
-              <p className="text-sm sm:text-base text-foreground/70 leading-relaxed max-w-4xl">
-                Current and earlier editions for authorised Review Library
-                readers.
-              </p>
               <div className="mt-4">
                 <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium tracking-wide bg-accent/10 text-accent">
                   Verified email required · Confidential

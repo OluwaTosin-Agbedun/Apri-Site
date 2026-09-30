@@ -446,6 +446,7 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
           ))
         )
       order by case e.series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
+               (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                is_latest desc, edition_sort_key desc, edition_date desc nulls last, edition_order desc,
                created_at desc, id desc
     `
@@ -459,6 +460,7 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
         and e.secure_link_document_id = e.papermark_document_id
         and e.secure_link_id is not null and ${sharedConfigured}::boolean
       order by case e.series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
+               (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                is_latest desc, edition_sort_key desc, edition_date desc nulls last, edition_order desc,
                created_at desc, id desc
     `) as Array<{
@@ -552,6 +554,7 @@ export async function getProspectReviewLibrary(
           or (e.recipient_mode = 'shared_legacy' and ${onSharedList}::boolean)
         )
       order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+               (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last,
                e.created_at desc, e.id desc
     `
@@ -565,6 +568,7 @@ export async function getProspectReviewLibrary(
         and e.secure_link_document_id = e.papermark_document_id
         and e.secure_link_id is not null and ${onSharedList}::boolean
       order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+               (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last,
                e.created_at desc, e.id desc
     `) as Array<{

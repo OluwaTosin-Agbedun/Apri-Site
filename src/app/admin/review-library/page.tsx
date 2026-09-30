@@ -1,3 +1,4 @@
+import EditionOrder from "./edition-order"
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
@@ -91,7 +92,9 @@ export default async function ReviewLibraryPage() {
     left join review_sync_candidates c on c.id = e.sync_candidate_id
        or (e.sync_candidate_id is null and c.papermark_document_id = e.papermark_document_id)
     order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
-             e.is_latest desc, e.edition_sort_key desc, e.created_at desc, e.id desc
+             (to_jsonb(e) ->> 'display_position')::int asc nulls last,
+             e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last, e.edition_order desc,
+             e.created_at desc, e.id desc
   `) as Array<{
     id: string
     series: string | null
@@ -156,6 +159,16 @@ export default async function ReviewLibraryPage() {
       title="Complimentary Review Library"
       description="Manage current and historical editions in the versioned Review Library."
     >
+      <EditionOrder
+        groups={(["MIN", "AIU", "PLM"] as const).map((series) => ({
+          series,
+          label: { MIN: "Monthly Intelligence Notes", AIU: "Athena Intelligence Updates", PLM: "Political Landscape Monitors" }[series],
+          editions: editions
+            .filter((e) => e.series === series && e.publication_state === "published")
+            .map((e) => ({ id: e.id, title: e.title, label: e.edition_label })),
+        }))}
+      />
+
       <div className="mb-8">
         <ApprovedRecipientsSection
           emails={approvedRecipients}

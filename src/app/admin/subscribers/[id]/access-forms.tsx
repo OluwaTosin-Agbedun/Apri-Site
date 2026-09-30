@@ -1,6 +1,7 @@
 "use client"
 
-import { useActionState, useState } from "react"
+import { useActionState, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
   addPaidPeriod,
   reconcilePublicationAccess,
@@ -21,14 +22,30 @@ function Result({ state }: { state: FormState }) {
   )
 }
 
-/** Repair document links: recalculate, create, repair, withdraw, verify. Never emails. */
+/**
+ * After a save, the links are prepared in the background: refresh the page a
+ * few seconds later so the panel shows the result without another click.
+ */
+function useRefreshAfterSave(state: FormState) {
+  const router = useRouter()
+  useEffect(() => {
+    if (!state?.ok) return
+    const timer = setTimeout(() => router.refresh(), 3500)
+    return () => clearTimeout(timer)
+  }, [state, router])
+}
+
+/**
+ * Prepare library access: their plan's library, and a verified personal link
+ * for every document they should see. Never emails.
+ */
 export function RepairForm({ subscriberId }: { subscriberId: string }) {
   const [state, action, pending] = useActionState(reconcilePublicationAccess, undefined)
   return (
     <form action={action}>
       <input type="hidden" name="subscriberId" value={subscriberId} />
-      <button className="btn-secondary text-xs" type="submit" disabled={pending}>
-        {pending ? "Repairing…" : "Repair document links"}
+      <button className="btn-primary text-xs" type="submit" disabled={pending}>
+        {pending ? "Preparing…" : "Prepare library access"}
       </button>
       <Result state={state} />
     </form>
@@ -82,18 +99,15 @@ export function PublicationAccessControl({
 }) {
   const [state, action, pending] = useActionState(setPublicationException, undefined)
   const [decision, setDecision] = useState(current ?? "automatic")
-  const [confirming, setConfirming] = useState(false)
+  useRefreshAfterSave(state)
   return (
-    <form action={action} className="flex flex-wrap items-center gap-2">
+    <form action={action} className="flex flex-wrap items-center gap-2 w-full min-w-0">
       <input type="hidden" name="subscriberId" value={subscriberId} />
       <input type="hidden" name="publicationId" value={publicationId} />
       <select
         name="decision"
         value={decision}
-        onChange={(e) => {
-          setDecision(e.target.value)
-          setConfirming(false)
-        }}
+        onChange={(e) => setDecision(e.target.value)}
         className={input}
         aria-label={`Access control for ${title}`}
       >
@@ -101,18 +115,11 @@ export function PublicationAccessControl({
         <option value="allow">Also give to this subscriber</option>
         <option value="block">Hide from this subscriber</option>
       </select>
-      <input name="reason" required maxLength={500} aria-label="Reason" placeholder="Reason (required)" className={input} />
-      {!confirming ? (
-        <button className="btn-secondary text-xs" type="button" onClick={() => setConfirming(true)}>Preview</button>
-      ) : (
-        <>
-          <span className="text-xs" role="status">
-            {decision === "allow" ? `Give “${title}” to this subscriber` : decision === "block" ? `Hide “${title}” from this subscriber` : `Let the rule decide “${title}” for this subscriber`}
-          </span>
-          <button className="btn-secondary text-xs" type="submit" disabled={pending}>Confirm</button>
-        </>
-      )}
-      <div className="basis-full"><Result state={state} /></div>
+      <input name="reason" maxLength={500} aria-label="Reason (optional)" placeholder="Reason (optional)" className={`${input} grow min-w-[10rem]`} />
+      <button className="btn-primary text-xs" type="submit" disabled={pending || decision === (current ?? "automatic")}>
+        {pending ? "Saving…" : "Save"}
+      </button>
+      <div className="basis-full min-w-0 break-words"><Result state={state} /></div>
     </form>
   )
 }
@@ -135,6 +142,7 @@ export function EditionAvailabilityForm({
   state: "released" | "withheld" | null
 }) {
   const [result, action, pending] = useActionState(saveEditionAvailability, undefined)
+  useRefreshAfterSave(result)
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="publicationId" value={publicationId} />
@@ -155,7 +163,7 @@ export function EditionAvailabilityForm({
           <option value="withheld">Off: do not show</option>
           <option value="undecided">Not decided yet</option>
         </select>
-        <input name="reason" required maxLength={500} aria-label="Reason" placeholder="Reason (required)" className={`${input} grow min-w-[14rem]`} />
+        <input name="reason" maxLength={500} aria-label="Reason (optional)" placeholder="Reason (optional)" className={`${input} grow min-w-[14rem]`} />
         <button className="btn-secondary text-xs" type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</button>
       </div>
       <Result state={result} />

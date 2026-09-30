@@ -390,3 +390,46 @@ export async function activateSubscriptionRequest(prospectId: string, _state: Fo
   revalidatePath("/admin/subscribers")
   return { ok: complete, message: summary }
 }
+
+// ---------------------------------------------------------------------------
+// The order editions appear in on the Publications page
+// ---------------------------------------------------------------------------
+
+/**
+ * Moves one published review edition up or down within its series on the
+ * Publications page (and in the review library). The whole series is given
+ * explicit positions in the order shown, so the result is exactly what the
+ * owner sees in Admin.
+ */
+export async function moveReviewEdition(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireOwner()
+  const id = String(formData.get("editionId") ?? "")
+  const direction = String(formData.get("direction") ?? "")
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return { message: "Unknown edition." }
+  if (direction !== "up" && direction !== "down") return { message: "Unknown direction." }
+  const sql = getSql()
+  const ready = (await sql`
+    select exists (select 1 from information_schema.columns
+                   where table_name = 'review_publication_editions' and column_name = 'display_position') as ready
+  `) as { ready: boolean }[]
+  if (!ready[0]?.ready) return { message: "Ordering is available once db/migrations/20261006_review_edition_display_order.sql is applied." }
+  const target = (await sql`select series from review_publication_editions where id = ${id}::uuid and publication_state = 'published'`) as { series: string | null }[]
+  if (!target[0]) return { message: "Only a published edition can be ordered." }
+  const series = target[0].series
+  const rows = (await sql`
+    select e.id from review_publication_editions e
+    where e.publication_state = 'published' and e.series is not distinct from ${series}
+    -- The same order readers see (src/lib/publications.ts), so a move is exactly what is shown.
+    order by e.display_position asc nulls last, e.is_latest desc, e.edition_sort_key desc,
+             e.edition_date desc nulls last, e.edition_order desc, e.created_at desc, e.id desc
+  `) as { id: string }[]
+  const { moveInOrder } = await import("@/lib/review-order")
+  const order = moveInOrder(rows.map((r) => r.id), id, direction)
+  for (let i = 0; i < order.length; i++) {
+    await sql`update review_publication_editions set display_position = ${i + 1} where id = ${order[i]}::uuid`
+  }
+  revalidatePath("/admin/review-library")
+  revalidatePath("/publications")
+  revalidatePath("/review")
+  return { ok: true, message: "Order saved. The Publications page shows it now." }
+}

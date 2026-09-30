@@ -74,7 +74,12 @@ function when(value: string | null): string {
  * the access policy decides for this person and why, and changes its inputs.
  */
 export default async function AccessPanel({ subscriberId, canRepair }: { subscriberId: string; canRepair: boolean }) {
-  const access = await loadSubscriberAccess(subscriberId)
+  // A seat awaiting activation is shown as it will be once activated -- the
+  // same view activation prepares -- so each document can be checked (and
+  // given or hidden) before the sign-in email goes.
+  const current = await loadSubscriberAccess(subscriberId)
+  const pending = current.state === "ok" && current.subscriber.status === "pending"
+  const access = pending ? await loadSubscriberAccess(subscriberId, { prospective: true }) : current
   let health: ReconciliationHealth | null = null
   try {
     health = (await loadReconciliationHealth([subscriberId])).get(subscriberId) ?? null
@@ -99,7 +104,11 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
           <h2 className="font-serif text-xl mb-1">Document access</h2>
-          <p className="text-sm text-foreground/80">{SUBSCRIPTION_LABEL[sub.subscription.state] ?? sub.subscription.state}</p>
+          <p className="text-sm text-foreground/80">
+            {pending
+              ? "Not activated yet. Below is exactly what they will see once you activate them; activation prepares these before any email is sent."
+              : SUBSCRIPTION_LABEL[sub.subscription.state] ?? sub.subscription.state}
+          </p>
           <p className="text-xs text-muted-foreground mt-1">
             Term {sub.subscription.termStart ?? "no start"} to {sub.subscription.termEnd ?? "no end"} (Africa/Lagos, inclusive) · Plan {sub.plan ? PLAN_NAME.get(sub.plan) ?? sub.plan : "not set"}
             {access.room ? ` · Data Room ${access.room.source === "override" ? "(override)" : access.room.source === "level" ? "(from level)" : "(assigned)"}` : " · No Data Room"}
@@ -196,7 +205,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
           )}
           <div className="space-y-2">
             {access.documents.map((d) => (
-              <div key={d.rowId} className="border border-border p-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <div key={d.rowId} className="border border-border p-3 grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_minmax(0,24rem)] lg:items-start">
                 <div className="min-w-0 text-xs">
                   <p className="text-sm font-medium text-foreground break-words">{(d.titleOverride && d.editorialTitle) || d.fileTitle || d.editorialTitle || "Untitled document"}</p>
                   <p className="text-muted-foreground mt-0.5">

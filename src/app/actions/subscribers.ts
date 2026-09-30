@@ -62,6 +62,7 @@
 
 // ---------------------------------------------------------------------------
 import { revalidatePath } from "next/cache"
+import { after } from "next/server"
 import * as z from "zod"
 import { requireAdmin, requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
@@ -395,18 +396,18 @@ export async function setPublicationException(_prev: FormState, formData: FormDa
   const subscriberId = String(formData.get("subscriberId") ?? "")
   const publicationId = String(formData.get("publicationId") ?? "")
   const decision = String(formData.get("decision") ?? "automatic")
-  const reason = String(formData.get("reason") ?? "").trim().slice(0, 500)
+  // A reason is optional; who made the change is always recorded.
+  const reason = String(formData.get("reason") ?? "").trim().slice(0, 500) || "Set on the subscriber page"
   if (!UUID.test(subscriberId) || !UUID.test(publicationId)) return { message: "Unknown subscriber or publication." }
   if (!["automatic", "allow", "block"].includes(decision)) return { message: "Unknown access control." }
-  if (!reason) return { message: "Record a reason before changing access." }
   const sql = getSql()
   const { editionEntitlementSchemaReady, EDITION_ENTITLEMENT_MIGRATION_PENDING } = await import("@/lib/edition-entitlement-schema")
   if (!(await editionEntitlementSchemaReady(sql))) return { message: EDITION_ENTITLEMENT_MIGRATION_PENDING }
   if (!(await accessHealthSchemaReady(sql))) return { message: ACCESS_HEALTH_MIGRATION_PENDING }
   const known = (await sql`
-    select 1 from subscribers s, documents d
+    select lower(s.status) as status from subscribers s, documents d
     where s.id = ${subscriberId}::uuid and s.client_type = 'subscriber' and d.id = ${publicationId}::uuid
-  `) as unknown[]
+  `) as { status: string }[]
   if (known.length === 0) return { message: "Unknown subscriber or publication." }
   if (decision === "automatic") {
     await sql`delete from subscriber_publication_exceptions where subscriber_id = ${subscriberId}::uuid and publication_id = ${publicationId}::uuid`
@@ -423,10 +424,22 @@ export async function setPublicationException(_prev: FormState, formData: FormDa
     values (${subscriberId}::uuid, ${publicationId}::uuid, ${decision}, ${reason}, ${admin.id}::uuid)
   `
   await queueSubscriberAccessReconciliation(subscriberId, "admin_change")
-  const reconciled = await reconcileSubscriberAccess(subscriberId, { trigger: "admin_change" })
+  // Saved now; their links are prepared straight after the response, so the
+  // page answers at once. The panel shows the result when it refreshes.
+  after(async () => {
+    try {
+      await reconcileSubscriberAccess(subscriberId, { trigger: "admin_change" })
+    } catch {}
+  })
   revalidatePath(`/admin/subscribers/${subscriberId}`)
-  const label = decision === "automatic" ? "Automatic" : decision === "allow" ? "Allow" : "Block"
-  return { ok: reconciled.state === "complete", message: `${label} recorded. ${reconciled.message}` }
+  const label = decision === "automatic" ? "Back to automatic" : decision === "allow" ? "Also given" : "Hidden"
+  const active = known[0]!.status === "active"
+  return {
+    ok: true,
+    message: active
+      ? `${label}. Their library is being updated now.`
+      : `${label}. They are not active yet, so this takes effect when you activate them.`,
+  }
 }
 
 /**
@@ -436,14 +449,35 @@ export async function setPublicationException(_prev: FormState, formData: FormDa
  * does not exist yet.
  */
 export async function reconcilePublicationAccess(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireOwner()
+  const admin = await requireAdmin()
   const subscriberId = String(formData.get("subscriberId") ?? "")
   if (!UUID.test(subscriberId)) return { message: "Unknown subscriber." }
+  const rows = (await getSql()`
+    select lower(status) as status, public_tier from subscribers where id = ${subscriberId}::uuid and client_type = 'subscriber'
+  `) as { status: string; public_tier: string | null }[]
+  const sub = rows[0]
+  if (!sub) return { message: "Unknown subscriber." }
+  if (sub.status !== "active") {
+    return {
+      ok: true,
+      message: "They are not active yet. Their library is prepared, and checked, when you click Activate; the choices below are kept.",
+    }
+  }
+  // Their plan's library, then a verified link for every document they should see.
   await queueSubscriberAccessReconciliation(subscriberId, "admin_repair")
-  const reconciled = await reconcileSubscriberAccess(subscriberId, { trigger: "admin_repair" })
+  const access = await ensureSubscriberLibraryAccess({
+    subscriberId,
+    publicTier: sub.public_tier ?? "",
+    trigger: "admin_repair",
+    changedById: admin.id,
+    changedByName: admin.name,
+  })
   revalidatePath(`/admin/subscribers/${subscriberId}`)
   revalidatePath("/admin/subscribers/access-health")
-  return { ok: reconciled.state === "complete" || reconciled.state === "not_applicable", message: reconciled.message }
+  if (access.state === "no_room") {
+    return { message: "No Data Room is mapped for their plan. Map one under Data Rooms, then prepare again." }
+  }
+  return { ok: access.state === "ready", message: access.state === "ready" ? `Library ready. ${access.message}` : access.message }
 }
 
 /** What a level change did to the new room's personal links, when it needs saying. */
