@@ -1072,7 +1072,31 @@ export async function linkPublicationToDocument(
       and exists (select 1 from documents d where d.id = ${publicationId}::uuid and d.visibility <> 'OPEN')
     returning 1
   `
+  if (rows.length > 0) await tickPlansForRoomDocument(sql, documentRowId)
   return rows.length > 0
+}
+
+/**
+ * A file placed in a plan's Data Room ticks that plan on its edition, once:
+ * uploading to the Individual room means "for Individual subscribers". An
+ * administrator can untick it afterwards; a later sync does not tick it again,
+ * because only newly linked files are ticked. Nothing before the plans
+ * migration has run.
+ */
+async function tickPlansForRoomDocument(sql: ReturnType<typeof getSql>, documentRowId: string): Promise<void> {
+  try {
+    await sql`
+      insert into publication_plans (publication_id, public_tier, source)
+      select dd.publication_id, lr.public_tier, 'room'
+      from papermark_dataroom_documents dd
+      join papermark_level_rooms lr on lr.papermark_dataroom_id = dd.papermark_dataroom_id
+      join documents d on d.id = dd.publication_id and d.visibility <> 'OPEN'
+      where dd.id = ${documentRowId}::uuid and dd.publication_id is not null
+      on conflict do nothing
+    `
+  } catch {
+    // publication_plans does not exist yet: the edition stays undecided.
+  }
 }
 
 export async function unlinkPublicationFromDocument(
@@ -1252,6 +1276,7 @@ export async function createPublicationForSyncedDocument(args: {
       set publication_id = ${matchId}::uuid, updated_at = now()
       where id = ${doc.id}::uuid
     `
+    await tickPlansForRoomDocument(sql, doc.id)
     return { publicationId: matchId, created: false }
   }
 
@@ -1277,6 +1302,7 @@ export async function createPublicationForSyncedDocument(args: {
     set publication_id = ${pubId}::uuid, updated_at = now()
     where id = ${doc.id}::uuid
   `
+  await tickPlansForRoomDocument(sql, doc.id)
 
   return { publicationId: pubId, created: true }
 }

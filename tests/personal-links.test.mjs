@@ -802,15 +802,14 @@ describe("who can be given a personal link", () => {
   const reconcile = read(RECONCILE)
   const prepare = body(reconcile, "prepareAllowed")
 
-  // A document the policy would otherwise allow: released, at L1, inside the paid period.
+  // A document the policy would otherwise show: On, ticked for their plan, dated within their term.
   const owed = (over = {}) =>
     decideAccess({
       subscription: { state: "active", termStart: "2026-01-01", termEnd: "2026-12-31" },
-      level: "L1",
-      periods: [{ startsOn: "2026-01-01", endsOn: "2026-12-31", level: "L1" }],
-      periodsKnown: true,
+      plan: "Individual Access",
+      periods: [],
       exception: null,
-      publication: { publicationId: "p1", editionDate: "2026-03-01", visibility: "L1", series: "MIN", paidRelease: "released", editorialStatus: "published" },
+      publication: { publicationId: "p1", editionDate: "2026-03-01", visibility: "L1", series: "MIN", paidRelease: "released", editorialStatus: "published", plans: ["Individual Access"] },
       ...over,
     })
 
@@ -830,8 +829,10 @@ describe("who can be given a personal link", () => {
     for (const state of ["inactive", "suspended", "expired", "not_started"]) {
       assert.equal(owed({ subscription: { state } }).outcome, "excluded", `${state} is never issued a link`)
     }
-    // An engagement client carries no level (schema), so it is never owed a paid link.
-    assert.notEqual(owed({ level: null }).outcome, "allowed")
+    // A record with no plan is never owed a paid link, and only subscriber
+    // records are read at all.
+    assert.notEqual(owed({ plan: null }).outcome, "allowed")
+    assert.match(loader, /s\.client_type = 'subscriber'/)
     assert.match(body(reconcile, "subscribersAssignedToRoom"), /s\.client_type = 'subscriber'/)
   })
 
@@ -840,7 +841,7 @@ describe("who can be given a personal link", () => {
     // The room is the assignment -- override, else level room, else stored room -- never a live room link.
     assert.match(loader, /const roomId = row\.override_room \|\| row\.level_room \|\| row\.stored_room/)
     assert.doesNotMatch(loader, /papermark_dataroom_links/)
-    assert.match(loader, /where dd\.papermark_dataroom_id = \$\{room\.dataroomId\} and dd\.is_present = true/)
+    assert.match(loader, /where dd\.is_present = true\s+and \(dd\.papermark_dataroom_id = \$\{room\.dataroomId\}/)
     assert.match(loader, /where subscriber_id = \$\{subscriberId\}::uuid and revoke_state = 'live'/)
     // No caller can name a different room: the options carry none.
     const options = reconcile.slice(reconcile.indexOf("export type ReconcileOptions"), reconcile.indexOf("export async function reconcileSubscriberAccess"))

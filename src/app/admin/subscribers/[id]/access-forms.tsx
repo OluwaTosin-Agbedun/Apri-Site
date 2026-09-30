@@ -7,7 +7,7 @@ import {
   setPaidPeriodVoided,
   setPublicationException,
 } from "@/app/actions/subscribers"
-import { setPaidRelease } from "@/app/actions/documents"
+import { saveEditionAvailability } from "@/app/actions/documents"
 import type { FormState } from "@/lib/definitions"
 
 const input = "border border-border bg-background p-2 text-xs"
@@ -35,21 +35,16 @@ export function RepairForm({ subscriberId }: { subscriberId: string }) {
   )
 }
 
-export function AddPeriodForm({ subscriberId, levels }: { subscriberId: string; levels: readonly string[] }) {
+export function AddPeriodForm({ subscriberId, level }: { subscriberId: string; level: string }) {
   const [state, action, pending] = useActionState(addPaidPeriod, undefined)
   return (
     <form action={action} className="flex flex-wrap items-end gap-2">
       <input type="hidden" name="subscriberId" value={subscriberId} />
       <label className="text-xs text-muted-foreground flex flex-col gap-1">From<input className={input} type="date" name="startsOn" required /></label>
       <label className="text-xs text-muted-foreground flex flex-col gap-1">To (inclusive)<input className={input} type="date" name="endsOn" required /></label>
-      <label className="text-xs text-muted-foreground flex flex-col gap-1">Level
-        <select className={input} name="level" defaultValue="">
-          <option value="" disabled>Choose</option>
-          {levels.map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
-      </label>
+      <input type="hidden" name="level" value={level} />
       <label className="text-xs text-muted-foreground flex flex-col gap-1 grow min-w-[12rem]">Reason (invoice or agreement)<input className={input} name="reason" required maxLength={500} /></label>
-      <button className="btn-secondary text-xs" type="submit" disabled={pending}>{pending ? "Adding…" : "Add paid period"}</button>
+      <button className="btn-secondary text-xs" type="submit" disabled={pending}>{pending ? "Adding…" : "Add an earlier term"}</button>
       <div className="basis-full"><Result state={state} /></div>
     </form>
   )
@@ -102,9 +97,9 @@ export function PublicationAccessControl({
         className={input}
         aria-label={`Access control for ${title}`}
       >
-        <option value="automatic">Automatic</option>
-        <option value="allow">Allow</option>
-        <option value="block">Block</option>
+        <option value="automatic">Automatic (follow the rule)</option>
+        <option value="allow">Also give to this subscriber</option>
+        <option value="block">Hide from this subscriber</option>
       </select>
       <input name="reason" required maxLength={500} aria-label="Reason" placeholder="Reason (required)" className={input} />
       {!confirming ? (
@@ -112,7 +107,7 @@ export function PublicationAccessControl({
       ) : (
         <>
           <span className="text-xs" role="status">
-            {decision === "allow" ? `Allow “${title}” for this subscriber` : decision === "block" ? `Block “${title}” for this subscriber` : `Return “${title}” to the paid-period rule`}
+            {decision === "allow" ? `Give “${title}” to this subscriber` : decision === "block" ? `Hide “${title}” from this subscriber` : `Let the rule decide “${title}” for this subscriber`}
           </span>
           <button className="btn-secondary text-xs" type="submit" disabled={pending}>Confirm</button>
         </>
@@ -122,21 +117,48 @@ export function PublicationAccessControl({
   )
 }
 
-/** Release to paid subscribers, withhold, or return to undecided, with a reason. */
-export function PaidReleaseForm({ publicationId, current }: { publicationId: string; current: "released" | "withheld" | null }) {
-  const [state, action, pending] = useActionState(setPaidRelease, undefined)
+/**
+ * Who gets this edition: the plans that receive it and whether it is On for
+ * subscribers. Saving updates every affected subscriber's access at once.
+ */
+export function EditionAvailabilityForm({
+  publicationId,
+  plans,
+  current,
+  state,
+}: {
+  publicationId: string
+  /** Every plan: stored name and display name. */
+  plans: readonly { value: string; label: string }[]
+  /** The plans ticked now. */
+  current: readonly string[]
+  state: "released" | "withheld" | null
+}) {
+  const [result, action, pending] = useActionState(saveEditionAvailability, undefined)
   return (
-    <form action={action} className="flex flex-wrap items-center gap-2">
+    <form action={action} className="space-y-3">
       <input type="hidden" name="publicationId" value={publicationId} />
-      <select name="state" defaultValue={current ?? "undecided"} className={input} aria-label="Paid release">
-        <option value="released">Released to paid subscribers</option>
-        <option value="withheld">Withheld</option>
-        <option value="undecided">Undecided</option>
-      </select>
-      <input name="reason" required maxLength={500} aria-label="Reason" placeholder="Reason (required)" className={input} />
-      <button className="btn-secondary text-xs" type="submit" disabled={pending}>{pending ? "Saving…" : "Save release decision"}</button>
-      <div className="basis-full"><Result state={state} /></div>
+      <fieldset>
+        <legend className="text-xs text-muted-foreground mb-2">Plans that receive this edition</legend>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {plans.map((p) => (
+            <label key={p.value} className="text-sm flex items-center gap-2">
+              <input type="checkbox" name="plans" value={p.value} defaultChecked={current.includes(p.value)} />
+              {p.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="flex flex-wrap items-center gap-2">
+        <select name="state" defaultValue={state ?? "undecided"} className={input} aria-label="Show to subscribers">
+          <option value="released">On: show to subscribers</option>
+          <option value="withheld">Off: do not show</option>
+          <option value="undecided">Not decided yet</option>
+        </select>
+        <input name="reason" required maxLength={500} aria-label="Reason" placeholder="Reason (required)" className={`${input} grow min-w-[14rem]`} />
+        <button className="btn-secondary text-xs" type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</button>
+      </div>
+      <Result state={result} />
     </form>
   )
 }
-

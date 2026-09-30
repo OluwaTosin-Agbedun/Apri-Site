@@ -1,42 +1,40 @@
 /**
- * Which paid publications one subscriber may open: the single decision.
+ * Which paid editions one subscriber sees in their portal: the single rule.
  *
- * Every path that lists, opens, downloads, provisions, repairs or revokes a
- * subscriber's document access asks this function, through
- * src/lib/access-policy-dal.ts, which loads its inputs. Admin previews, the
- * rollout report and the batch repair script ask it too, so what Admin shows is
- * what the portal and Papermark enforce.
+ *   An edition appears when it is switched On for subscribers, ticked for the
+ *   subscriber's plan, and dated within their term.
+ *
+ * Two individual adjustments sit on top: "Also give" (for example a back
+ * issue promised at sign-up) and "Hide", which always wins. A subscription
+ * that has ended, is suspended or is not active yet shows nothing.
+ *
+ * Every path that lists, opens, downloads, provisions, repairs or withdraws a
+ * subscriber's documents asks this function, through
+ * src/lib/access-policy-dal.ts. Admin, the rollout report and the batch tool
+ * ask it too, so what Admin shows is what the portal and Papermark enforce.
  *
  * Three outcomes, never two:
  *
- *  - allowed    the subscriber is owed a personal link to this document;
- *  - excluded   confirmed: the subscription has ended or is suspended, the
- *               document is blocked, withheld, above the subscriber's level or
- *               outside every paid period. A live link is revoked;
- *  - unresolved the decision cannot be made yet: no publication record, no
- *               release decision, no edition date, no paid-period history or a
- *               term that needs correcting. Nothing new is issued, and nothing
- *               already issued is taken away -- missing information is never
- *               treated as a confirmed "no".
+ *  - allowed    shown: the subscriber gets their own link;
+ *  - excluded   a deliberate or confirmed "no" (Off, Hide, not their plan,
+ *               outside their term, subscription over): a live link is withdrawn;
+ *  - unresolved something is missing (no date, no plan ticked, not switched
+ *               on yet, no publication record, term dates to fix): nothing new
+ *               is issued and nothing already issued is taken away.
  *
- * Dependency-free apart from the level and term rules, so every branch is
- * tested directly (tests/access-policy.test.mjs).
+ * Dependency-free apart from the term rule, so every branch is tested
+ * directly (tests/access-policy.test.mjs).
  */
-import { isEntitled, isLevel, type Level } from "./entitlements.ts"
 import { dateOnly, type SubscriptionStatus } from "./subscription-term.ts"
 
-/**
- * Whether an edition is released to paid subscribers. Separate from the
- * record's editorial status and from Complimentary Review publication or
- * withdrawal: an administrator releases it, or withholds it, deliberately.
- */
+/** Switched On (released) or Off (withheld) for subscribers; null until someone decides. */
 export type PaidRelease = "released" | "withheld" | null
 
 export type Period = {
   startsOn: string
   endsOn: string
-  level: string
-  /** A period voided as a mistake grants nothing, but stays in the history. */
+  level?: string
+  /** A term voided as a mistake grants nothing, but stays in the history. */
   voided?: boolean
 }
 
@@ -44,46 +42,47 @@ export type PublicationFacts = {
   /** The publication record behind the document, or null when none is linked. */
   publicationId: string | null
   editionDate: string | null
+  /** Only OPEN matters here: a public publication is never issued as a paid document. */
   visibility: string | null
   series: string | null
-  /** The administrator's explicit decision, when one exists. */
+  /** The explicit On/Off decision, when one exists. */
   paidRelease: PaidRelease
   /** The record's editorial status: draft, published or archived. */
   editorialStatus: string | null
+  /** The plans ticked for this edition, as stored plan names. Null when they cannot be read. */
+  plans: readonly string[] | null
 }
 
 export type PolicyInput = {
   subscription: SubscriptionStatus
-  /** The subscriber's current commercial level. */
-  level: string | null
-  /** Paid periods, including voided ones (which grant nothing). */
+  /** The subscriber's plan, as its stored name (for example "Individual Access"). */
+  plan: string | null
+  /** Earlier terms, kept automatically: editions dated inside them stay covered. */
   periods: readonly Period[]
-  /** Whether paid-period history can be read at all (the migration exists). */
-  periodsKnown: boolean
   exception: "allow" | "block" | null
   publication: PublicationFacts
 }
 
-export type AllowedReason = "within_paid_period" | "manually_allowed"
+export type AllowedReason = "within_term" | "also_given"
 export type ExcludedReason =
   | "subscription_ended"
   | "subscription_suspended"
   | "subscription_inactive"
   | "subscription_not_started"
-  | "manually_blocked"
+  | "hidden"
   | "public_publication"
-  | "withheld"
-  | "above_level"
-  | "before_coverage"
-  | "outside_paid_periods"
-  | "period_level"
+  | "switched_off"
+  | "not_in_plan"
+  | "before_term"
+  | "outside_term"
 export type UnresolvedReason =
   | "term_needs_correction"
-  | "level_missing"
+  | "plan_missing"
   | "no_publication_record"
-  | "release_undecided"
+  | "not_switched_on"
+  | "no_plan_ticked"
+  | "plans_unavailable"
   | "edition_date_missing"
-  | "no_coverage_history"
 
 export type AccessDecision =
   | { outcome: "allowed"; reason: AllowedReason }
@@ -91,31 +90,31 @@ export type AccessDecision =
   | { outcome: "unresolved"; reason: UnresolvedReason }
 
 export const REASON_TEXT: Record<AllowedReason | ExcludedReason | UnresolvedReason, string> = {
-  within_paid_period: "Edition date is inside a paid period",
-  manually_allowed: "Individually allowed by an administrator",
-  subscription_ended: "Subscription has ended",
-  subscription_suspended: "Subscription is suspended",
-  subscription_inactive: "Subscription is not active",
-  subscription_not_started: "Subscription has not started yet",
-  manually_blocked: "Individually blocked by an administrator",
-  public_publication: "Public publication, not issued as a paid document",
-  withheld: "Withheld from paid subscribers",
-  above_level: "Above the subscriber's access level",
-  before_coverage: "Edition date is before the first paid period",
-  outside_paid_periods: "Edition date is outside every paid period",
-  period_level: "Paid period for this date is at a lower level",
-  term_needs_correction: "Subscription term dates need correcting",
-  level_missing: "Subscriber has no access level set",
-  no_publication_record: "No publication record is linked to this document",
-  release_undecided: "Release to paid subscribers not yet decided",
-  edition_date_missing: "Publication record has no edition date",
-  no_coverage_history: "No paid-period history recorded for this subscriber",
+  within_term: "In their plan and dated within their term",
+  also_given: "Also given to this subscriber",
+  subscription_ended: "Their subscription has ended",
+  subscription_suspended: "Their subscription is suspended",
+  subscription_inactive: "Their subscription is not active yet",
+  subscription_not_started: "Their subscription has not started yet",
+  hidden: "Hidden for this subscriber",
+  public_publication: "A public publication, not a paid edition",
+  switched_off: "Switched off for subscribers",
+  not_in_plan: "Not ticked for their plan",
+  before_term: "Dated before their term started",
+  outside_term: "Dated outside their term",
+  term_needs_correction: "Their term dates need correcting",
+  plan_missing: "They have no plan set",
+  no_publication_record: "No publication record is linked to this file",
+  not_switched_on: "Not switched on for subscribers yet",
+  no_plan_ticked: "No plan is ticked for this edition",
+  plans_unavailable: "Plan ticks could not be read",
+  edition_date_missing: "The edition has no date",
 }
 
 /**
- * The effective release decision. An explicit decision wins. Without one, a
- * record an administrator published is released and an archived one is
- * withheld; a draft is undecided -- never assumed either way.
+ * The effective On/Off. An explicit decision wins. Without one, a record an
+ * administrator published counts as On and an archived one as Off; a draft is
+ * not switched on yet -- never assumed either way.
  */
 export function effectiveRelease(publication: Pick<PublicationFacts, "paidRelease" | "editorialStatus">): PaidRelease {
   if (publication.paidRelease === "released" || publication.paidRelease === "withheld") return publication.paidRelease
@@ -125,16 +124,11 @@ export function effectiveRelease(publication: Pick<PublicationFacts, "paidReleas
   return null
 }
 
-function rank(level: string | null | undefined): number {
-  return isLevel(level) ? { L1: 1, L2: 2, L3: 3, L4: 4 }[level] : 0
-}
-
 export function decideAccess(input: PolicyInput): AccessDecision {
   const excluded = (reason: ExcludedReason): AccessDecision => ({ outcome: "excluded", reason })
   const unresolved = (reason: UnresolvedReason): AccessDecision => ({ outcome: "unresolved", reason })
 
-  // 1. The subscription itself. Nothing is owed outside a current one; a term
-  //    whose dates cannot be read is a record to correct, not an ended one.
+  // 1. The subscription itself: nothing is shown outside a current one.
   switch (input.subscription.state) {
     case "expired":
       return excluded("subscription_ended")
@@ -148,44 +142,41 @@ export function decideAccess(input: PolicyInput): AccessDecision {
       return unresolved("term_needs_correction")
   }
 
-  // 2. An individual Block always wins.
-  if (input.exception === "block") return excluded("manually_blocked")
+  // 2. Hide always wins.
+  if (input.exception === "block") return excluded("hidden")
 
   const pub = input.publication
   if (!pub.publicationId) return unresolved("no_publication_record")
   if ((pub.visibility ?? "").toUpperCase() === "OPEN") return excluded("public_publication")
 
+  // 3. Off is a deliberate decision for everyone, "Also give" included.
   const release = effectiveRelease(pub)
-  if (release === "withheld") return excluded("withheld")
+  if (release === "withheld") return excluded("switched_off")
 
-  // 3. Content level: Allow never lifts a subscriber above their level.
-  if (!isLevel(input.level)) return unresolved("level_missing")
-  if (!isLevel(pub.visibility)) return unresolved("no_publication_record")
-  if (!isEntitled(input.level as Level, pub.visibility)) return excluded("above_level")
+  // 4. Also give: this one subscriber, whatever the plan or date.
+  if (input.exception === "allow") return { outcome: "allowed", reason: "also_given" }
 
-  if (release === null) return unresolved("release_undecided")
+  // 5. Their plan: an edition for other plans is simply not theirs.
+  if (!input.plan) return unresolved("plan_missing")
+  if (pub.plans === null) return unresolved("plans_unavailable")
+  if (pub.plans.length === 0) return unresolved("no_plan_ticked")
+  if (!pub.plans.includes(input.plan)) return excluded("not_in_plan")
 
+  if (release === null) return unresolved("not_switched_on")
+
+  // 6. Dated within their term (or an earlier term of theirs).
   const edition = dateOnly(pub.editionDate)
   if (!edition) return unresolved("edition_date_missing")
-
-  // 4. An individual Allow, bounded by everything above.
-  if (input.exception === "allow") return { outcome: "allowed", reason: "manually_allowed" }
-
-  // 5. Paid periods, by the edition's own date.
-  const periods = input.periods
-    .filter((p) => !p.voided)
-    .map((p) => ({ startsOn: dateOnly(p.startsOn), endsOn: dateOnly(p.endsOn), level: p.level }))
-    .filter((p): p is { startsOn: string; endsOn: string; level: string } => Boolean(p.startsOn && p.endsOn))
-  if (!input.periodsKnown || periods.length === 0) return unresolved("no_coverage_history")
-
-  const covering = periods.filter((p) => p.startsOn <= edition && p.endsOn >= edition)
-  if (covering.some((p) => rank(p.level) >= rank(pub.visibility))) return { outcome: "allowed", reason: "within_paid_period" }
-  if (covering.length > 0) return excluded("period_level")
-  const first = periods.map((p) => p.startsOn).sort()[0]!
-  return excluded(edition < first ? "before_coverage" : "outside_paid_periods")
+  const terms = [
+    { startsOn: input.subscription.termStart, endsOn: input.subscription.termEnd },
+    ...input.periods.filter((p) => !p.voided).map((p) => ({ startsOn: dateOnly(p.startsOn), endsOn: dateOnly(p.endsOn) })),
+  ].filter((t): t is { startsOn: string; endsOn: string } => Boolean(t.startsOn && t.endsOn))
+  if (terms.some((t) => t.startsOn <= edition && t.endsOn >= edition)) return { outcome: "allowed", reason: "within_term" }
+  const first = terms.map((t) => t.startsOn).sort()[0]
+  return excluded(first && edition < first ? "before_term" : "outside_term")
 }
 
-/** A short account of one decision for Admin: the outcome and its reason. */
+/** A short account of one decision for Admin. */
 export function describeDecision(decision: AccessDecision): string {
   return REASON_TEXT[decision.reason]
 }

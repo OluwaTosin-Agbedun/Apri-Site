@@ -699,8 +699,13 @@ test('client library: list query LEFT JOINs documents table', () => {
   assert.doesNotMatch(fn, /papermark_dataroom_documents/)
   const query = accessDocumentQuery()
   assert.match(query, /left join documents d on d\.id = dd\.publication_id/i)
-  // Scoped to the subscriber's assigned room and to documents still present.
-  assert.match(query, /dd\.papermark_dataroom_id = \$\{room\.dataroomId\} and dd\.is_present = true/)
+  // Documents still present: the subscriber's own room, plus editions in other
+  // plans' rooms -- which are kept only when they concern this subscriber
+  // (ticked for their plan, given or hidden for them, or already held).
+  assert.match(query, /where dd\.is_present = true\s+and \(dd\.papermark_dataroom_id = \$\{room\.dataroomId\}/)
+  const loader = read('src/lib/access-policy-dal.ts')
+  assert.ok(loader.includes('const relevant = editionRows.filter('))
+  assert.ok(loader.includes('includes(subscriber.plan ?? "")'))
 })
 
 test('client library: single-doc query LEFT JOINs documents table', () => {
@@ -727,7 +732,7 @@ test('client library: every Data Room title comes from the synced Papermark name
   assert.equal(calls.length, 2, 'the library and the viewer both use it')
   // fileTitle is the synced Papermark name.
   const dal = read('src/lib/access-policy-dal.ts')
-  assert.match(dal, /select dd\.id, dd\.papermark_document_id, dd\.title,/)
+  assert.match(dal, /select dd\.id, dd\.papermark_document_id, dd\.papermark_dataroom_id, dd\.title,/)
   assert.match(dal, /fileTitle: \(r\.title as string \| null\)/)
   // A stored editorial title no longer wins on its own: sync generates one.
   assert.doesNotMatch(src, /editorialTitle \|\|/)

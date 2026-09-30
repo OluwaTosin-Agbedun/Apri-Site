@@ -184,16 +184,15 @@ describe("the paid portals read the same records as before", () => {
     const decide = (publication, level = "L2") =>
       decideAccess({
         subscription: { state: "active", termStart: "2026-01-01", termEnd: "2026-12-31" },
-        level,
-        periods: [{ startsOn: "2026-01-01", endsOn: "2026-12-31", level }],
-        periodsKnown: true,
+        plan: level === "L2" ? "Political Monitor" : "Individual Access",
+        periods: [],
         exception: null,
-        publication: { publicationId: paid.id, editionDate: "2026-06-01", visibility: "L2", series: "MIN", paidRelease: null, ...publication },
+        publication: { publicationId: paid.id, editionDate: "2026-06-01", visibility: "L2", series: "MIN", paidRelease: null, plans: ["Political Monitor"], ...publication },
       })
     assert.equal(decide({ editorialStatus: "published" }).outcome, "allowed", "a published, entitled record is listed")
     assert.notEqual(decide({ editorialStatus: "draft" }).outcome, "allowed", "a draft is never listed")
     assert.equal(decide({ editorialStatus: "archived" }).outcome, "excluded")
-    assert.equal(decide({ editorialStatus: "published" }, "L1").outcome, "excluded", "a record above the level is not listed")
+    assert.equal(decide({ editorialStatus: "published" }, "L1").outcome, "excluded", "a record not ticked for their plan is not listed")
     assert.equal(decide({ editorialStatus: "published", visibility: "OPEN" }).outcome, "excluded", "OPEN reading is not a paid item")
   })
 })

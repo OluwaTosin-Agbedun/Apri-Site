@@ -339,31 +339,23 @@ test('subscriber library query uses visibilitiesForLevel', () => {
   assert.match(legacy, /decideAccess\(/)
   assert.match(legacy, /visibility <> 'OPEN'/)
 
-  const policy = read('src/lib/access-policy.ts')
-  assert.match(policy, /import \{[^}]*\bisEntitled\b[^}]*\} from "\.\/entitlements\.ts"/)
-
-  const decide = (level, visibility, exception = null) =>
+  // Levels no longer decide paid access: each edition's plan ticks do (the
+  // plans migration ticks records in no room from their old level, so the
+  // legacy library keeps what it showed). A subscriber sees only editions
+  // ticked for their plan, and never an OPEN record.
+  const decide = (plan, plans, visibility = 'L1') =>
     decideAccess({
       subscription: { state: 'active', termStart: '2026-01-01', termEnd: '2026-12-31' },
-      level,
-      periods: [{ startsOn: '2026-01-01', endsOn: '2026-12-31', level }],
-      periodsKnown: true,
-      exception,
-      publication: {
-        publicationId: 'p1',
-        editionDate: '2026-03-01',
-        visibility,
-        series: 'MIN',
-        paidRelease: 'released',
-        editorialStatus: 'published',
-      },
+      plan,
+      periods: [],
+      exception: null,
+      publication: { publicationId: 'p1', editionDate: '2026-03-01', visibility, series: 'MIN', paidRelease: 'released', editorialStatus: 'published', plans },
     }).outcome
-  for (const level of LEVELS) {
-    for (const exception of [null, 'allow']) {
-      const allowed = [...LEVELS, 'OPEN'].filter((v) => decide(level, v, exception) === 'allowed')
-      assert.deepEqual(allowed, visibilitiesForLevel(level), `${level} (exception ${exception})`)
-    }
-  }
+  assert.equal(decide('Individual Access', ['Individual Access']), 'allowed')
+  assert.equal(decide('Individual Access', ['Political Monitor']), 'excluded')
+  assert.equal(decide('Individual Access', ['Individual Access'], 'OPEN'), 'excluded')
+  const migration = read('db/migrations/20261005_publication_plans.sql')
+  assert.match(migration, /t\.rank >= substring\(d\.visibility from 2\)::int/, 'legacy records keep the plans their old level reached')
 })
 
 // ---------------------------------------------------------------------------

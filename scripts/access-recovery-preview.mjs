@@ -89,15 +89,15 @@ for (const s of subscribers) {
 
 console.log("\nPAID PUBLICATION RECORDS IN DATA ROOMS")
 for (const r of publications) {
-  const release = r.explicitRelease ?? (r.editorialStatus === "published" ? "released (from status)" : r.editorialStatus === "archived" ? "withheld (from status)" : "UNDECIDED")
-  console.log(`- ${r.title} [${r.publicationId}] ${r.series ?? "no series"} ${r.editionDate ?? "NO DATE"} ${r.visibility ?? ""}; release ${release}; issued to ${r.subscribersIssued}, live ${r.subscribersLive}, paid views ${r.paidViews}`)
+  const release = r.explicitRelease === "released" ? "On" : r.explicitRelease === "withheld" ? "Off" : r.editorialStatus === "published" ? "On (from status)" : r.editorialStatus === "archived" ? "Off (from status)" : "NOT SWITCHED ON"
+  console.log(`- ${r.title} [${r.publicationId}] ${r.series ?? "no series"} ${r.editionDate ?? "NO DATE"} plans ${r.plans.length ? r.plans.join("/") : "NONE"}; ${release}; issued to ${r.subscribersIssued}, live ${r.subscribersLive}, paid views ${r.paidViews}`)
   for (const f of r.flags) console.log(`    check: ${f}`)
 }
 
 const candidates = publications.filter((p) => p.backfillCandidate)
-console.log(`\nRELEASE BACKFILL CANDIDATES: ${candidates.length} undecided record(s) already delivered to paid subscribers`)
+console.log(`\nSWITCH-ON CANDIDATES: ${candidates.length} edition(s) not switched on yet but already delivered to paid subscribers`)
 for (const c of candidates) console.log(`- ${c.title} [${c.publicationId}]: issued to ${c.subscribersIssued}, paid views ${c.paidViews}`)
 if (candidates.length) {
-  console.log(`\nAfter review, release them with:\n  node scripts/access-recovery-preview.mjs --apply-release ${candidates.map((c) => c.publicationId).join(",")} --reason "Already delivered to paid subscribers through the Data Room before release decisions existed" --admin-email <your admin email>`)
+  console.log(`\nAfter review, switch them On with:\n  node scripts/access-recovery-preview.mjs --apply-release ${candidates.map((c) => c.publicationId).join(",")} --reason "Already delivered to paid subscribers through the Data Room before release decisions existed" --admin-email <your admin email>`)
 }
 console.log("\nRead-only: nothing was changed, no Papermark call was made and no email was sent.")

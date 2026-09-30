@@ -33,55 +33,54 @@
 - **The portal separates the questions**: sign-in, then the subscription (renewal only for an ended one), then the
   library ("being prepared", "no editions yet", "temporarily unavailable").
 
+## The rule (from 20261005 onwards)
+
+**An edition appears in a subscriber's portal when it is switched On, ticked for their plan, and dated within their
+term.** Two individual adjustments sit on top: **Also give** (for example a back issue promised at sign-up) and
+**Hide**, which always wins. Levels (L1–L4) and paid-period entries no longer need managing: plan ticks replace levels,
+and the term on the subscriber's record is what counts (earlier terms are kept automatically after a renewal).
+
+Papermark rooms are storage. A file uploaded to a plan's room ticks that plan on its edition automatically; you can
+tick more plans (or untick one) on the edition. The same edition in several rooms counts once.
+
 ## Migrations and deployment order
 
 Already applied (do not re-run): `20260930_portal_title_override.sql`, `20260930_subscription_activation.sql`,
 `20261001_subscriber_onboarding_messages.sql`, `20261002_engagement_page_progress.sql`,
 `20261003_subscription_edition_entitlements.sql` (confirm each is recorded as applied; apply only one that is not).
 
-1. Apply **`db/migrations/20261004_paid_release_and_access_health.sql`** (additive, idempotent; changes no row, grants
-   nothing). Rollback: `db/rollback/20261004_paid_release_and_access_health.rollback.sql`.
+1. Apply **`db/migrations/20261004_paid_release_and_access_health.sql`**, then
+   **`db/migrations/20261005_publication_plans.sql`** (both additive and idempotent). 20261005 ticks each edition's plans
+   from the rooms it is in (records in no room from their old level) and keeps, as a visible "kept from before" Also give,
+   every edition a subscriber can open today that the new rule would not give them. No link, term or account changes.
 2. Deploy the application.
-3. Without step 1 the portal still works (published counts as released), but repair, activation and the new Admin
-   controls report that the migration is pending and change nothing.
+3. Rollbacks: `db/rollback/20261005_publication_plans.rollback.sql`, then `db/rollback/20261004_…`.
 
-## Recovering existing subscribers, in stages
+## Recovering and tidying, in stages
 
-1. **Preview, read-only.** With a read-only credential:
-   `node scripts/access-recovery-preview.mjs` (or `--json`). It lists every subscriber (expected, linked, missing,
-   excluded, undecided, links to be withdrawn), every paid publication record in a Data Room with checks (missing dates,
-   series/folder mismatch, a month in the file name that disagrees with the edition date), and the **release backfill
-   candidates**: undecided records already delivered to paid subscribers (links issued or paid views recorded).
-2. **Fix the records.** Enter missing edition dates from the editions themselves (never from a file name). Check the
-   flagged ones (for example a PLM file named July with a March date). Add missing paid periods from the agreed terms.
-3. **Release what was already delivered.** After review:
-   `node scripts/access-recovery-preview.mjs --apply-release <ids> --reason "<why>" --admin-email <you>`, or use
-   **Release to paid subscribers** on each publication record. This changes no link.
-4. **Controlled test.** Pick one test subscriber (for example the approved test account). Dry run:
-   `node scripts/reconcile-subscriber-document-links.mjs --subscriber <id>`. Review, then apply with the printed
-   `--plan` fingerprint. Confirm in the portal that they sign in, see their permitted editions and open them, and that
-   their old room link no longer opens. Check another subscriber and Complimentary Review links are unchanged.
-5. **Batches.** Dry run `--limit 25 --offset 0`, review, apply with its fingerprint; continue with the next offset.
-   Failures are retried with backoff and shown on **Subscribers → Access Health**. No email is sent at any point.
+1. **Preview, read-only:** `node scripts/access-recovery-preview.mjs` (read-only credential). It lists every subscriber
+   and every edition with checks (no plan ticked, no date, series/folder mismatch, a month in the file name that disagrees
+   with the date) and the **switch-on candidates**: editions not switched on yet but already delivered.
+2. **Fix details:** enter missing dates from the editions themselves; check flagged ones.
+3. **Switch editions On:** on each publication record under **Who gets this edition**, check the plan ticks and choose
+   **On**, with a reason; or, after review, `node scripts/access-recovery-preview.mjs --apply-release <ids> --reason "<why>"
+   --admin-email <you>`.
+4. **Controlled test:** `node scripts/reconcile-subscriber-document-links.mjs --subscriber <id>` (dry run), review, apply
+   with the printed `--plan` fingerprint; confirm in the portal. Then batches (`--limit 25 --offset …`).
 
-Nobody is reactivated, renewed, re-dated, duplicated or re-sent onboarding by any of this.
+Nobody is reactivated, renewed, re-dated, duplicated or re-sent onboarding by any of this, and no email is sent.
 
 ## Admin guide
 
-**Paid periods** (Subscribers → subscriber → Document access). A period is the dates a subscriber paid for, at a level.
-An edition is covered when its edition date is inside a period at or above its level. Add a renewal as a new period;
-leave an unpaid gap empty. If a period was entered by mistake, **void** it with a reason: it stops granting anything but
-stays in the history. Never change agreed term dates to give someone an edition.
+**Who gets this edition** (publication record): tick the plans that receive it and choose **On**, **Off** or **Not
+decided yet**, with a reason. On shows it to every subscriber on those plans whose term covers its date. Off removes it.
+Not decided yet gives nothing new and takes nothing away. Turning an edition On never makes it public.
 
-**Publication release** (the publication record page). *Released* issues the edition to every subscriber whose periods
-cover it; *Withheld* withdraws their links; *Undecided* issues nothing new and takes nothing away. Releasing never makes
-a paid PDF public and is independent of the Complimentary Review.
+**A subscriber's term** (subscriber record): their start and end date. A renewal is a new end date. They get editions
+dated within their term, so someone starting on 30 September does not get a 1 September edition unless you choose
+**Also give** for it.
 
-**Individual exceptions** (Document access, per publication). *Allow* gives one subscriber an edition outside their
-periods, for example a back issue agreed at sign-up (someone starting on 30 September does not otherwise receive the
-1 September edition). It still needs a current subscription, the right level and their own library. *Block* removes one
-edition from one subscriber and always wins. *Automatic* removes the exception. Each change records who and why, then
-reconciles at once and shows the result.
+**Also give / Hide** (subscriber page → Document access, per edition): for one person only, always with a reason.
+**Automatic** removes the adjustment.
 
-**Repair document links** recalculates, creates, repairs, withdraws and verifies, and never emails. **Access Health**
-shows every subscriber's counts and last result.
+**Repair document links** recalculates and verifies one subscriber, and never emails. **Access Health** shows everyone.

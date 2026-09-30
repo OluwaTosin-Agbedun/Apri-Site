@@ -109,6 +109,8 @@ export type PublicationReadiness = {
   visibility: string | null
   editorialStatus: string
   explicitRelease: string | null
+  /** Plans ticked for the edition (stored names). */
+  plans: string[]
   /** Paid Data Rooms (mapped to a level) that hold the document. */
   paidRooms: number
   /** Subscribers who were issued a personal link to it at any time. */
@@ -150,8 +152,17 @@ export async function publicationReadiness(): Promise<PublicationReadiness[]> {
     issued: number; live: number; paid_views: number
   }[]
 
+  const { publicationPlansReady } = await import("./access-policy-dal")
+  const plansBy = new Map<string, string[]>()
+  if (rows.length && (await publicationPlansReady(sql))) {
+    const planRows = (await sql`select publication_id, public_tier from publication_plans where publication_id = any(${rows.map((r) => r.id)}::uuid[])`) as { publication_id: string; public_tier: string }[]
+    for (const pr of planRows) plansBy.set(pr.publication_id, [...(plansBy.get(pr.publication_id) ?? []), pr.public_tier])
+  }
+
   return rows.map((r) => {
     const flags: string[] = []
+    const plans = plansBy.get(r.id) ?? []
+    if (plans.length === 0) flags.push("No plan ticked: no subscriber can receive it until at least one plan is ticked.")
     if (!r.edition_date) flags.push("No edition date: enter it from the edition itself; it is never guessed.")
     if (!r.series) flags.push("No series.")
     const categories = (r.categories ?? []).filter((c) => c && c !== "OTHER")
@@ -168,7 +179,7 @@ export async function publicationReadiness(): Promise<PublicationReadiness[]> {
         }
       }
     }
-    if (r.paid_rooms === 0) flags.push("Not in any level's Data Room.")
+    if (r.paid_rooms === 0) flags.push("Not in any plan's Data Room.")
     const undecided = !r.explicit_release && r.status !== "published" && r.status !== "archived"
     return {
       publicationId: r.id,
@@ -179,6 +190,7 @@ export async function publicationReadiness(): Promise<PublicationReadiness[]> {
       visibility: r.visibility,
       editorialStatus: r.status,
       explicitRelease: r.explicit_release,
+      plans,
       paidRooms: r.paid_rooms,
       subscribersIssued: r.issued,
       subscribersLive: r.live,

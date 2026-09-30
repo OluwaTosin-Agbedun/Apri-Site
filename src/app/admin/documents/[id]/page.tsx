@@ -4,7 +4,9 @@ import { portalTitleOverrideReady } from '@/lib/portal-title-schema'
 import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
 import DocumentForm, { type DocumentDraft } from './document-form'
-import { PaidReleaseForm } from '@/app/admin/subscribers/[id]/access-forms'
+import { EditionAvailabilityForm } from '@/app/admin/subscribers/[id]/access-forms'
+import { publicationPlansReady } from '@/lib/access-policy-dal'
+import { SUBSCRIPTION_CATALOGUE } from '@/lib/subscription-catalogue'
 
 export const dynamic = 'force-dynamic'
 
@@ -143,8 +145,8 @@ export default async function EditDocumentPage({
       : null,
   }
 
-  // Release to paid subscribers: separate from editorial status and from
-  // Complimentary Review publication. Paid records only.
+  // Who gets this edition: its plans and On/Off. Separate from editorial
+  // status and from Complimentary Review publication. Paid records only.
   const releaseRows = (await sql`
     select to_jsonb(d) ->> 'paid_release_state' as state, to_jsonb(d) ->> 'paid_release_reason' as reason,
            to_jsonb(d) ->> 'paid_release_changed_at' as changed_at,
@@ -154,6 +156,17 @@ export default async function EditDocumentPage({
   const release = releaseRows[0]
   const explicit = release?.state === 'released' || release?.state === 'withheld' ? release.state : null
   const effective = explicit ?? (row.status === 'published' ? 'released' : row.status === 'archived' ? 'withheld' : null)
+  const plansReady = await publicationPlansReady(sql)
+  const ticked = plansReady
+    ? ((await sql`select public_tier from publication_plans where publication_id = ${id}::uuid`) as { public_tier: string }[]).map((r) => r.public_tier)
+    : []
+  const receiving = (await sql`
+    select count(distinct dl.subscriber_id)::int as n
+    from papermark_subscriber_document_links dl
+    join papermark_dataroom_documents dd on dd.papermark_document_id = dl.papermark_document_id
+    where dd.publication_id = ${id}::uuid and dl.revoke_state = 'live'
+  `) as { n: number }[]
+  const planChoices = SUBSCRIPTION_CATALOGUE.map((o) => ({ value: o.storedName, label: o.name }))
 
   return (
     <AdminShell
@@ -164,10 +177,11 @@ export default async function EditDocumentPage({
     >
       {row.visibility !== 'OPEN' && (
         <section className="mb-6 border border-border bg-card/30 p-6">
-          <h2 className="font-serif text-xl mb-1">Release to paid subscribers</h2>
+          <h2 className="font-serif text-xl mb-1">Who gets this edition</h2>
           <p className="text-sm text-foreground/80">
-            {effective === 'released' ? 'Released' : effective === 'withheld' ? 'Withheld' : 'Undecided'}
-            {explicit ? '' : effective ? ' (from its editorial status; no explicit decision yet)' : ': issued to no subscriber until released'}
+            {effective === 'released' ? 'On for subscribers' : effective === 'withheld' ? 'Off for subscribers' : 'Not switched on yet'}
+            {` · ${ticked.length ? ticked.map((t) => planChoices.find((c) => c.value === t)?.label ?? t).join(", ") : "no plan ticked"}`}
+            {` · ${receiving[0]?.n ?? 0} subscriber${receiving[0]?.n === 1 ? "" : "s"} currently have it`}
           </p>
           {release?.reason && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -175,11 +189,16 @@ export default async function EditDocumentPage({
             </p>
           )}
           <p className="text-xs text-muted-foreground mt-2 mb-4 max-w-3xl">
-            A released edition is issued to each subscriber whose paid periods cover its edition date, at or below its
-            level, through their own verified link. Releasing never makes it public, and does not depend on the
-            Complimentary Review. Withholding withdraws subscribers&rsquo; links to it.
+            A subscriber sees this edition when it is On, ticked for their plan and dated within their term. Each gets
+            their own watermarked link; turning it On never makes it public, and does not depend on the Complimentary
+            Review. Turning it Off, or unticking a plan, removes it from those subscribers. To give or hide it for one
+            person, use their subscriber page.
           </p>
-          <PaidReleaseForm publicationId={row.id} current={explicit} />
+          {!plansReady ? (
+            <p className="text-sm text-red-700">Plan ticks are not available until db/migrations/20261005_publication_plans.sql is applied.</p>
+          ) : (
+            <EditionAvailabilityForm publicationId={row.id} plans={planChoices} current={ticked} state={explicit} />
+          )}
         </section>
       )}
       <DocumentForm draft={draft} />

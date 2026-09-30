@@ -1,9 +1,0 @@
-import test from "node:test"
-import assert from "node:assert/strict"
-import { editionAccess } from "../src/lib/edition-entitlements.ts"
-
-const base={active:true,currentLevel:"L1",visibility:"L1",periods:[{startsOn:"2026-01-01",endsOn:"2026-01-31",level:"L1"},{startsOn:"2026-05-01",endsOn:"2026-05-31",level:"L1"}]}
-test("date boundaries are inclusive and gaps stay closed",()=>{assert.equal(editionAccess({...base,editionDate:"2026-01-01"}).allowed,true);assert.equal(editionAccess({...base,editionDate:"2026-01-31"}).allowed,true);assert.deepEqual(editionAccess({...base,editionDate:"2026-03-01"}),{allowed:false,reason:"uncovered gap"})})
-test("January versus May uses editorial date, independent of upload time",()=>{assert.equal(editionAccess({...base,periods:[base.periods[1]],editionDate:"2026-01-15"}).allowed,false);assert.equal(editionAccess({...base,editionDate:"2026-01-15"}).allowed,true)})
-test("allow is exact, block wins, and automatic restores coverage",()=>{assert.deepEqual(editionAccess({...base,editionDate:"2025-12-01",exception:"allow"}),{allowed:true,reason:"manually allowed"});assert.equal(editionAccess({...base,editionDate:"2026-01-10",exception:"block"}).allowed,false);assert.equal(editionAccess({...base,editionDate:"2026-01-10",exception:null}).allowed,true)})
-test("inactive, future starts, missing dates and content restrictions deny",()=>{assert.equal(editionAccess({...base,active:false,editionDate:"2026-01-10",exception:"allow"}).allowed,false);assert.equal(editionAccess({...base,editionDate:null}).allowed,false);assert.equal(editionAccess({...base,visibility:"L2",editionDate:"2026-01-10",exception:"allow"}).allowed,false);assert.equal(editionAccess({...base,periods:[{startsOn:"2027-01-01",endsOn:"2027-12-31",level:"L1"}],editionDate:"2026-06-01"}).allowed,false)})

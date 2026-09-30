@@ -249,33 +249,40 @@ export async function setAutoSync(enabled: boolean): Promise<FormState> {
 }
 
 // ---------------------------------------------------------------------------
-// Release to paid subscribers
+// Who gets this edition: plans and On/Off
 // ---------------------------------------------------------------------------
 
 const RELEASE_STATES = ['released', 'withheld', 'undecided'] as const
 
 /**
- * Releases an edition to paid subscribers, withholds it, or returns it to
- * undecided -- separately from its editorial status and from Complimentary
- * Review publication or withdrawal. Only paid (not OPEN) records. The
- * decision, administrator and reason are kept in publication_release_events.
+ * Which plans receive an edition, and whether it is switched On for
+ * subscribers. A subscriber sees it when it is On, ticked for their plan and
+ * dated within their term. Paid (not OPEN) records only; independent of the
+ * record's editorial status and of Complimentary Review publication.
  *
- * Every subscriber served from a Data Room holding the edition is then
- * reconciled: a release issues verified personal links to those the paid
- * periods cover, a withholding withdraws them. No email is sent.
+ * Every subscriber the change can affect -- on a plan ticked before or after,
+ * with an individual exception, or holding a link to it -- is reconciled at
+ * once: newly covered subscribers get their own verified link, anyone no
+ * longer covered has theirs withdrawn. No email is sent.
  */
-export async function setPaidRelease(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function saveEditionAvailability(_prev: FormState, formData: FormData): Promise<FormState> {
   const admin = await requireAdmin()
   const id = String(formData.get('publicationId') ?? '')
   const state = String(formData.get('state') ?? '')
   const reason = String(formData.get('reason') ?? '').trim().slice(0, 500)
+  const { SUBSCRIPTION_CATALOGUE } = await import('@/lib/subscription-catalogue')
+  const allowed = new Set<string>(SUBSCRIPTION_CATALOGUE.map((o) => o.storedName))
+  const plans = [...new Set(formData.getAll('plans').map(String))].filter((p) => allowed.has(p))
   if (!UUID.test(id)) return { message: 'Unknown publication.' }
-  if (!(RELEASE_STATES as readonly string[]).includes(state)) return { message: 'Unknown release decision.' }
-  if (!reason) return { message: 'Record why (for example "Issued to paid subscribers on 1 September").' }
+  if (!(RELEASE_STATES as readonly string[]).includes(state)) return { message: 'Choose On, Off or Not decided.' }
+  if (!reason) return { message: 'Record why (for example "Issued to Individual and Professional subscribers").' }
   const sql = getSql()
   const { accessHealthSchemaReady, ACCESS_HEALTH_MIGRATION_PENDING } = await import('@/lib/access-health-schema')
+  const { publicationPlansReady } = await import('@/lib/access-policy-dal')
   if (!(await accessHealthSchemaReady(sql))) return { message: ACCESS_HEALTH_MIGRATION_PENDING }
+  if (!(await publicationPlansReady(sql))) return { message: 'Plan ticks are not available until db/migrations/20261005_publication_plans.sql is applied.' }
 
+  const before = (await sql`select public_tier from publication_plans where publication_id = ${id}::uuid`) as { public_tier: string }[]
   const rows = (await sql`
     update documents
     set paid_release_state = ${state === 'undecided' ? null : state},
@@ -284,15 +291,20 @@ export async function setPaidRelease(_prev: FormState, formData: FormData): Prom
     where id = ${id}::uuid and visibility <> 'OPEN'
     returning id
   `) as { id: string }[]
-  if (!rows[0]) return { message: 'Only a paid (not public) publication record can be released to subscribers.' }
+  if (!rows[0]) return { message: 'Only a paid (not public) publication record can be given to subscribers.' }
+  await sql`delete from publication_plans where publication_id = ${id}::uuid and not (public_tier = any(${plans}::text[]))`
+  for (const plan of plans) {
+    await sql`insert into publication_plans (publication_id, public_tier, source) values (${id}::uuid, ${plan}, 'admin') on conflict do nothing`
+  }
+  const planNames = plans.length ? plans.join(', ') : 'no plan'
   await sql`
     insert into publication_release_events (publication_id, state, reason, administrator_id)
-    values (${id}::uuid, ${state}, ${reason}, ${admin.id}::uuid)
+    values (${id}::uuid, ${state}, ${`${reason} (plans: ${planNames})`}, ${admin.id}::uuid)
   `
 
-  const { reconcileRoomsHoldingPublication } = await import('@/lib/access-release')
-  const summary = await reconcileRoomsHoldingPublication(id, 'release')
+  const { reconcileSubscribersForPublication } = await import('@/lib/access-release')
+  const summary = await reconcileSubscribersForPublication(id, [...new Set([...before.map((b) => b.public_tier), ...plans])], 'release')
   refreshDocumentAdminPaths()
-  const label = state === 'released' ? 'Released to paid subscribers.' : state === 'withheld' ? 'Withheld from paid subscribers.' : 'Returned to undecided.'
-  return { ok: summary.complete, message: `${label} ${summary.message}` }
+  const label = state === 'released' ? 'On for subscribers' : state === 'withheld' ? 'Off for subscribers' : 'Not decided yet'
+  return { ok: summary.complete, message: `Saved: ${label}, for ${planNames}. ${summary.message}` }
 }

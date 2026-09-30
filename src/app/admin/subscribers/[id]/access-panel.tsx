@@ -4,7 +4,7 @@ import { describeDecision } from "@/lib/access-policy"
 import { loadReconciliationHealth, type ReconciliationHealth } from "@/lib/subscriber-access-reconciliation"
 import { ACCESS_HEALTH_MIGRATION_PENDING } from "@/lib/access-health-schema"
 import { EDITION_ENTITLEMENT_MIGRATION_PENDING } from "@/lib/edition-entitlement-schema"
-import { LEVELS } from "@/lib/entitlements"
+import { SUBSCRIPTION_CATALOGUE } from "@/lib/subscription-catalogue"
 import { formatLagos } from "@/lib/engagement-metrics"
 import { AddPeriodForm, PublicationAccessControl, RepairForm, VoidPeriodForm } from "./access-forms"
 
@@ -27,13 +27,21 @@ const OUTCOME_LABEL: Record<string, string> = {
   superseded: "Overtaken by a newer change",
 }
 
-const RELEASE_LABEL = { released: "Released", withheld: "Withheld" } as const
+const RELEASE_LABEL = { released: "On", withheld: "Off" } as const
+const PLAN_NAME = new Map(SUBSCRIPTION_CATALOGUE.map((o) => [o.storedName as string, o.name as string]))
 
 function releaseLabel(d: DocumentAccess): string {
   if (!d.publicationId) return "No publication record"
   if (d.explicitRelease) return RELEASE_LABEL[d.explicitRelease]
   if (d.release) return `${RELEASE_LABEL[d.release]} (from editorial status)`
-  return "Undecided"
+  return "Not switched on yet"
+}
+
+function plansLabel(d: DocumentAccess): string {
+  if (!d.publicationId) return ""
+  if (d.plans === null) return "Plans unavailable"
+  if (d.plans.length === 0) return "No plan ticked"
+  return d.plans.map((p) => PLAN_NAME.get(p) ?? p).join(", ")
 }
 
 function linkLabel(d: DocumentAccess): string {
@@ -93,7 +101,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
           <h2 className="font-serif text-xl mb-1">Document access</h2>
           <p className="text-sm text-foreground/80">{SUBSCRIPTION_LABEL[sub.subscription.state] ?? sub.subscription.state}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Term {sub.subscription.termStart ?? "no start"} to {sub.subscription.termEnd ?? "no end"} (Africa/Lagos, inclusive) · Level {sub.level ?? "not set"}
+            Term {sub.subscription.termStart ?? "no start"} to {sub.subscription.termEnd ?? "no end"} (Africa/Lagos, inclusive) · Plan {sub.plan ? PLAN_NAME.get(sub.plan) ?? sub.plan : "not set"}
             {access.room ? ` · Data Room ${access.room.source === "override" ? "(override)" : access.room.source === "level" ? "(from level)" : "(assigned)"}` : " · No Data Room"}
           </p>
         </div>
@@ -110,7 +118,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
         <Count label="Verified" value={health?.verified ?? "—"} hint="Confirmed with Papermark by the last reconciliation" />
         <Count label="Missing" value={counts.missing} hint="Permitted, but no personal link yet" />
         <Count label="Excluded" value={counts.excluded} hint="Confirmed not permitted" />
-        <Count label="Unresolved" value={counts.unresolved} hint="Awaiting a release decision, details or paid-period history" />
+        <Count label="Unresolved" value={counts.unresolved} hint="Something is missing: not switched on yet, no plan ticked or no date" />
       </div>
 
       <div className="border border-border p-4 mb-6 text-sm">
@@ -137,15 +145,15 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
         )}
       </div>
 
-      <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-2">Paid periods</h3>
+      <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-2">Their term</h3>
       <p className="text-xs text-muted-foreground mb-3 max-w-3xl">
-        Editions are covered when their edition date falls inside a paid period, at or below that period&rsquo;s level.
-        A renewal is a new period; an unpaid gap is the absence of one. Someone starting on 30 September does not
-        receive a 1 September edition unless it is individually allowed below. Void a period entered by mistake:
-        it then grants nothing and stays in the history.
+        They see editions dated within their term ({sub.subscription.termStart ?? "no start"} to {sub.subscription.termEnd ?? "no end"}),
+        set on their record below. Earlier terms are kept here after a renewal, so editions from those terms stay
+        available. Someone starting on 30 September does not get a 1 September edition unless you choose
+        &ldquo;Also give&rdquo; for it below. Void an earlier term entered by mistake: it then gives nothing and stays in the history.
       </p>
       {access.periods.length === 0 ? (
-        <p className="text-sm text-amber-700 mb-3">No paid periods are recorded, so no edition can be decided for this subscriber yet. Add the agreed term below.</p>
+        <p className="text-xs text-muted-foreground mb-3">No earlier terms recorded.</p>
       ) : (
         <div className="overflow-x-auto mb-3">
           <table className="w-full text-xs min-w-[36rem]">
@@ -165,9 +173,9 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
           </table>
         </div>
       )}
-      <div className="mb-8"><AddPeriodForm subscriberId={subscriberId} levels={LEVELS} /></div>
+      <div className="mb-8"><AddPeriodForm subscriberId={subscriberId} level={sub.level ?? "L1"} /></div>
 
-      <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-2">Publications in their Data Room</h3>
+      <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-2">Editions and whether they see them</h3>
       {!access.room ? (
         <p className="text-sm text-muted-foreground">No Data Room is assigned, so this subscriber reads the legacy library.</p>
       ) : access.documents.length === 0 ? (
@@ -181,8 +189,9 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
           )}
           {unresolvedDocs.length > 0 && (
             <p className="text-xs text-amber-700 mb-3 max-w-3xl">
-              Unresolved documents are neither issued nor withdrawn. Settle each one: release it (or withhold it) on its
-              publication record, fill in a missing edition date, or record the subscriber&rsquo;s paid periods.
+              Orange rows are waiting for something, and nothing is given or taken away until then. Open the edition&rsquo;s
+              publication record and, under Who gets this edition, tick its plans and switch it On (or Off), or fill in a
+              missing date.
             </p>
           )}
           <div className="space-y-2">
@@ -191,7 +200,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
                 <div className="min-w-0 text-xs">
                   <p className="text-sm font-medium text-foreground break-words">{(d.titleOverride && d.editorialTitle) || d.fileTitle || d.editorialTitle || "Untitled document"}</p>
                   <p className="text-muted-foreground mt-0.5">
-                    {[d.series || "No series", d.editionDate || "No edition date", d.visibility || "No level", releaseLabel(d)].join(" · ")}
+                    {[d.series || "No series", d.editionDate || "No date", plansLabel(d), releaseLabel(d)].filter(Boolean).join(" · ")}
                     {d.publicationId && (
                       <> · <Link className="text-accent hover:text-accent-hover" href={`/admin/documents/${d.publicationId}`}>Publication record</Link></>
                     )}
@@ -202,7 +211,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
                   </p>
                   {d.exception && (
                     <p className="text-muted-foreground mt-1">
-                      {d.exception.decision === "allow" ? "Allowed" : "Blocked"} by {d.exception.administrator ?? "an administrator"}
+                      {d.exception.decision === "allow" ? "Also given" : "Hidden"} {d.exception.administrator ? `by ${d.exception.administrator}` : "automatically"}
                       {d.exception.at ? ` on ${formatLagos(d.exception.at)}` : ""}: {d.exception.reason}
                     </p>
                   )}

@@ -1,150 +1,134 @@
 /**
- * The one access decision (src/lib/access-policy.ts), every branch.
- * Pure: no database or network. Invented data only.
+ * The one access rule (src/lib/access-policy.ts): an edition appears when it
+ * is On, ticked for the subscriber's plan and dated within their term; "Also
+ * give" and "Hide" adjust it for one person. Pure: no database or network.
  */
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import { decideAccess, effectiveRelease } from "../src/lib/access-policy.ts"
 import { SUBSCRIPTION_CATALOGUE } from "../src/lib/subscription-catalogue.ts"
 
-const active = { state: "active", termStart: "2026-01-01", termEnd: "2026-12-31" }
-const released = (over = {}) => ({
+const active = { state: "active", termStart: "2026-01-01", termEnd: "2026-06-30" }
+const edition = (over = {}) => ({
   publicationId: "p1",
-  editionDate: "2026-01-15",
+  editionDate: "2026-02-15",
   visibility: "L1",
   series: "MIN",
   paidRelease: "released",
   editorialStatus: "draft",
+  plans: ["Individual Access"],
   ...over,
 })
 const decide = (over = {}) =>
   decideAccess({
     subscription: active,
-    level: "L1",
-    periods: [
-      { startsOn: "2026-01-01", endsOn: "2026-01-31", level: "L1" },
-      { startsOn: "2026-05-01", endsOn: "2026-05-31", level: "L1" },
-    ],
-    periodsKnown: true,
+    plan: "Individual Access",
+    periods: [],
     exception: null,
     ...over,
-    publication: released(over.publication),
+    publication: edition(over.publication),
   })
 
-describe("paid periods by edition date", () => {
-  it("covers January and May, inclusive at both ends, and leaves the gap uncovered", () => {
-    assert.deepEqual(decide({ publication: { editionDate: "2026-01-01" } }), { outcome: "allowed", reason: "within_paid_period" })
-    assert.deepEqual(decide({ publication: { editionDate: "2026-01-31" } }), { outcome: "allowed", reason: "within_paid_period" })
-    assert.deepEqual(decide({ publication: { editionDate: "2026-05-20" } }), { outcome: "allowed", reason: "within_paid_period" })
-    assert.deepEqual(decide({ publication: { editionDate: "2026-03-01" } }), { outcome: "excluded", reason: "outside_paid_periods" })
-    assert.deepEqual(decide({ publication: { editionDate: "2025-12-31" } }), { outcome: "excluded", reason: "before_coverage" })
+describe("On, their plan, within their term", () => {
+  it("shows an edition that is On, ticked for their plan and dated within their term, first and last day included", () => {
+    assert.deepEqual(decide(), { outcome: "allowed", reason: "within_term" })
+    assert.equal(decide({ publication: { editionDate: "2026-01-01" } }).outcome, "allowed")
+    assert.equal(decide({ publication: { editionDate: "2026-06-30" } }).outcome, "allowed")
   })
 
-  it("a renewal adds coverage; a voided period grants nothing", () => {
-    const periods = [
-      { startsOn: "2026-01-01", endsOn: "2026-06-30", level: "L1" },
-      { startsOn: "2026-07-01", endsOn: "2026-12-31", level: "L1" },
-      { startsOn: "2027-01-01", endsOn: "2027-12-31", level: "L1", voided: true },
-    ]
-    assert.equal(decide({ periods, publication: { editionDate: "2026-09-01" } }).outcome, "allowed")
-    assert.deepEqual(decide({ periods, publication: { editionDate: "2027-03-01" } }), { outcome: "excluded", reason: "outside_paid_periods" })
+  it("does not show an edition dated before or after their term", () => {
+    assert.deepEqual(decide({ publication: { editionDate: "2025-12-31" } }), { outcome: "excluded", reason: "before_term" })
+    assert.deepEqual(decide({ publication: { editionDate: "2026-07-01" } }), { outcome: "excluded", reason: "outside_term" })
   })
 
-  it("someone starting on 30 September does not receive a 1 September edition, unless it is allowed", () => {
-    const periods = [{ startsOn: "2026-09-30", endsOn: "2026-11-20", level: "L1" }]
-    assert.deepEqual(decide({ periods, publication: { editionDate: "2026-09-01" } }), { outcome: "excluded", reason: "before_coverage" })
-    assert.deepEqual(decide({ periods, exception: "allow", publication: { editionDate: "2026-09-01" } }), { outcome: "allowed", reason: "manually_allowed" })
+  it("someone starting on 30 September does not get a 1 September edition unless it is also given", () => {
+    const subscription = { state: "active", termStart: "2026-09-30", termEnd: "2026-11-20" }
+    assert.deepEqual(decide({ subscription, publication: { editionDate: "2026-09-01" } }), { outcome: "excluded", reason: "before_term" })
+    assert.deepEqual(decide({ subscription, exception: "allow", publication: { editionDate: "2026-09-01" } }), { outcome: "allowed", reason: "also_given" })
   })
 
-  it("no paid-period history is undecided, never a confirmed exclusion", () => {
-    assert.deepEqual(decide({ periods: [] }), { outcome: "unresolved", reason: "no_coverage_history" })
-    assert.deepEqual(decide({ periodsKnown: false }), { outcome: "unresolved", reason: "no_coverage_history" })
-    assert.deepEqual(decide({ periods: [{ startsOn: "2026-01-01", endsOn: "2026-12-31", level: "L1", voided: true }] }), { outcome: "unresolved", reason: "no_coverage_history" })
-  })
-})
-
-describe("levels", () => {
-  it("a period below the edition's level does not cover it, and Allow never lifts a subscriber above their level", () => {
-    const periods = [{ startsOn: "2026-01-01", endsOn: "2026-12-31", level: "L1" }]
-    assert.deepEqual(decide({ level: "L2", periods, publication: { visibility: "L2" } }), { outcome: "excluded", reason: "period_level" })
-    assert.deepEqual(decide({ level: "L1", exception: "allow", publication: { visibility: "L2" } }), { outcome: "excluded", reason: "above_level" })
+  it("editions from an earlier term stay available after a renewal; a voided term gives nothing", () => {
+    const subscription = { state: "active", termStart: "2027-01-01", termEnd: "2027-12-31" }
+    const periods = [{ startsOn: "2026-01-01", endsOn: "2026-06-30" }, { startsOn: "2026-07-01", endsOn: "2026-09-30", voided: true }]
+    assert.equal(decide({ subscription, periods, publication: { editionDate: "2026-03-01" } }).outcome, "allowed")
+    assert.equal(decide({ subscription, periods, publication: { editionDate: "2026-08-01" } }).reason, "outside_term", "a gap stays a gap")
   })
 
-  it("after a level change up, editions in periods paid at the new level are covered; old-level periods still cover old-level editions", () => {
-    const periods = [
-      { startsOn: "2026-01-01", endsOn: "2026-06-30", level: "L1" },
-      { startsOn: "2026-07-01", endsOn: "2026-12-31", level: "L3" },
-    ]
-    assert.equal(decide({ level: "L3", periods, publication: { visibility: "L3", editionDate: "2026-08-01" } }).outcome, "allowed")
-    assert.equal(decide({ level: "L3", periods, publication: { visibility: "L3", editionDate: "2026-02-01" } }).reason, "period_level")
-    assert.equal(decide({ level: "L3", periods, publication: { visibility: "L1", editionDate: "2026-02-01" } }).outcome, "allowed")
+  it("an edition for other plans is simply not theirs", () => {
+    assert.deepEqual(decide({ publication: { plans: ["Political Monitor"] } }), { outcome: "excluded", reason: "not_in_plan" })
+    assert.deepEqual(decide({ publication: { plans: ["Political Monitor"], paidRelease: null } }), { outcome: "excluded", reason: "not_in_plan" }, "not someone else's undecided edition either")
   })
 
-  it("all five offerings read their own level and below", () => {
+  it("each of the five plans sees exactly the editions ticked for it", () => {
     for (const offering of SUBSCRIPTION_CATALOGUE) {
-      const periods = [{ startsOn: "2026-01-01", endsOn: "2026-12-31", level: offering.level }]
-      for (const visibility of ["L1", "L2", "L3", "L4"]) {
-        const expected = Number(visibility.slice(1)) <= Number(offering.level.slice(1))
-        assert.equal(
-          decide({ level: offering.level, periods, publication: { visibility } }).outcome === "allowed",
-          expected,
-          `${offering.name} (${offering.level}) and ${visibility}`,
-        )
+      for (const other of SUBSCRIPTION_CATALOGUE) {
+        const shown = decide({ plan: offering.storedName, publication: { plans: [other.storedName] } }).outcome === "allowed"
+        assert.equal(shown, offering.storedName === other.storedName, `${offering.name} and an edition for ${other.name}`)
       }
     }
+    const shared = SUBSCRIPTION_CATALOGUE.slice(0, 3).map((o) => o.storedName)
+    assert.ok(shared.every((plan) => decide({ plan, publication: { plans: shared } }).outcome === "allowed"), "one edition shared by three plans")
   })
 })
 
-describe("individual exceptions", () => {
-  it("Block always wins, even over coverage and Allow's own bounds", () => {
-    assert.deepEqual(decide({ exception: "block" }), { outcome: "excluded", reason: "manually_blocked" })
-    assert.deepEqual(decide({ exception: "block", publication: { editionDate: null } }), { outcome: "excluded", reason: "manually_blocked" })
+describe("On and Off", () => {
+  it("Off removes it for everyone, including anyone it was also given to", () => {
+    assert.deepEqual(decide({ publication: { paidRelease: "withheld" } }), { outcome: "excluded", reason: "switched_off" })
+    assert.deepEqual(decide({ exception: "allow", publication: { paidRelease: "withheld" } }), { outcome: "excluded", reason: "switched_off" })
   })
 
-  it("Automatic (no exception) returns to the paid-period rule", () => {
-    assert.equal(decide({ exception: null, publication: { editionDate: "2026-03-01" } }).outcome, "excluded")
-    assert.equal(decide({ exception: "allow", publication: { editionDate: "2026-03-01" } }).outcome, "allowed")
+  it("not switched on yet is waiting, never a removal", () => {
+    assert.deepEqual(decide({ publication: { paidRelease: null, editorialStatus: "draft" } }), { outcome: "unresolved", reason: "not_switched_on" })
   })
 
-  it("Allow stays bounded by an active subscription", () => {
-    for (const state of ["expired", "suspended", "inactive", "not_started"]) {
-      assert.equal(decide({ exception: "allow", subscription: { ...active, state } }).outcome, "excluded", state)
-    }
-  })
-})
-
-describe("the subscription and the record decide first", () => {
-  it("ended, suspended, inactive and not-yet-started subscriptions are confirmed exclusions", () => {
-    assert.equal(decide({ subscription: { ...active, state: "expired" } }).reason, "subscription_ended")
-    assert.equal(decide({ subscription: { ...active, state: "suspended" } }).reason, "subscription_suspended")
-    assert.equal(decide({ subscription: { ...active, state: "inactive" } }).reason, "subscription_inactive")
-    assert.equal(decide({ subscription: { ...active, state: "not_started" } }).reason, "subscription_not_started")
-  })
-
-  it("a term that needs correcting is undecided, not an ended subscription", () => {
-    assert.deepEqual(decide({ subscription: { ...active, state: "term_missing" } }), { outcome: "unresolved", reason: "term_needs_correction" })
-  })
-
-  it("missing publication details are undecided; public and withheld records are excluded", () => {
-    assert.deepEqual(decide({ publication: { publicationId: null } }), { outcome: "unresolved", reason: "no_publication_record" })
-    assert.deepEqual(decide({ publication: { editionDate: null } }), { outcome: "unresolved", reason: "edition_date_missing" })
-    assert.deepEqual(decide({ publication: { paidRelease: null, editorialStatus: "draft" } }), { outcome: "unresolved", reason: "release_undecided" })
-    assert.deepEqual(decide({ publication: { visibility: "OPEN" } }), { outcome: "excluded", reason: "public_publication" })
-    assert.deepEqual(decide({ publication: { paidRelease: "withheld" } }), { outcome: "excluded", reason: "withheld" })
-    assert.deepEqual(decide({ level: null }), { outcome: "unresolved", reason: "level_missing" })
-  })
-})
-
-describe("paid release", () => {
-  it("an explicit decision wins; without one, published is released, archived withheld, draft undecided", () => {
+  it("an explicit decision wins; without one, published counts as On, archived as Off, draft as not decided", () => {
     assert.equal(effectiveRelease({ paidRelease: "withheld", editorialStatus: "published" }), "withheld")
     assert.equal(effectiveRelease({ paidRelease: "released", editorialStatus: "draft" }), "released")
     assert.equal(effectiveRelease({ paidRelease: null, editorialStatus: "published" }), "released")
     assert.equal(effectiveRelease({ paidRelease: null, editorialStatus: "archived" }), "withheld")
     assert.equal(effectiveRelease({ paidRelease: null, editorialStatus: "draft" }), null)
   })
+})
 
-  it("a draft record released explicitly is issued, independently of its editorial status", () => {
-    assert.equal(decide({ publication: { paidRelease: "released", editorialStatus: "draft" } }).outcome, "allowed")
+describe("individual adjustments", () => {
+  it("Hide always wins", () => {
+    assert.deepEqual(decide({ exception: "block" }), { outcome: "excluded", reason: "hidden" })
+    assert.deepEqual(decide({ exception: "block", publication: { editionDate: null } }), { outcome: "excluded", reason: "hidden" })
+  })
+
+  it("Also give works whatever the plan or date, but only inside a current subscription", () => {
+    assert.equal(decide({ exception: "allow", publication: { plans: ["Board Briefing"], editionDate: "2020-01-01" } }).outcome, "allowed")
+    for (const state of ["expired", "suspended", "inactive", "not_started"]) {
+      assert.equal(decide({ exception: "allow", subscription: { ...active, state } }).outcome, "excluded", state)
+    }
+  })
+
+  it("Automatic (no adjustment) follows the rule", () => {
+    assert.equal(decide({ exception: null, publication: { editionDate: "2027-01-01" } }).outcome, "excluded")
+  })
+})
+
+describe("missing information is waiting, never a removal", () => {
+  it("no plan ticked, no date, no record, plans unreadable, or no plan on the subscriber", () => {
+    assert.deepEqual(decide({ publication: { plans: [] } }), { outcome: "unresolved", reason: "no_plan_ticked" })
+    assert.deepEqual(decide({ publication: { plans: null } }), { outcome: "unresolved", reason: "plans_unavailable" })
+    assert.deepEqual(decide({ publication: { editionDate: null } }), { outcome: "unresolved", reason: "edition_date_missing" })
+    assert.deepEqual(decide({ publication: { publicationId: null } }), { outcome: "unresolved", reason: "no_publication_record" })
+    assert.deepEqual(decide({ plan: null }), { outcome: "unresolved", reason: "plan_missing" })
+  })
+
+  it("a term that needs correcting is not an ended subscription", () => {
+    assert.deepEqual(decide({ subscription: { ...active, state: "term_missing" } }), { outcome: "unresolved", reason: "term_needs_correction" })
+  })
+
+  it("an ended, suspended, inactive or not-yet-started subscription shows nothing", () => {
+    assert.equal(decide({ subscription: { ...active, state: "expired" } }).reason, "subscription_ended")
+    assert.equal(decide({ subscription: { ...active, state: "suspended" } }).reason, "subscription_suspended")
+    assert.equal(decide({ subscription: { ...active, state: "inactive" } }).reason, "subscription_inactive")
+    assert.equal(decide({ subscription: { ...active, state: "not_started" } }).reason, "subscription_not_started")
+  })
+
+  it("a public publication is never issued as a paid edition", () => {
+    assert.deepEqual(decide({ publication: { visibility: "OPEN" } }), { outcome: "excluded", reason: "public_publication" })
   })
 })

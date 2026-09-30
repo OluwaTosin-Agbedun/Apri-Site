@@ -120,13 +120,14 @@ let adminId
 const pubs = {}
 const rows = {}
 
-async function publication(key, { editionDate, visibility = "L1", status = "draft", release = null, series = "MIN" }) {
+async function publication(key, { editionDate, visibility = "L1", status = "draft", release = null, series = "MIN", plans = [] }) {
   const [row] = await sql`
     insert into documents (slug, title, series, visibility, status, is_published, edition_date, summary, cta_label, paid_release_state)
     values (${`${tag}_ed_${key}`}, ${`Edition ${key}`}, ${series}, ${visibility}, ${status}, ${status === "published"},
             ${editionDate}::date, 'test', 'Read', ${release})
     returning id`
   pubs[key] = row.id
+  for (const plan of plans) await sql`insert into publication_plans (publication_id, public_tier, source) values (${row.id}::uuid, ${plan}, 'room')`
   return row.id
 }
 async function roomDocument(room, key, publicationKey) {
@@ -174,13 +175,13 @@ before(async () => {
   await sql`insert into papermark_level_rooms (public_tier, papermark_dataroom_id, dataroom_name) values (${TIER1}, ${ROOM1}, 'Room one'), (${TIER2}, ${ROOM2}, 'Room two')`
   // Room one: five editions whose records are drafts -- previously available through the Data Room.
   for (const [i, offset] of [[1, -20], [2, -15], [3, -10], [4, -5], [5, -2]]) {
-    await publication(`d${i}`, { editionDate: day(offset) })
+    await publication(`d${i}`, { editionDate: day(offset), plans: [TIER1] })
     await roomDocument(ROOM1, `d${i}`, `d${i}`)
   }
   // Room two: released editions, one dated before a late starter's period.
-  await publication("r1", { editionDate: day(-10), release: "released" })
-  await publication("r2", { editionDate: day(-3), release: "released" })
-  await publication("early", { editionDate: day(-45), release: "released" })
+  await publication("r1", { editionDate: day(-10), release: "released", plans: [TIER2] })
+  await publication("r2", { editionDate: day(-3), release: "released", plans: [TIER2] })
+  await publication("early", { editionDate: day(-45), release: "released", plans: [TIER2] })
   await roomDocument(ROOM2, "r1", "r1")
   await roomDocument(ROOM2, "r2", "r2")
   await roomDocument(ROOM2, "early", "early")
@@ -423,12 +424,37 @@ describe("isolation", () => {
   })
 })
 
+describe("plans decide who sees an edition, wherever the file sits", () => {
+  it("an edition ticked for a second plan reaches that plan's subscribers from the first plan's room", async () => {
+    const s = await seat("sharedPlan", { tier: TIER2 })
+    await sql`update documents set paid_release_state = 'released' where id = ${pubs.d4}::uuid`
+    await sql`insert into publication_plans (publication_id, public_tier, source) values (${pubs.d4}::uuid, ${TIER2}, 'admin')`
+    try {
+      await reconcile(s.id)
+      assert.ok((await liveLinks(s.id)).some((l) => l.papermark_document_id === `${tag}_doc_d4`), "issued although the file is only in the other plan's room")
+      await sql`delete from publication_plans where publication_id = ${pubs.d4}::uuid and public_tier = ${TIER2}`
+      await reconcile(s.id, "release")
+      assert.ok(!(await liveLinks(s.id)).some((l) => l.papermark_document_id === `${tag}_doc_d4`), "unticking the plan removes it")
+    } finally {
+      await sql`update documents set paid_release_state = null where id = ${pubs.d4}::uuid`
+      await sql`delete from publication_plans where publication_id = ${pubs.d4}::uuid and public_tier = ${TIER2}`
+    }
+  })
+
+  it("another plan's undecided editions never hold back this subscriber", async () => {
+    const s = await seat("otherPlans", { tier: TIER2 })
+    const result = await reconcile(s.id)
+    assert.equal(result.outcome, "ready", "room one's undecided drafts are for another plan, not waiting for this one")
+  })
+})
+
 describe("the legacy library uses the same policy", () => {
   it("lists a released covered edition with the subscriber's own copy, keeps an undecided one they already hold, hides a withheld one", async () => {
     const s = await seat("legacy", { tier: `${tag}_no_room` })
-    const released = await publication("legacyReleased", { editionDate: day(-5), release: "released" })
-    const undecided = await publication("legacyDraft", { editionDate: day(-6) })
-    const withheld = await publication("legacyWithheld", { editionDate: day(-7), release: "withheld" })
+    const legacyPlan = `${tag}_no_room`
+    const released = await publication("legacyReleased", { editionDate: day(-5), release: "released", plans: [legacyPlan] })
+    const undecided = await publication("legacyDraft", { editionDate: day(-6), plans: [legacyPlan] })
+    const withheld = await publication("legacyWithheld", { editionDate: day(-7), release: "withheld", plans: [legacyPlan] })
     for (const [pub, n] of [[released, 1], [undecided, 2], [withheld, 3]]) {
       await sql`insert into publication_access (subscriber_id, publication_id, link_url, papermark_link_id, revoke_state)
                 values (${s.id}::uuid, ${pub}::uuid, ${`https://docs.example.invalid/view/legacy_${n}_${s.id.slice(0, 6)}`}, ${`legacy_${n}_${s.id.slice(0, 6)}`}, 'live')`

@@ -4,6 +4,20 @@ import { decideAccess, effectiveRelease, type AccessDecision, type PaidRelease, 
 import { subscriptionStatus, lagosToday, type SubscriptionStatus } from "./subscription-term"
 import { editionEntitlementSchemaReady } from "./edition-entitlement-schema"
 import { accessHealthSchemaReady } from "./access-health-schema"
+import { subscriptionOffering } from "./subscription-catalogue"
+
+let plansTableReady = false
+/** Whether db/migrations/20261005_publication_plans.sql has run. Without it no edition is decided (nothing is withdrawn). */
+export async function publicationPlansReady(sql: ReturnType<typeof getSql>): Promise<boolean> {
+  if (plansTableReady) return true
+  try {
+    const rows = (await sql`select to_regclass('publication_plans') is not null as ready`) as { ready: boolean }[]
+    plansTableReady = rows[0]?.ready === true
+  } catch {
+    return false
+  }
+  return plansTableReady
+}
 
 /**
  * Loads what the access policy (src/lib/access-policy.ts) decides from, for
@@ -63,6 +77,8 @@ export type DocumentAccess = {
   visibility: string | null
   editorialStatus: string | null
   pageCount: number | null
+  /** The plans ticked for the edition (stored names); null when they cannot be read. */
+  plans: string[] | null
   /** The explicit decision, or null when none has been made. */
   explicitRelease: PaidRelease
   release: PaidRelease
@@ -78,6 +94,8 @@ export type AccessSubscriber = {
   email: string
   level: string | null
   publicTier: string
+  /** The plan as its stored name, aliases resolved: what edition plan ticks are compared with. */
+  plan: string | null
   clientType: string
   status: string
   subscription: SubscriptionStatus
@@ -170,6 +188,7 @@ export async function loadSubscriberAccess(subscriberId: string, options: Access
       email: row.email,
       level: row.level,
       publicTier: row.public_tier ?? "",
+      plan: row.public_tier ? subscriptionOffering(row.public_tier)?.storedName ?? row.public_tier : null,
       clientType: row.client_type ?? "subscriber",
       status: row.status.toLowerCase(),
       subscription,
@@ -230,9 +249,13 @@ export async function loadSubscriberAccess(subscriberId: string, options: Access
     `) as { id: string; papermark_document_id: string; papermark_link_id: string; link_url: string; allow_download: boolean; screenshot_protection: boolean; expires_at: string | Date | null; assigned_name: string; assigned_email: string }[]
     const links = new Map(linkRows.map((l) => [l.papermark_document_id, l]))
 
+    // Rooms are storage: an edition may sit in several plans' rooms. Every paid
+    // edition in any plan's room is considered once, and its plan ticks decide
+    // who sees it. Files in the subscriber's own room with no publication record
+    // are listed too, so Admin sees them.
     const documentRows = room
       ? ((await sql`
-          select dd.id, dd.papermark_document_id, dd.title, dd.folder_path, dd.category, dd.num_pages,
+          select dd.id, dd.papermark_document_id, dd.papermark_dataroom_id, dd.title, dd.folder_path, dd.category, dd.num_pages,
                  dd.content_type, dd.papermark_created_at, dd.papermark_updated_at, dd.first_seen_at,
                  d.id as publication_id, d.title as editorial_title, d.kicker, d.summary, d.series,
                  to_char(d.edition_date, 'YYYY-MM-DD') as edition_date, d.visibility, d.status as editorial_status,
@@ -241,21 +264,67 @@ export async function loadSubscriberAccess(subscriberId: string, options: Access
                  coalesce((to_jsonb(d) ->> 'portal_title_override')::boolean, false) as title_override
           from papermark_dataroom_documents dd
           left join documents d on d.id = dd.publication_id
-          where dd.papermark_dataroom_id = ${room.dataroomId} and dd.is_present = true
+          where dd.is_present = true
+            and (dd.papermark_dataroom_id = ${room.dataroomId}
+              or (dd.publication_id is not null
+                  and dd.papermark_dataroom_id in (select lr.papermark_dataroom_id from papermark_level_rooms lr)))
           order by d.edition_date desc nulls last, dd.first_seen_at desc nulls last, dd.id
         `) as Record<string, unknown>[])
       : []
 
-    const documents: DocumentAccess[] = documentRows.map((r) => {
+    // One file per edition: the one the subscriber already holds a link to,
+    // else the copy in their own room, else the first seen.
+    const chosen = new Map<string, Record<string, unknown>>()
+    const unlinked: Record<string, unknown>[] = []
+    const rank = (r: Record<string, unknown>) =>
+      (links.has(r.papermark_document_id as string) ? 0 : 2) + (r.papermark_dataroom_id === room?.dataroomId ? 0 : 1)
+    for (const r of documentRows) {
+      const pub = r.publication_id as string | null
+      if (!pub) {
+        if (r.papermark_dataroom_id === room?.dataroomId) unlinked.push(r)
+        continue
+      }
+      const current = chosen.get(pub)
+      if (!current || rank(r) < rank(current)) chosen.set(pub, r)
+    }
+    const editionRows = [...documentRows.filter((r) => r.publication_id && chosen.get(r.publication_id as string) === r), ...unlinked]
+
+    const publicationIds = [...chosen.keys()]
+    const plansReady = await publicationPlansReady(sql)
+    const planRows = plansReady && publicationIds.length
+      ? ((await sql`
+          select publication_id, public_tier from publication_plans where publication_id = any(${publicationIds}::uuid[])
+        `) as { publication_id: string; public_tier: string }[])
+      : []
+    const plansByPublication = new Map<string, string[]>()
+    for (const pr of planRows) {
+      const list = plansByPublication.get(pr.publication_id) ?? []
+      list.push(pr.public_tier)
+      plansByPublication.set(pr.publication_id, list)
+    }
+
+    // From other plans' rooms, only editions that concern this subscriber:
+    // ticked for their plan, given or hidden for them, or already held.
+    const relevant = editionRows.filter((r) => {
+      if (r.papermark_dataroom_id === room?.dataroomId) return true
+      const pub = r.publication_id as string
+      return (
+        (plansByPublication.get(pub) ?? []).includes(subscriber.plan ?? "") ||
+        exceptions.has(pub) ||
+        links.has(r.papermark_document_id as string)
+      )
+    })
+
+    const documents: DocumentAccess[] = relevant.map((r) => {
       const publicationId = (r.publication_id as string | null) ?? null
       const explicitRelease = r.paid_release_state === "released" || r.paid_release_state === "withheld" ? (r.paid_release_state as PaidRelease) : null
       const editorialStatus = (r.editorial_status as string | null) ?? null
       const x = publicationId ? exceptions.get(publicationId) : undefined
+      const plans = !plansReady ? null : publicationId ? plansByPublication.get(publicationId) ?? [] : []
       const decision = decideAccess({
         subscription,
-        level: row.level,
+        plan: subscriber.plan,
         periods,
-        periodsKnown: entitlementSchema,
         exception: x?.decision ?? null,
         publication: {
           publicationId,
@@ -264,6 +333,7 @@ export async function loadSubscriberAccess(subscriberId: string, options: Access
           series: (r.series as string | null) ?? null,
           paidRelease: explicitRelease,
           editorialStatus,
+          plans,
         },
       })
       const l = links.get(r.papermark_document_id as string)
@@ -300,6 +370,7 @@ export async function loadSubscriberAccess(subscriberId: string, options: Access
         visibility: (r.visibility as string | null) ?? null,
         editorialStatus,
         pageCount: (r.page_count as number | null) ?? null,
+        plans,
         explicitRelease,
         release: publicationId ? effectiveRelease({ paidRelease: explicitRelease, editorialStatus }) : null,
         exception: x ?? null,
@@ -402,14 +473,21 @@ export async function loadLegacyPublicationAccess(
       order by d.edition_date desc nulls last, d.sort_order asc, d.created_at desc
     `) as Record<string, unknown>[]
     const https = (v: unknown): v is string => typeof v === "string" && v.startsWith("https://")
+    const plansReady = await publicationPlansReady(sql)
+    const plansByPublication = new Map<string, string[]>()
+    if (plansReady && rows.length) {
+      const planRows = (await sql`
+        select publication_id, public_tier from publication_plans where publication_id = any(${rows.map((r) => r.id as string)}::uuid[])
+      `) as { publication_id: string; public_tier: string }[]
+      for (const pr of planRows) plansByPublication.set(pr.publication_id, [...(plansByPublication.get(pr.publication_id) ?? []), pr.public_tier])
+    }
     const items = rows.map((r): LegacyPublicationAccess => {
       const publicationId = r.id as string
       const explicit = r.paid_release_state === "released" || r.paid_release_state === "withheld" ? (r.paid_release_state as PaidRelease) : null
       const decision = decideAccess({
         subscription: access.subscriber.subscription,
-        level: access.subscriber.level,
+        plan: access.subscriber.plan,
         periods: access.periods,
-        periodsKnown: access.entitlementSchema,
         exception: access.exceptions.get(publicationId)?.decision ?? null,
         publication: {
           publicationId,
@@ -418,6 +496,7 @@ export async function loadLegacyPublicationAccess(
           series: (r.series as string | null) ?? null,
           paidRelease: explicit,
           editorialStatus: (r.editorial_status as string | null) ?? null,
+          plans: plansReady ? plansByPublication.get(publicationId) ?? [] : null,
         },
       })
       // A stamped copy carries one person's name; a shared link only where the

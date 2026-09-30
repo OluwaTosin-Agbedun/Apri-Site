@@ -100,7 +100,7 @@ describe("every paid surface uses it", () => {
     assert.match(single, /portalDocument\(found, /)
     // fileTitle is the synced Papermark name; the publication's title is only the editorial one.
     const dal = read("src/lib/access-policy-dal.ts")
-    assert.match(dal, /select dd\.id, dd\.papermark_document_id, dd\.title,/)
+    assert.match(dal, /select dd\.id, dd\.papermark_document_id, dd\.papermark_dataroom_id, dd\.title,/)
     assert.match(dal, /d\.title as editorial_title/)
     assert.match(dal, /fileTitle: \(r\.title as string \| null\) \?\? ""/)
   })
