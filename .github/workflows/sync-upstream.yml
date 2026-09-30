@@ -19,7 +19,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      - name: Clone first repo
+            - name: Clone first repo
+        env:
+          GIT_LFS_SKIP_SMUDGE: 1
         run: |
           rm -rf /tmp/upstream
           git clone https://x-access-token:${{ secrets.UPSTREAM_TOKEN }}@github.com/athenacenterpl-cmd/Apri-Site.git /tmp/upstream
