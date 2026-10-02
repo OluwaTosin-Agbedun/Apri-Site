@@ -25,25 +25,23 @@ export default async function ReaderSignInPage({
 }) {
   const { edition, reason, signed_out } = await searchParams
   const target = UUID.test(edition ?? "") ? edition! : null
-  if (await currentReviewReader()) redirect(target ? `/review/library/open/${target}` : "/review/library")
+  if (await currentReviewReader()) redirect(target ? `/review/library?edition=${target}` : "/review/library")
   const message = signed_out
     ? "You have signed out of the Review Library on this browser."
     : reason === "no_editions"
       ? "No Complimentary Review editions are assigned to that address at the moment."
-      : reason === "session_failed" || reason === "unavailable"
-        ? "Signing in could not be finished just now. Try the same link or code again in a minute."
-        : reason
-          ? "That sign-in link has been used or has expired. Request a fresh one below."
-          : null
+      : reason === "code_only"
+        ? "Sign-in now uses a code instead of a link. Enter your email below and we will send one."
+        : null
   return (
     <div className="min-h-screen">
       <SiteHeader />
-      <main className="max-w-md mx-auto px-6 py-20">
+      <main className="max-w-md mx-auto px-4 sm:px-6 py-14 sm:py-20">
         <h1 className="font-serif text-3xl mb-4">Complimentary Review Library</h1>
         <p className="text-sm text-foreground/70 leading-relaxed mb-8">
-          Approved readers: enter the email address your review editions were issued to. We will email a
-          link and a code; use either one in this browser once, and this library opens here without
-          another email.
+          Approved readers: enter the email address your review publications were issued to. We will email
+          you one code. Enter it here, and this browser opens your library, and every publication in it, for
+          24 hours without another code.
         </p>
         {message && (
           <div className="border border-border bg-accent/5 p-5 mb-8" role="status">

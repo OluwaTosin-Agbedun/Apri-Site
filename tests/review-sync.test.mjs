@@ -588,7 +588,10 @@ test('publications page: the review archive has its own anchor', () => {
 test('publications page: direct secure review URL (no Data Room fallback)', () => {
   const src = read('src/app/publications/page.tsx')
   const archive = archiveSection(src)
-  assert.match(archive, /href=\{entryMode === "rooms" \? "\/review\/read" : entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
+  // Papermark mode: the edition's own stored link. Library mode: the Review
+  // Library with this edition chosen. No rooms mode, and no Data Room address.
+  assert.match(archive, /href=\{entryMode === "library" \? `\/review\/library\?edition=\$\{card\.id\}` : card\.secureUrl\}/)
+  assert.doesNotMatch(archive, /"rooms"|\/review\/read/)
   assert.doesNotMatch(archive, /href="\/review"/)
   assert.doesNotMatch(src, /library\.papermarkUrl/)
 })

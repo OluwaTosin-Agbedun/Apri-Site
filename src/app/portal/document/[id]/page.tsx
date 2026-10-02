@@ -6,7 +6,7 @@ import {
   getSyncedClientDocument,
   getDataRoomDocumentForSubscriber,
 } from "@/lib/papermark-client-library"
-import { papermarkEmbedUrl, papermarkDocumentEmbedUrl } from "@/lib/papermark-embed"
+import { papermarkEmbedUrl, papermarkShareUrl, papermarkDocumentEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
 import { hasAssignedDataRoom } from "@/lib/access-policy-dal"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
@@ -57,10 +57,13 @@ export default async function PortalDocumentPage({
   const document = await getSyncedClientDocument(principal, decodedId)
   if (!document) notFound()
 
+  // The frame uses Papermark's /embed page (the only address it lets another
+  // site frame); "Open in a new tab" uses the share link itself.
   const embedUrl = papermarkEmbedUrl(
     document.shareUrl,
     process.env.PAPERMARK_CUSTOM_DOMAIN,
   )
+  const openUrl = papermarkShareUrl(document.shareUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)
 
   try {
     await recordClientEvent(
@@ -97,9 +100,9 @@ export default async function PortalDocumentPage({
             </h1>
           </div>
 
-          {embedUrl && (
+          {openUrl && (
             <a
-              href={embedUrl}
+              href={openUrl}
               target="_blank"
               rel="noreferrer"
               className="text-sm text-foreground/60 hover:text-accent transition-colors shrink-0"
@@ -118,9 +121,20 @@ export default async function PortalDocumentPage({
               This copy was issued to you by name. If the viewer asks you to confirm your
               email address, that is Papermark&rsquo;s own document-security check on the
               copy: it verifies that the person reading it is the person it was issued to.
-              You will not be asked to sign in to APRI again.
+              Inside this page Papermark may ask again each time the page is reloaded;
+              &ldquo;Open in a new tab&rdquo; keeps it confirmed for that tab. You will not be
+              asked to sign in to APRI again.
             </p>
           </>
+        ) : openUrl ? (
+          <div className="border border-border bg-card/30 p-8">
+            <p className="text-sm text-foreground/70 leading-relaxed mb-5">
+              This document opens in Papermark&rsquo;s secure viewer in its own tab.
+            </p>
+            <a href={openUrl} target="_blank" rel="noreferrer" className="btn-primary">
+              Open the document
+            </a>
+          </div>
         ) : (
           <div className="border border-border bg-card/30 p-8" role="alert">
             <p className="text-sm text-foreground/70 leading-relaxed">

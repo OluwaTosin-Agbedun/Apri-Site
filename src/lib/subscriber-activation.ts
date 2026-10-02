@@ -2,7 +2,7 @@ import 'server-only'
 import { getSql } from './db'
 import { isLevel, tierDisplayName, levelForPublicTier, visibilitiesForLevel, type Level } from './entitlements'
 import { PORTAL_SERIES } from './portal-library'
-import { papermarkEmbedUrl } from './papermark-embed'
+import { papermarkShareUrl } from './papermark-embed'
 import { ensureSubscriberLibraryAccess, type LibraryAccess } from './dataroom-lifecycle'
 import { sendOnboardingEmails, startOnboardingTracking, type OnboardingRun } from './subscriber-onboarding'
 import { activationGate, PLANS, type GateResult } from './subscription-journey'
@@ -182,7 +182,7 @@ export async function activateSubscriberRecord(args: {
   if (!row.public_tier) return blocked('Set Subscription access level before activating.')
   if (!isLevel(row.level)) return blocked('Save a valid Subscription access level before activating.')
   if (!row.term_end) return blocked('Set a term end date before activating this seat.')
-  if (row.library_link_url && !papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
+  if (row.library_link_url && !papermarkShareUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return blocked('Replace the private library link with a valid Papermark share link before activating.')
   }
   try {
@@ -396,7 +396,7 @@ async function validatedLegacyLibrary(
   row: { id: string; library_link_url: string | null },
   level: Level,
 ): Promise<boolean> {
-  if (row.library_link_url && papermarkEmbedUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) return true
+  if (row.library_link_url && papermarkShareUrl(row.library_link_url, process.env.PAPERMARK_CUSTOM_DOMAIN)) return true
   const rows = (await sql.query(
     `select 1
      from papermark_client_documents cd

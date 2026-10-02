@@ -623,7 +623,11 @@ describe('instrumented surfaces', () => {
     const page = read('src/app/publications/page.tsx')
     const start = page.indexOf('<section id="review-publications"')
     const archive = page.slice(start, page.indexOf('</section>', start))
-    assert.match(archive, /href=\{entryMode === "rooms" \? "\/review\/read" : entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
+    // Library mode leads to the reader's Review Library with this edition
+    // chosen; papermark mode to the edition's stored link. There is no rooms
+    // mode any more, so no card leads to the old /review/read entry.
+    assert.match(archive, /href=\{entryMode === "library" \? `\/review\/library\?edition=\$\{card\.id\}` : card\.secureUrl\}/)
+    assert.doesNotMatch(archive, /"rooms"|\/review\/read/)
     assert.match(archive, /slotKey=\{card\.slotKey\}/)
     assert.match(archive, /newTab/)
     assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')

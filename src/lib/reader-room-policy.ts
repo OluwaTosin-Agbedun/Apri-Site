@@ -9,7 +9,7 @@
  *    view for the published editions assigned to that reader, nothing for
  *    every other document -- withdrawn, unassigned or newly added -- and
  *    download never;
- *  - one email-authenticated group link, created only once those permissions
+ *  - one group link for that email only, created only once those permissions
  *    have been read back and match exactly.
  *
  * Papermark refuses a group-link viewer any document with no permission row
@@ -66,9 +66,9 @@ export type RoomLinkSettings = {
   audience_type: "group"
   group_id: string
   name: string
-  expires_at: null
+  expires_at: string | null
   email_protected: true
-  email_authenticated: true
+  email_authenticated: boolean
   allow_download: false
   allow_list: string[]
   deny_list: string[]
@@ -80,16 +80,26 @@ export type RoomLinkSettings = {
   domain?: string
 }
 
-/** The one link for a reader's group: verified email, watermark, screenshot protection, no downloads. */
-export function roomLinkSettings(args: { roomId: string; groupId: string; email: string; customDomain?: string | null }): RoomLinkSettings {
+/**
+ * The one link for a reader's group: only their email, watermark, screenshot
+ * protection, no downloads.
+ *
+ * `openUntil` set: the APRI-verified library. APRI has already checked the
+ * reader's email with its own one-time code, so Papermark asks for the email
+ * but sends no second code -- and the link is open only until `openUntil`, the
+ * end of the reader's APRI session. Without it: Papermark's own email code,
+ * and no expiry (the older Papermark-verified room).
+ */
+export function roomLinkSettings(args: { roomId: string; groupId: string; email: string; customDomain?: string | null; openUntil?: string | null }): RoomLinkSettings {
+  const codeFree = Boolean(args.openUntil)
   const settings: RoomLinkSettings = {
     dataroom_id: args.roomId,
     audience_type: "group",
     group_id: args.groupId,
     name: "APRI Complimentary Review Library — personal reader link",
-    expires_at: null,
+    expires_at: codeFree ? args.openUntil! : null,
     email_protected: true,
-    email_authenticated: true,
+    email_authenticated: !codeFree,
     allow_download: false,
     // The group's single member already forms the allow list; it is repeated
     // on the link as a second, independent restriction.
@@ -123,29 +133,68 @@ export type ReadLink = {
   enable_screenshot_protection?: boolean
 }
 
-/** What is wrong with a reader's room link as Papermark reports it, or null when it matches exactly. */
+/**
+ * What is wrong with a reader's room link as Papermark reports it, or null
+ * when it matches exactly. `codeFree` checks the APRI-verified link: email
+ * protected, no second Papermark code, and ALWAYS an expiry -- a code-free
+ * link is never open-ended. Without it, Papermark's own email code is required.
+ * `ignoreGate` skips the email-code and expiry checks, for a link about to be
+ * set to them; every other restriction is still checked.
+ */
 export function roomLinkProblem(
   link: ReadLink,
-  expected: { roomId: string; groupId: string; email: string },
+  expected: { roomId: string; groupId: string; email: string; codeFree?: boolean },
   now = new Date(),
-  options: { allowClosed?: boolean } = {},
+  options: { allowClosed?: boolean; ignoreGate?: boolean } = {},
 ): string | null {
   if (link.audience_type !== "group" || link.group_id !== expected.groupId) return "The link is not limited to this reader's group."
   if (link.dataroom_id !== expected.roomId || link.document_id) return "The link does not target the Review Data Room."
   const allow = (link.allow_list ?? []).map((e) => e.trim().toLowerCase())
   if (allow.length !== 1 || allow[0] !== expected.email) return "The link's allow list is not exactly this reader."
-  if (link.email_protected !== true || link.email_authenticated !== true) return "Verified-email protection is not on."
+  if (link.email_protected !== true) return "Email protection is not on."
   if (link.allow_download !== false) return "Downloads are not disabled."
   if (link.enable_watermark !== true) return "The personalised watermark is off."
   const wm = link.watermark_config
   if (wm?.text !== PROSPECT_WATERMARK_TEXT || wm.opacity !== 0.15 || wm.font_size !== 18) return "The watermark does not match the approved Complimentary Review watermark."
   if (link.enable_screenshot_protection !== true) return "Screenshot protection is off."
-  if (!options.allowClosed && link.expires_at && new Date(link.expires_at) <= now) return "The link is closed."
   if (!link.url || !link.url.startsWith("https://")) return "The link has no https address."
+  if (!options.ignoreGate) {
+    if (expected.codeFree) {
+      if (link.email_authenticated !== false) return "Papermark still asks for its own code on this link."
+      if (!link.expires_at) return "The code-free link has no closing time."
+    } else if (link.email_authenticated !== true) {
+      return "Verified-email protection is not on."
+    }
+  }
+  if (!options.allowClosed && link.expires_at && new Date(link.expires_at) <= now) return "The link is closed."
   return null
+}
+
+/** Whether Papermark's reported closing time is the one asked for (to the minute). */
+export function closesAt(link: ReadLink, intended: string): boolean {
+  if (!link.expires_at) return false
+  return Math.abs(new Date(link.expires_at).getTime() - new Date(intended).getTime()) < 60_000
 }
 
 /** The past moment a link is closed with: Papermark refuses an expired link, and the URL is kept for repair. */
 export function closedAt(now = new Date()): string {
   return new Date(now.getTime() - 60_000).toISOString()
+}
+
+/**
+ * The address of ONE edition inside a reader's room link: Papermark's own
+ * per-document route for a Data Room link (/view/<link>/d/<room document> on
+ * papermark.com, /<slug>/d/<room document> on a custom domain), which reuses
+ * the reader's room session instead of asking again.
+ */
+export function roomDocumentUrl(linkUrl: string, roomDocumentId: string): string | null {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(roomDocumentId)) return null
+  let url: URL
+  try {
+    url = new URL(linkUrl)
+  } catch {
+    return null
+  }
+  if (url.protocol !== "https:" || url.search || url.hash) return null
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}/d/${roomDocumentId}`
 }

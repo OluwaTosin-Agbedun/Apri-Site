@@ -80,6 +80,17 @@ test("each missing setting is reported by name, never by value", () => {
   assert.deepEqual(all.filter((p) => p.level === "blocker").map((p) => p.key), ["session_secret", "email_key", "papermark_token"])
 })
 
+test("Admin names the open-window migration until both of its columns exist", () => {
+  // Without 20261011 every Read falls back to each edition's own link, so a
+  // deployment missing it must say so rather than look ready.
+  const src = read("src/lib/review-readiness.ts")
+  assert.match(src, /\{ migration: "20261011_review_reader_open_window\.sql", table: "review_reader_rooms", columns: \["link_open_until", "room_documents"\] \}/)
+  const migration = read("db/migrations/20261011_review_reader_open_window.sql")
+  for (const column of ["link_open_until", "room_documents"]) {
+    assert.match(migration, new RegExp(`alter table review_reader_rooms add column if not exists ${column}\\b`), column)
+  }
+})
+
 test("Admin shows a short status only for a real problem: the permanent setup banner is gone", () => {
   const page = read("src/app/admin/review-library/page.tsx")
   assert.doesNotMatch(page, /One setup task/)

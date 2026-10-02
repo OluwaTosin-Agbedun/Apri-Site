@@ -80,7 +80,7 @@ import {
 } from "@/lib/entitlements"
 import { applyLevelChange, type LevelChangeOutcome } from "@/lib/level-changes"
 import { fieldErrors, type FormState } from "@/lib/definitions"
-import { papermarkEmbedUrl } from "@/lib/papermark-embed"
+import { papermarkShareUrl } from "@/lib/papermark-embed"
 import { normalisePapermarkUrl } from "@/lib/papermark-embed"
 import {
   reassignDataRoomOnLevelChange,
@@ -185,7 +185,7 @@ export async function saveSubscriber(
   const d = parsed.data
   const level = levelForPublicTier(d.publicTier)
   const seats = d.publicTier === "Individual Access" ? 1 : d.seats
-  if (hasLegacyLibraryFields && d.libraryLinkUrl && !papermarkEmbedUrl(d.libraryLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
+  if (hasLegacyLibraryFields && d.libraryLinkUrl && !papermarkShareUrl(d.libraryLinkUrl, process.env.PAPERMARK_CUSTOM_DOMAIN)) {
     return {
       errors: {
         libraryLinkUrl: [

@@ -6,8 +6,7 @@ import { Busy } from "@/components/Spinner"
 
 const LABEL = {
   papermark: "Each edition's own Papermark link",
-  library: "APRI Review Library (APRI sign-in, then a Papermark code per edition)",
-  rooms: "Personal Papermark rooms (one Papermark code)",
+  library: "APRI Review Library (one APRI code, then every assigned edition)",
 } as const
 
 /**
@@ -20,12 +19,9 @@ const LABEL = {
 export default function EntryModeForm({
   mode,
   ready,
-  roomsReady,
 }: {
-  mode: "papermark" | "library" | "rooms"
+  mode: "papermark" | "library"
   ready: boolean
-  /** Rooms migration applied and the two-reader proof recorded. */
-  roomsReady: boolean
 }) {
   const [state, action, pending] = useActionState(setReviewEntryMode, undefined)
   const [choice, setChoice] = useState<string>(mode)
@@ -46,10 +42,6 @@ export default function EntryModeForm({
           <option value="library" disabled={!ready}>
             {LABEL.library}
             {ready ? "" : " (needs migration 20261008)"}
-          </option>
-          <option value="rooms" disabled={!roomsReady}>
-            {LABEL.rooms}
-            {roomsReady ? "" : " (needs the recorded two-reader test)"}
           </option>
         </select>
         <button type="submit" className="btn-secondary text-xs" disabled={pending || choice === mode} aria-busy={pending}>

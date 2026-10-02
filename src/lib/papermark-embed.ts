@@ -18,8 +18,14 @@ function configuredHost(customDomain?: string | null): string | null {
   }
 }
 
-/** Returns Papermark's iframe URL, or null for anything unsafe or unrelated. */
-export function papermarkEmbedUrl(
+/**
+ * A stored Papermark share link, checked: https, a Papermark host (or APRI's
+ * own Papermark domain), no credentials, never a dashboard or the masters
+ * folder. Returns the link to open in its own tab, or null for anything unsafe
+ * or unrelated. Existing query parameters are kept; a stale `embed` one is
+ * dropped.
+ */
+export function papermarkShareUrl(
   value: string | null | undefined,
   customDomain?: string | null
 ): string | null {
@@ -38,14 +44,46 @@ export function papermarkEmbedUrl(
     if (url.pathname === '/' || /(^|[-_/])00[-_ ]?masters?($|[-_/])/i.test(url.pathname)) {
       return null
     }
-    // Papermark's supported embed mode keeps the same private share-link token
-    // and suppresses the standalone-page chrome. Existing query parameters
-    // (including link authentication settings) are retained.
-    url.searchParams.set('embed', '1')
+    url.searchParams.delete('embed')
     return url.toString()
   } catch {
     return null
   }
+}
+
+/**
+ * Papermark's iframe address for a share link, or null when the link has none.
+ *
+ * Papermark lets other sites frame only its /embed page:
+ *   https://app.papermark.com/view/<link>/embed  (papermark.com hosts)
+ *   https://<custom domain>/<slug>/embed          (a custom domain)
+ * which it serves with `frame-ancestors *`. Every other viewer address sends
+ * X-Frame-Options (SAMEORIGIN or DENY), so a browser refuses to show it inside
+ * an APRI page. The `?embed=1` this used to add is not a Papermark option, and
+ * those frames were refused (checked on the live hosts, 2 October 2026).
+ *
+ * Any other shape -- a Data Room listing, a document inside a room, an unknown
+ * path -- gets no iframe; the caller offers the share link in its own tab.
+ */
+export function papermarkEmbedUrl(
+  value: string | null | undefined,
+  customDomain?: string | null
+): string | null {
+  const share = papermarkShareUrl(value, customDomain)
+  if (!share) return null
+  const url = new URL(share)
+  const segments = url.pathname.split('/').filter(Boolean)
+  const isEmbed = (i: number) => segments.length === i + 1 && segments[i] === 'embed'
+  if (OFFICIAL_HOSTS.has(url.hostname.toLowerCase())) {
+    if (segments[0] !== 'view' || !(segments.length === 2 || isEmbed(2))) return null
+    if (!PAPERMARK_LINK_ID_RE.test(segments[1]!)) return null
+    url.pathname = `/view/${segments[1]}/embed`
+  } else {
+    if (!(segments.length === 1 || isEmbed(1))) return null
+    if (!PAPERMARK_LINK_ID_RE.test(segments[0]!)) return null
+    url.pathname = `/${segments[0]}/embed`
+  }
+  return url.toString()
 }
 
 const PAPERMARK_LINK_ID_RE = /^[a-zA-Z0-9_-]+$/

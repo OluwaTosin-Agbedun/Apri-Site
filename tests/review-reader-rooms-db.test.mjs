@@ -143,7 +143,7 @@ process.env.SESSION_SECRET = randomBytes(32).toString("hex")
 
 const rooms = await import("../src/lib/review-reader-rooms.ts")
 const policy = await import("../src/lib/reader-room-policy.ts")
-const entry = await import("../src/lib/review-room-entry.ts")
+const reader = await import("../src/lib/review-reader.ts")
 const subscriberToken = await import("../src/lib/subscriber-session-token.ts")
 
 const tag = makeTag("rooms")
@@ -166,6 +166,9 @@ async function edition(key, state = "published") {
   store.docs.push({ id: `dd_${key}`, object: "dataroom_document", document_id: DOC(key), document_name: key })
 }
 const grant = (key, email) => sql`insert into review_edition_recipients (edition_id, email, source) values (${ed[key]}::uuid, ${email}, 'owner')`
+/** An APRI reader session (the reader typed APRI's one-time code); their code-free link is open only while one exists. */
+const signIn = async (email, hoursAgo = 0) =>
+  (await sql`insert into review_reader_sessions (email, method, created_at) values (${email}, 'code', now() - (${hoursAgo} || ' hours')::interval) returning id`)[0].id
 const room = async (email) => (await sql`select * from review_reader_rooms where email = ${email}`)[0]
 
 before(async () => {
@@ -178,9 +181,12 @@ before(async () => {
   store.docs.push({ id: "dd_stray", object: "dataroom_document", document_id: `${tag}_stray`, document_name: "stray" })
   for (const k of ["one", "two", "withdrawnA"]) await grant(k, A)
   await grant("three", B)
+  await signIn(A)
+  await signIn(B)
 })
 after(async () => {
   papermark.close()
+  await sql`delete from review_reader_sessions where email like ${`${tag}%`}`
   await sql`delete from review_reader_room_events where email like ${`${tag}%`}`
   await sql`delete from review_reader_rooms where email like ${`${tag}%`}`
   await sql`delete from review_edition_recipients where email like ${`${tag}%`}`
@@ -225,6 +231,30 @@ describe("the room rules", () => {
     assert.match(policy.roomLinkProblem({ ...good, enable_screenshot_protection: false }, expected), /Screenshot/)
     assert.match(policy.roomLinkProblem({ ...good, expires_at: policy.closedAt() }, expected), /closed/)
   })
+  it("a code-free link (APRI checked the email) must still be email-protected, and must always close", () => {
+    const until = new Date(Date.now() + 3_600_000).toISOString()
+    const expected = { roomId: "r", groupId: "g", email: "x@example.invalid", codeFree: true }
+    const good = { ...policy.roomLinkSettings({ roomId: "r", groupId: "g", email: "x@example.invalid", openUntil: until }), url: "https://docs.example.invalid/view/1" }
+    assert.equal(good.email_authenticated, false)
+    assert.equal(good.email_protected, true)
+    assert.equal(good.expires_at, until)
+    assert.equal(policy.roomLinkProblem(good, expected), null)
+    assert.match(policy.roomLinkProblem({ ...good, expires_at: null }, expected), /no closing time/, "never open-ended")
+    assert.match(policy.roomLinkProblem({ ...good, email_protected: false }, expected), /Email protection/)
+    assert.match(policy.roomLinkProblem({ ...good, email_authenticated: true }, expected), /its own code/)
+    assert.match(policy.roomLinkProblem({ ...good, allow_download: true }, expected), /Downloads/)
+    assert.match(policy.roomLinkProblem({ ...good, enable_watermark: false }, expected), /watermark/)
+    assert.match(policy.roomLinkProblem({ ...good, allow_list: ["y@example.invalid"] }, expected), /allow list/)
+    assert.equal(policy.closesAt({ expires_at: until }, until), true)
+    assert.equal(policy.closesAt({ expires_at: null }, until), false)
+  })
+  it("Read goes to that one PDF on Papermark's per-document room route, and nothing else is accepted", () => {
+    assert.equal(policy.roomDocumentUrl("https://docs.example.invalid/view/lnk_1", "dd_one"), "https://docs.example.invalid/view/lnk_1/d/dd_one")
+    assert.equal(policy.roomDocumentUrl("https://read.example.invalid/apri-ada/", "cm123abc"), "https://read.example.invalid/apri-ada/d/cm123abc")
+    assert.equal(policy.roomDocumentUrl("http://docs.example.invalid/view/lnk_1", "dd_one"), null, "https only")
+    assert.equal(policy.roomDocumentUrl("https://docs.example.invalid/view/lnk_1?email=x", "dd_one"), null, "no query")
+    assert.equal(policy.roomDocumentUrl("https://docs.example.invalid/view/lnk_1", "../../x"), null)
+  })
 })
 
 describe("two readers, different editions, one room each", () => {
@@ -253,7 +283,10 @@ describe("two readers, different editions, one room each", () => {
     assert.ok(permsRead !== -1 && permsRead < firstLink)
     const link = store.links.get(a.papermark_link_id)
     assert.equal(link.audience_type, "group")
-    assert.equal(link.email_authenticated, true)
+    assert.equal(link.email_protected, true)
+    assert.equal(link.email_authenticated, false, "APRI checked the email with its code: Papermark asks for no second code")
+    assert.ok(link.expires_at && new Date(link.expires_at) > new Date(), "open while the reader is signed in")
+    assert.ok(new Date(link.expires_at) <= new Date(Date.now() + 24 * 3_600_000 + 60_000), "and closes when their 24-hour session ends")
     assert.equal(link.allow_download, false)
     assert.equal(link.enable_screenshot_protection, true)
     assert.equal(link.enable_watermark, true)
@@ -348,38 +381,35 @@ describe("never reporting a removal Papermark did not confirm", () => {
 })
 
 describe("the reading entry path", () => {
-  it("the routing cookie names a reader's room, is never a sign-in, and nothing else can stand in for it", async () => {
-    globalThis.__jar = new Map()
-    await entry.setRoomHint(A)
-    assert.equal(await entry.readRoomHint(), A)
-    const real = globalThis.__jar.get("apri_review_room")
-    globalThis.__jar.set("apri_review_room", real.slice(0, -2) + "xx")
-    assert.equal(await entry.readRoomHint(), null, "a tampered routing cookie is ignored")
-    const subscriber = await subscriberToken.signSubscriberSession({ principalId: (await makeSeat(tag, { suffix: "s" })).id })
-    globalThis.__jar.set("apri_review_room", subscriber)
-    assert.equal(await entry.readRoomHint(), null, "a subscriber cookie is not a routing cookie")
-    await entry.setRoomHint(A)
-    await entry.clearRoomHint()
-    assert.equal(await entry.readRoomHint(), null, '"Not you?" and sign-out clear it')
-  })
   const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8")
-  it("asks for no APRI code or email, re-checks approval, and redirects only to a room confirmed for the current editions", () => {
+  it("the routing cookie is gone: no module can set or read it any more", () => {
+    assert.equal(existsSync(new URL("../src/lib/review-room-entry.ts", import.meta.url)), false)
+    assert.match(read("src/lib/review-reader.ts"), /store\.set\("apri_review_room", "", \{ \.\.\.readerCookieOptions\(\), maxAge: 0 \}\)/, "sign-out still clears an old one")
+  })
+  it("every way in needs an APRI session: the routing cookie can no longer reach a room", () => {
     const route = read("src/app/review/read/route.ts")
-    assert.doesNotMatch(route, /signInWithCode|signInReaderWithCode|sendReview|issueReaderSignIn/)
-    assert.match(route, /const hinted = session \? null : await readRoomHint\(\)/, "a signed-in reader outranks the routing cookie")
-    assert.match(route, /roomEntryFor\(email,/)
-    assert.ok(route.indexOf("roomEntryFor(email,") < route.indexOf("NextResponse.redirect(entry.url"))
-    assert.ok(!/review-room-entry"[\s\S]*signRoomEntry/.test(route) && !read("src/lib/review-room-entry.ts").includes("signRoomEntry"), "no emailed reading link")
+    assert.doesNotMatch(route, /readRoomHint|roomEntryFor|link_url|redirect\(entry/, "/review/read hands out nothing")
+    assert.match(route, /new URL\("\/review\/library", request\.url\)/)
+    for (const file of ["src/app/actions/review-reader.ts", "src/app/review/library/open/[id]/route.ts", "src/app/review/library/page.tsx"]) {
+      assert.doesNotMatch(read(file), /setRoomHint|readRoomHint/, file)
+    }
+    const open = read("src/app/review/library/open/[id]/route.ts")
+    const order = ["await currentReviewReader()", "getReviewEditionForEmail(reader.email", "readerDocumentFor(reader.email", "NextResponse.redirect(target.url"]
+    for (let i = 1; i < order.length; i++) assert.ok(open.indexOf(order[i - 1]) < open.indexOf(order[i]), `${order[i - 1]} before ${order[i]}`)
+    assert.doesNotMatch(read("src/app/review/library/page.tsx"), /link_url|secureUrl|papermark\.com/, "no Papermark address on the library page")
     assert.ok(!read("src/lib/review-email.ts").includes("sendReviewReadingLink"))
   })
-  it("the cards open rooms only once the two-reader proof is recorded", () => {
+  it('"rooms" is no longer a separate public route, and the room tools are owner-only', () => {
     const lib = read("src/lib/review-reader.ts")
-    assert.match(lib, /\(await readerRoomsSchemaReady\(\)\) && \(await reviewRoomsProof\(\)\) \? "rooms" : "papermark"/)
+    assert.match(lib, /\(row\?\.value === "library" \|\| row\?\.value === "rooms"\) && \(await reviewReaderSchemaReady\(\)\) \? "library" : "papermark"/)
+    assert.doesNotMatch(lib, /reviewRoomsProof/, "no manual two-reader switch")
     const actions = read("src/app/actions/review-reader-rooms.ts")
-    for (const fn of ["prepareRoomsFor", "checkAllRooms", "prepareAllApprovedRooms", "recordRoomsProof", "withdrawRoomsProof"]) {
+    for (const fn of ["prepareRoomsFor", "checkAllRooms", "prepareAllApprovedRooms"]) {
       const body = actions.slice(actions.indexOf(`export async function ${fn}`))
       assert.ok(body.indexOf("await requireOwner()") < body.indexOf("getSql()") || body.indexOf("getSql()") === -1, fn)
     }
+    assert.doesNotMatch(actions, /recordRoomsProof|withdrawRoomsProof/)
+    assert.doesNotMatch(read("src/app/admin/review-library/reader-rooms-panel.tsx"), /linkUrl|Open room/, "Admin never shows a code-free link")
   })
   it("every Admin change that alters a reader's editions reconciles their room", () => {
     const access = read("src/app/actions/review-edition-access.ts")
@@ -396,6 +426,7 @@ describe("opening access re-checks approval and the room's editions every time",
     await edition("x1")
     await edition("x2")
     await grant("x1", E)
+    await signIn(E)
   })
 
   it("an unapproved address gets no room and no link", async () => {
@@ -407,40 +438,13 @@ describe("opening access re-checks approval and the room's editions every time",
     const first = await rooms.roomEntryFor(E, { allowCreate: true })
     assert.equal(first.kind, "ready")
     assert.deepEqual(viewerSees((await room(E)).papermark_link_id, E), [DOC("x1")])
-    // A new assignment: the stored set no longer matches, so the room is
-    // brought into line before the reader is sent there.
     await grant("x2", E)
     const second = await rooms.roomEntryFor(E, { allowCreate: true })
     assert.equal(second.kind, "ready")
     assert.deepEqual(viewerSees((await room(E)).papermark_link_id, E), [DOC("x1"), DOC("x2")].sort())
-    await sql`update review_edition_recipients set revoked_at = now() where edition_id = ${ed.x1}::uuid and email = ${E}`
+    await sql`update review_edition_recipients set revoked_at = now() where edition_id = ${ed.x1}::uuid and email = ${E} and revoked_at is null`
     assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
     assert.deepEqual(viewerSees((await room(E)).papermark_link_id, E), [DOC("x2")], "a removal takes effect before the next open")
-  })
-
-  it("one Papermark code opens every assigned edition in that session; nothing else opens", async () => {
-    // Papermark's own rule, from its source: a verified room session covers
-    // every document the group may view, until the session ends.
-    const link = (await room(E)).papermark_link_id
-    let codes = 0
-    const sessions = new Set()
-    const open = (email, documentId) => {
-      if (!sessions.has(email)) {
-        if (viewerSees(link, email) === null) return "refused at the email check"
-        codes++
-        sessions.add(email)
-      }
-      return viewerSees(link, email).includes(documentId) ? "opened" : "refused"
-    }
-    await grant("x1", E)
-    await rooms.roomEntryFor(E, { allowCreate: true })
-    assert.equal(open(E, DOC("x1")), "opened")
-    assert.equal(open(E, DOC("x2")), "opened")
-    assert.equal(codes, 1, "one code for both editions")
-    assert.equal(open(E, DOC("three")), "refused", "another reader's edition")
-    assert.equal(open(E, DOC("withdrawnA")), "refused", "a withdrawn edition")
-    assert.equal(open(E, `${tag}_stray`), "refused", "an unassigned PDF in the room")
-    assert.equal(open(NOBODY, DOC("x1")), "refused at the email check", "an unapproved address gets no code")
   })
 
   it("a reader removed from every edition is not sent to their old room", async () => {
@@ -488,5 +492,169 @@ describe("opening access re-checks approval and the room's editions every time",
     const all = (await sql`select count(*)::int as n from review_reader_rooms`)[0].n
     const results = await rooms.reconcileReadersForEdition(ed.legacy)
     assert.equal(results.length, all)
+    await sql`update review_publication_editions set recipient_mode = 'edition', publication_state = 'draft' where id = ${ed.legacy}::uuid`
+  })
+})
+
+describe("the APRI-verified library: one APRI code, then every assigned PDF opens directly", () => {
+  const R = `${tag}_rhoda@example.invalid`
+  const S = `${tag}_sade@example.invalid`
+  const linkOf = async (email) => store.links.get((await room(email)).papermark_link_id)
+  const isOpen = (l) => Boolean(l?.expires_at) && new Date(l.expires_at) > new Date()
+  let rSession
+  before(async () => {
+    for (const k of ["r1", "r2", "r3", "r4"]) await edition(k)
+    await grant("r1", R)
+    await grant("r2", R)
+    await grant("r3", S)
+    rSession = await signIn(R)
+    await signIn(S)
+  })
+
+  it("Read opens that one PDF inside the reader's own link, open only until their APRI session ends", async () => {
+    const until = await reader.readerAccessUntil(R)
+    assert.ok(until, "the reader holds a session")
+    const d1 = await rooms.readerDocumentFor(R, ed.r1, until)
+    assert.equal(d1.kind, "open")
+    const r = await room(R)
+    assert.equal(d1.url, `${r.link_url}/d/dd_r1`, "Papermark's per-document route inside the reader's room link")
+    const link = await linkOf(R)
+    assert.equal(link.email_authenticated, false, "no second (Papermark) code")
+    assert.equal(link.email_protected, true)
+    assert.deepEqual(link.allow_list, [R])
+    assert.equal(link.allow_download, false)
+    assert.equal(link.enable_watermark, true)
+    assert.equal(link.enable_screenshot_protection, true)
+    assert.ok(policy.closesAt(link, until), "closes exactly when the APRI session ends")
+    assert.deepEqual(viewerSees(link.id, R), [DOC("r1"), DOC("r2")].sort())
+  })
+
+  it("a second PDF, and a return visit, need no new code, no new link and no Papermark call", async () => {
+    const until = await reader.readerAccessUntil(R)
+    const before = store.calls.length
+    const d2 = await rooms.readerDocumentFor(R, ed.r2, until)
+    const again = await rooms.readerDocumentFor(R, ed.r1, until)
+    assert.equal(d2.kind, "open")
+    assert.match(d2.url, /\/d\/dd_r2$/)
+    assert.equal(again.kind, "open")
+    assert.equal(store.calls.length, before, "nothing recreated, nothing re-sent")
+    // Papermark's own rule (its source): the first open of a room link asks
+    // for the email (no code on this link), and its room session then opens
+    // every permitted document of that link until it ends.
+    const link = await linkOf(R)
+    let emailPrompts = 0
+    const sessions = new Set()
+    const open = (email, doc) => {
+      if (!sessions.has(link.id + email)) {
+        if (viewerSees(link.id, email) === null) return "refused"
+        emailPrompts++
+        sessions.add(link.id + email)
+      }
+      return viewerSees(link.id, email).includes(doc) ? "opened" : "refused"
+    }
+    assert.equal(open(R, DOC("r1")), "opened")
+    assert.equal(open(R, DOC("r2")), "opened")
+    assert.equal(emailPrompts, 1)
+    assert.equal(open(R, DOC("r3")), "refused", "another reader's edition")
+  })
+
+  it("two readers stay isolated: neither link admits the other, and neither can open the other's edition", async () => {
+    const sUntil = await reader.readerAccessUntil(S)
+    assert.equal((await rooms.readerDocumentFor(S, ed.r3, sUntil)).kind, "open")
+    const rLink = await linkOf(R)
+    const sLink = await linkOf(S)
+    assert.notEqual(rLink.id, sLink.id)
+    assert.equal(viewerSees(rLink.id, S), null)
+    assert.equal(viewerSees(sLink.id, R), null)
+    assert.deepEqual(viewerSees(sLink.id, S), [DOC("r3")])
+    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r3, await reader.readerAccessUntil(R)), { kind: "not_assigned" })
+    assert.deepEqual(await rooms.readerDocumentFor(R, ed.withdrawnA, await reader.readerAccessUntil(R)), { kind: "not_assigned" }, "a withdrawn edition")
+    assert.equal(store.groups.get((await room(R)).papermark_group_id).perms.get("dd_stray").can_view, false, "an unassigned PDF in the room")
+  })
+
+  it("a newly assigned edition appears at once; a removed one is refused at once and hidden in Papermark", async () => {
+    const until = await reader.readerAccessUntil(R)
+    await grant("r4", R)
+    const d4 = await rooms.readerDocumentFor(R, ed.r4, until)
+    assert.equal(d4.kind, "open")
+    assert.deepEqual(viewerSees((await linkOf(R)).id, R), [DOC("r1"), DOC("r2"), DOC("r4")].sort())
+    await sql`update review_edition_recipients set revoked_at = now() where edition_id = ${ed.r2}::uuid and email = ${R} and revoked_at is null`
+    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r2, until), { kind: "not_assigned" })
+    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open")
+    assert.deepEqual(viewerSees((await linkOf(R)).id, R), [DOC("r1"), DOC("r4")].sort(), "hidden in Papermark before the next open")
+  })
+
+  it("signing out closes the reader's link; a new sign-in reopens it; another browser's session keeps it open", async () => {
+    await sql`update review_reader_sessions set revoked_at = now(), revoke_reason = 'signed_out' where id = ${rSession}::uuid`
+    assert.equal(await reader.readerAccessUntil(R), null)
+    await rooms.narrowRoomWindow(R)
+    assert.equal(isOpen(await linkOf(R)), false, "closed in Papermark")
+    assert.equal(viewerSees((await linkOf(R)).id, R), null)
+    assert.equal((await room(R)).state, "ready", "closed for lack of a session, not broken")
+    assert.equal((await room(R)).link_open_until, null)
+
+    const older = await signIn(R, 2)
+    const newer = await signIn(R)
+    const until = await reader.readerAccessUntil(R)
+    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open")
+    assert.ok(isOpen(await linkOf(R)), "reopened for the new session")
+    await sql`update review_reader_sessions set revoked_at = now(), revoke_reason = 'signed_out' where id = ${older}::uuid`
+    await rooms.narrowRoomWindow(R)
+    assert.ok(policy.closesAt(await linkOf(R), until), "the newer session keeps it open, to its own end")
+    rSession = newer
+  })
+
+  it("a session older than 24 hours no longer counts", async () => {
+    const T = `${tag}_tunde@example.invalid`
+    await signIn(T, 25)
+    assert.equal(await reader.readerAccessUntil(T), null)
+  })
+
+  it("overlapping requests: while another update runs, the reader is told it is being prepared and nothing changes", async () => {
+    const until = await reader.readerAccessUntil(R)
+    await sql`update review_reader_rooms set link_open_until = now() - interval '1 minute', lease_until = now() + interval '1 minute' where email = ${R}`
+    const before = JSON.stringify(await linkOf(R))
+    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r1, until), { kind: "preparing" })
+    assert.equal(JSON.stringify(await linkOf(R)), before)
+    await sql`update review_reader_rooms set lease_until = null where email = ${R}`
+    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open", "the next Read finishes it")
+  })
+
+  it("if Papermark fails while opening, the reader gets a repair notice and the link is not opened", async () => {
+    const until = await reader.readerAccessUntil(R)
+    const link = await linkOf(R)
+    link.expires_at = policy.closedAt()
+    await sql`update review_reader_rooms set link_open_until = null where email = ${R}`
+    faults.failPatch = true
+    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r1, until), { kind: "unavailable", reason: "needs_repair" })
+    assert.equal(isOpen(await linkOf(R)), false)
+    faults.failPatch = false
+    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open")
+  })
+
+  it("a link someone widened in Papermark is closed, never opened", async () => {
+    const until = await reader.readerAccessUntil(R)
+    const link = await linkOf(R)
+    link.allow_list = [R, `${tag}_intruder@example.invalid`]
+    link.expires_at = policy.closedAt()
+    await sql`update review_reader_rooms set link_open_until = null where email = ${R}`
+    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "unavailable")
+    assert.equal((await room(R)).state, "closed")
+    assert.equal(isOpen(await linkOf(R)), false)
+    link.allow_list = [R]
+    assert.equal((await rooms.reconcileReaderRoom(R)).state, "ready", "Repair restores it")
+  })
+
+  it("before 20261011 is applied, the library uses each edition's own link and no room link is changed", async () => {
+    await sql`alter table review_reader_rooms rename column link_open_until to link_open_until_hidden`
+    rooms.resetReaderRoomsSchemaCache()
+    try {
+      const before = store.calls.length
+      assert.deepEqual(await rooms.readerDocumentFor(R, ed.r1, new Date(Date.now() + 3_600_000).toISOString()), { kind: "legacy" })
+      assert.equal(store.calls.length, before)
+    } finally {
+      await sql`alter table review_reader_rooms rename column link_open_until_hidden to link_open_until`
+      rooms.resetReaderRoomsSchemaCache()
+    }
   })
 })

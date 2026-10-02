@@ -45,6 +45,7 @@ const SCHEMA: { migration: string; table: string; columns: string[] }[] = [
   { migration: "20261009_review_reader_rooms.sql", table: "review_reader_rooms", columns: [] },
   { migration: "20261010_review_access_reliability.sql", table: "review_reader_rooms", columns: ["verified_editions", "lease_until"] },
   { migration: "20261010_review_access_reliability.sql", table: "review_email_attempts", columns: [] },
+  { migration: "20261011_review_reader_open_window.sql", table: "review_reader_rooms", columns: ["link_open_until", "room_documents"] },
 ]
 
 export async function schemaProblems(): Promise<ReadinessProblem[]> {

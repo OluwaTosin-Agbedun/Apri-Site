@@ -110,7 +110,7 @@ export default async function PublicationsPage() {
                             confidential and not for redistribution.
                           </p>
                           <TrackedAccessLink
-                            href={entryMode === "rooms" ? "/review/read" : entryMode === "library" ? `/review/library/open/${card.id}` : card.secureUrl}
+                            href={entryMode === "library" ? `/review/library?edition=${card.id}` : card.secureUrl}
                             eventType="review_access_clicked"
                             slotKey={card.slotKey}
                             publicationId={card.id}

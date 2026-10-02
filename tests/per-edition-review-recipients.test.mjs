@@ -880,7 +880,30 @@ describe("/review/library", () => {
     const readerLib = read("src/lib/review-reader.ts")
     assert.match(readerLib, /readReviewSession\(\)/)
     assert.match(readerLib, /access_sent_at is not null/)
-    assert.match(readerLib, /revoked_at is null and created_at > now\(\) - interval '365 days'/)
+    // A reader session lasts 24 hours from the code, checked server-side on
+    // every request: not signed out, and created within the last 24 hours.
+    assert.match(readerLib, /export const SESSION_HOURS = 24\b/)
+    const fnStart = readerLib.indexOf("export async function currentReviewReader")
+    const current = readerLib.slice(fnStart, readerLib.indexOf("\n}\n", fnStart))
+    assert.match(current, /revoked_at is null\s+and created_at > now\(\) - \(\$\{SESSION_HOURS\} \|\| ' hours'\)::interval/)
+    assert.doesNotMatch(readerLib, /interval '365 days'|60 \* 60 \* 24 \* 90/, "no year-long or 90-day reader session")
+  })
+
+  it("Read re-checks this edition's own recipients before handing out any Papermark address", () => {
+    const open = read("src/app/review/library/open/[id]/route.ts")
+    const session = open.indexOf("await currentReviewReader()")
+    const assigned = open.indexOf("await getReviewEditionForEmail(reader.email, id)")
+    assert.ok(session !== -1 && session < assigned, "a reader session first, then this edition's recipients")
+    assert.ok(assigned < open.indexOf("await readerDocumentFor(reader.email, edition.id"), "the personal link only after both")
+    // Only two redirects leave APRI -- the PDF inside the reader's personal
+    // link, or the edition's own link (before 20261011) -- and both come after
+    // both checks. Every other answer is a path on this site.
+    const outward = [...open.matchAll(/NextResponse\.redirect\((?!new URL\()([^,)]+)/g)]
+    assert.deepEqual(outward.map((m) => m[1]).sort(), ["edition.secureUrl", "target.url"])
+    for (const m of outward) assert.ok(m.index > assigned, `${m[1]} only after the recipient check`)
+    // The library page lists editions by id; no Papermark address is on it.
+    assert.doesNotMatch(page, /secureUrl|link_url|https?:\/\//)
+    assert.match(page, /href=\{`\/review\/library\/open\/\$\{c\.id\}`\}/)
   })
 
   it("matches the prospect's own address and nothing broader", () => {

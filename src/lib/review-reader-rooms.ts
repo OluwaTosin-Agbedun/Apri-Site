@@ -10,7 +10,9 @@ import {
   visibleSetKey,
   roomLinkSettings,
   roomLinkProblem,
+  closesAt,
   closedAt,
+  roomDocumentUrl,
   type ReadPermission,
   type ReadLink,
 } from "./reader-room-policy"
@@ -54,6 +56,8 @@ type RoomRow = {
   last_error: string | null
   verified_editions?: string | null
   lease_until?: string | null
+  link_open_until?: string | Date | null
+  room_documents?: Record<string, string> | null
 }
 
 type Page<T> = { data?: T[]; next_cursor?: string | null } | T[]
@@ -106,6 +110,7 @@ export async function readerRoomsSchemaReady(): Promise<boolean> {
 export function resetReaderRoomsSchemaCache() {
   ready = null
   routing = null
+  openWindow = null
 }
 
 /**
@@ -127,6 +132,37 @@ async function routingColumnsReady(): Promise<boolean> {
     routing = { value: false, at: Date.now() }
   }
   return routing.value
+}
+
+/**
+ * Whether 20261011 added the open-window columns (link_open_until,
+ * room_documents). Only then is a reader's link code-free -- and so open only
+ * while they hold an APRI session. Without them the library keeps sending
+ * readers to each edition's own Papermark link and no room link is changed.
+ */
+let openWindow: { value: boolean; at: number } | null = null
+export async function openWindowReady(): Promise<boolean> {
+  if (openWindow && Date.now() - openWindow.at < (openWindow.value ? 300_000 : 60_000)) return openWindow.value
+  try {
+    const [row] = (await getSql()`
+      select count(*)::int = 2 as ok from information_schema.columns
+      where table_schema = 'public' and table_name = 'review_reader_rooms' and column_name in ('link_open_until', 'room_documents')
+    `) as { ok: boolean }[]
+    openWindow = { value: row?.ok === true, at: Date.now() }
+  } catch {
+    openWindow = { value: false, at: Date.now() }
+  }
+  return openWindow.value
+}
+
+async function saveWindow(email: string, until: string | null, documents?: Record<string, string>) {
+  if (!(await openWindowReady())) return
+  const sql = getSql()
+  if (documents) {
+    await sql`update review_reader_rooms set link_open_until = ${until}::timestamptz, room_documents = ${JSON.stringify(documents)}::jsonb where email = ${email}`
+  } else {
+    await sql`update review_reader_rooms set link_open_until = ${until}::timestamptz where email = ${email}`
+  }
 }
 
 /** The set of review editions a room shows, as stored and compared. */
@@ -210,6 +246,7 @@ async function closeLink(row: RoomRow, reason: string): Promise<RoomResult> {
     const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
     if (back.expires_at && new Date(back.expires_at) <= new Date()) {
       await save(row.email, { state: "closed", last_error: reason })
+      await saveWindow(row.email, null)
       await event(row.email, "link_closed", reason)
       return { email: row.email, state: "closed", message: `Link closed until repaired: ${reason}`, visible: 0, hidden: 0 }
     }
@@ -217,6 +254,7 @@ async function closeLink(row: RoomRow, reason: string): Promise<RoomResult> {
   try {
     await paced(`/v1/links/${enc(row.papermark_link_id)}`, { method: "DELETE" })
     await save(row.email, { state: "closed", papermark_link_id: null, link_url: null, last_error: reason })
+    await saveWindow(row.email, null)
     await event(row.email, "link_closed", `deleted: ${reason}`)
     return { email: row.email, state: "closed", message: `Link removed until repaired: ${reason}`, visible: 0, hidden: 0 }
   } catch {
@@ -341,15 +379,32 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     }
 
     // 4. The one link -- only now, after the permissions are confirmed.
-    const expected = { roomId, groupId, email }
+    // Code-free (APRI-verified) once 20261011 is applied: open only until the
+    // end of the reader's latest APRI session, closed while they have none.
+    const codeFree = await openWindowReady()
+    const { readerAccessUntil } = await import("./review-reader")
+    const openUntil = codeFree ? await readerAccessUntil(email) : null
+    const isClosed = (l: ReadLink) => Boolean(l.expires_at && new Date(l.expires_at) <= new Date())
+    const windowConfirmed = (l: ReadLink) => (openUntil ? closesAt(l, openUntil) : isClosed(l))
+    const expected = { roomId, groupId, email, codeFree }
     let linkId = row!.papermark_link_id
     let url = row!.link_url
     if (linkId) {
       let link = await paced<ReadLink>(`/v1/links/${enc(linkId)}`)
-      const closed = Boolean(link.expires_at && new Date(link.expires_at) <= new Date())
-      const problem = roomLinkProblem(link, expected, new Date(), { allowClosed: true })
+      const problem = roomLinkProblem(link, expected, new Date(), { allowClosed: true, ignoreGate: codeFree })
       if (problem) return closeLink({ ...row!, papermark_group_id: groupId }, problem)
-      if (closed) {
+      if (codeFree) {
+        if (!(link.email_authenticated === false && windowConfirmed(link))) {
+          await paced(`/v1/links/${enc(linkId)}`, {
+            method: "PATCH",
+            body: { email_protected: true, email_authenticated: false, expires_at: openUntil ?? closedAt() },
+          })
+          link = await paced<ReadLink>(`/v1/links/${enc(linkId)}`)
+        }
+        const after = roomLinkProblem(link, expected, new Date(), { allowClosed: true })
+        if (after) return closeLink({ ...row!, papermark_group_id: groupId }, after)
+        if (!windowConfirmed(link)) return closeLink({ ...row!, papermark_group_id: groupId }, "Papermark did not confirm when the reader's link closes.")
+      } else if (isClosed(link)) {
         await paced(`/v1/links/${enc(linkId)}`, { method: "PATCH", body: { expires_at: null } })
         link = await paced<ReadLink>(`/v1/links/${enc(linkId)}`)
         const reopened = roomLinkProblem(link, expected)
@@ -360,11 +415,19 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     } else {
       const created = await paced<ReadLink>("/v1/links", {
         method: "POST",
-        body: roomLinkSettings({ roomId, groupId, email, customDomain: process.env.PAPERMARK_CUSTOM_DOMAIN }),
+        body: roomLinkSettings({
+          roomId,
+          groupId,
+          email,
+          customDomain: process.env.PAPERMARK_CUSTOM_DOMAIN,
+          openUntil: codeFree ? (openUntil ?? closedAt()) : null,
+        }),
       })
       if (!created.id) throw new PapermarkError("Papermark created a link with no id.")
       const back = await paced<ReadLink>(`/v1/links/${enc(created.id)}`)
-      const problem = roomLinkProblem(back, expected)
+      const problem =
+        roomLinkProblem(back, expected, new Date(), { allowClosed: codeFree }) ??
+        (codeFree && !windowConfirmed(back) ? "Papermark did not confirm when the reader's link closes." : null)
       if (problem) {
         try {
           await paced(`/v1/links/${enc(created.id)}`, { method: "DELETE" })
@@ -388,9 +451,12 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
       verified_at: new Date().toISOString(),
       last_error: notInRoom.length ? `Assigned but not in the Review Data Room: ${notInRoom.join("; ").slice(0, 300)}` : null,
     })
+    const shownEditions = editions.filter((e) => byDocument.has(e.papermarkDocumentId))
     if (await routingColumnsReady()) {
-      const shown = editions.filter((e) => byDocument.has(e.papermarkDocumentId)).map((e) => e.id)
-      await sql`update review_reader_rooms set verified_editions = ${editionSetKey(shown)} where email = ${email}`
+      await sql`update review_reader_rooms set verified_editions = ${editionSetKey(shownEditions.map((e) => e.id))} where email = ${email}`
+    }
+    if (codeFree) {
+      await saveWindow(email, openUntil, Object.fromEntries(shownEditions.map((e) => [e.id, byDocument.get(e.papermarkDocumentId)!])))
     }
     return { email, state: "ready", message: `Ready: ${visible.length} edition${visible.length === 1 ? "" : "s"} visible, ${hidden} hidden, downloads off.`, visible: visible.length, hidden }
   } catch (error) {
@@ -515,7 +581,7 @@ export function scheduleRoomReconcile(target: { editionId: string } | { prospect
       try {
         if (!(await readerRoomsSchemaReady())) return
         const { reviewEntryMode } = await import("./review-reader")
-        const create = (await reviewEntryMode()) === "rooms"
+        const create = (await reviewEntryMode()) === "library" && (await openWindowReady())
         if (target === "all") await reconcileAllReaderRooms()
         else if ("editionId" in target) await reconcileReadersForEdition(target.editionId, { create })
         else {
@@ -581,4 +647,172 @@ export async function roomEntryFor(rawEmail: string, options: { allowCreate: boo
   }
   if (result.state === "updating") return { kind: "preparing" }
   return { kind: "unavailable", reason: result.state === "none" ? "no_room" : "needs_repair" }
+}
+
+// ---------------------------------------------------------------------------
+// The APRI-verified library: one APRI code, then each edition opens directly
+// ---------------------------------------------------------------------------
+
+export type ReaderDocument =
+  /** Go here: this one edition, inside the reader's own code-free link. */
+  | { kind: "open"; url: string }
+  /** Not (or no longer) assigned to this reader, or not published. */
+  | { kind: "not_assigned" }
+  /** Another update for this reader is running; it finishes within minutes. */
+  | { kind: "preparing" }
+  /** Papermark could not confirm the reader's access; Admin shows Repair. */
+  | { kind: "unavailable"; reason: string }
+  /** 20261011 is not applied: use the edition's own Papermark link. */
+  | { kind: "legacy" }
+
+/**
+ * Where one approved, APRI-verified reader goes to read one edition, decided
+ * at the moment they press Read:
+ *
+ *  1. approval is re-read (published, exact verified link, this edition's own
+ *     recipients) -- a removed reader or a withdrawn edition stops here;
+ *  2. their room is brought into line with Papermark if what it last
+ *     confirmed differs from what is assigned now;
+ *  3. their link is opened until the end of their latest APRI session (one
+ *     Papermark call, at most once per session; read back);
+ *  4. the address of that one PDF in their room, which Papermark opens
+ *     without asking again while its own room session (23 hours) lasts.
+ *
+ * `sessionUntil` is when the APRI session in this browser ends.
+ */
+export async function readerDocumentFor(rawEmail: string, editionId: string, sessionUntil: string): Promise<ReaderDocument> {
+  const email = rawEmail.trim().toLowerCase()
+  if (!(await readerRoomsSchemaReady()) || !(await routingColumnsReady()) || !(await openWindowReady())) return { kind: "legacy" }
+  const assigned = await getReviewLibraryForEmail(email)
+  if (!assigned.some((e) => e.id === editionId)) return { kind: "not_assigned" }
+
+  const entry = await roomEntryFor(email, { allowCreate: true })
+  if (entry.kind === "not_approved") return { kind: "not_assigned" }
+  if (entry.kind === "preparing") return { kind: "preparing" }
+  if (entry.kind === "unavailable") return { kind: "unavailable", reason: entry.reason }
+
+  let row = await windowRow(email)
+  if (!row?.room_documents?.[editionId]) {
+    // A room confirmed before 20261011 has no document map yet: one
+    // reconcile records it.
+    const result = await reconcileReaderRoom(email)
+    if (result.state === "updating") return { kind: "preparing" }
+    row = await windowRow(email)
+    if (!row || row.state !== "ready") return { kind: "unavailable", reason: "needs_repair" }
+    if (!row.room_documents?.[editionId]) return { kind: "unavailable", reason: "not_in_room" }
+  }
+
+  const { readerAccessUntil } = await import("./review-reader")
+  const latest = await readerAccessUntil(email)
+  const until = latest && latest > sessionUntil ? latest : sessionUntil
+  const openUntil = row.link_open_until ? new Date(row.link_open_until).toISOString() : null
+  if (!openUntil || new Date(openUntil).getTime() < new Date(until).getTime() - 60_000) {
+    const opened = await openRoomWindow(email, until)
+    if (opened !== "open") return opened === "busy" ? { kind: "preparing" } : { kind: "unavailable", reason: "needs_repair" }
+    row = await windowRow(email)
+  }
+  const url = row?.link_url ? roomDocumentUrl(row.link_url, row.room_documents![editionId]!) : null
+  return url ? { kind: "open", url } : { kind: "unavailable", reason: "needs_repair" }
+}
+
+async function windowRow(email: string) {
+  const [row] = (await getSql()`
+    select state, link_url, papermark_link_id, papermark_group_id, papermark_dataroom_id, link_open_until, room_documents
+    from review_reader_rooms where email = ${email}
+  `) as {
+    state: RoomState; link_url: string | null; papermark_link_id: string | null; papermark_group_id: string | null
+    papermark_dataroom_id: string; link_open_until: string | Date | null; room_documents: Record<string, string> | null
+  }[]
+  return row
+}
+
+/**
+ * Opens (or extends) a ready reader's code-free link until `until`, the end of
+ * their latest APRI session, and confirms it from Papermark's read-back. Every
+ * other restriction on the link is checked first; anything wrong closes it.
+ */
+async function openRoomWindow(email: string, until: string): Promise<"open" | "busy" | "failed"> {
+  if (!(await takeLease(email))) return "busy"
+  try {
+    const row = await windowRow(email)
+    if (!row || row.state !== "ready" || !row.papermark_link_id || !row.papermark_group_id) return "failed"
+    const expected = { roomId: row.papermark_dataroom_id, groupId: row.papermark_group_id, email, codeFree: true }
+    const full = (await getSql()`select * from review_reader_rooms where email = ${email}`) as RoomRow[]
+    try {
+      const before = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
+      const problem = roomLinkProblem(before, expected, new Date(), { allowClosed: true, ignoreGate: true })
+      if (problem) {
+        await closeLink(full[0]!, problem)
+        return "failed"
+      }
+      await paced(`/v1/links/${enc(row.papermark_link_id)}`, {
+        method: "PATCH",
+        body: { email_protected: true, email_authenticated: false, expires_at: until },
+      })
+      const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
+      const after = roomLinkProblem(back, expected) ?? (closesAt(back, until) ? null : "Papermark did not confirm when the reader's link closes.")
+      if (after) {
+        await closeLink(full[0]!, after)
+        return "failed"
+      }
+      await saveWindow(email, until)
+      if (back.url && back.url !== row.link_url) await save(email, { link_url: back.url })
+      await event(email, "link_opened", `until ${until}`)
+      return "open"
+    } catch (error) {
+      await save(email, { last_error: error instanceof PapermarkError ? error.message : "Papermark could not be reached." })
+      return "failed"
+    }
+  } finally {
+    await dropLease(email)
+  }
+}
+
+/**
+ * After a sign-out: the reader's link closes when their last APRI session has
+ * ended, or is shortened to their remaining latest session. Confirmed from
+ * Papermark's read-back; if the close cannot be confirmed the link is closed
+ * the hard way (or the room is marked for repair).
+ */
+export async function narrowRoomWindow(rawEmail: string): Promise<void> {
+  const email = rawEmail.trim().toLowerCase()
+  if (!(await readerRoomsSchemaReady()) || !(await openWindowReady())) return
+  const row = await windowRow(email)
+  if (!row?.papermark_link_id || !row.link_open_until) return
+  const { readerAccessUntil } = await import("./review-reader")
+  const until = await readerAccessUntil(email)
+  const current = new Date(row.link_open_until).getTime()
+  if (current <= Date.now()) return
+  if (until && current <= new Date(until).getTime() + 60_000) return
+  if (!(await takeLease(email))) return
+  try {
+    try {
+      const target = until ?? closedAt()
+      await paced(`/v1/links/${enc(row.papermark_link_id)}`, { method: "PATCH", body: { expires_at: target } })
+      const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
+      const ok = until ? closesAt(back, until) : Boolean(back.expires_at && new Date(back.expires_at) <= new Date())
+      if (ok) {
+        await saveWindow(email, until)
+        await event(email, until ? "link_shortened" : "link_closed_idle")
+        return
+      }
+    } catch {}
+    const [full] = (await getSql()`select * from review_reader_rooms where email = ${email}`) as RoomRow[]
+    if (full) await closeLink(full, "The reader signed out and Papermark did not confirm their link closed.")
+  } finally {
+    await dropLease(email)
+  }
+}
+
+/** Runs narrowRoomWindow after the response, so signing out never waits on Papermark. */
+export function scheduleRoomWindowNarrowing(email: string): void {
+  try {
+    after(async () => {
+      try {
+        await narrowRoomWindow(email)
+      } catch {}
+    })
+  } catch {
+    // Outside a request (a script): nothing to schedule against.
+  }
 }

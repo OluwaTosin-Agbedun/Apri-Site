@@ -133,22 +133,22 @@ export function sendSubscriptionMessages(d: {
 }
 
 /**
- * The remembered Review Library's sign-in email: a link, and a code that signs
- * in whichever browser it is typed into (an email app may open the link in a
- * browser of its own). Sent only to an address assigned at least one
- * published edition, and only when that reader asks.
+ * The Review Library's sign-in email: ONE code, and no link. The reader types
+ * it on the sign-in page in the browser they are reading in, which then stays
+ * signed in for 24 hours. Sent only to an address assigned at least one
+ * published edition, and only when that reader asks. Needs no site address.
  */
-export function sendReviewLibrarySignIn(email: string, url: string, code: string) {
+export function sendReviewLibrarySignIn(email: string, code: string) {
   const spaced = `${code.slice(0, 4)} ${code.slice(4)}`
   return send("library_sign_in", {
     from: `APRI <${from}>`,
     to: email,
     replyTo: MANAGER,
-    subject: "Sign in to your APRI Review Library",
-    html: `<p>Use the link below to open the APRI Complimentary Review Library on this browser. It works once and expires in 15 minutes.</p>
-<p><a href="${esc(url)}">Open my Review Library</a></p>
-<p>Reading on a different browser or device? On the Review Library sign-in page there, enter your email address and this code:</p>
-<p style="font-family:'Courier New',Courier,monospace;font-size:24px;letter-spacing:4px;">${esc(spaced)}</p>
-<p>Access is personal, confidential and not for redistribution. If you did not ask for this, you can ignore it.</p>`,
+    subject: "Your APRI Review Library sign-in code",
+    html: `<p>Your APRI Complimentary Review Library sign-in code is:</p>
+<p style="font-family:'Courier New',Courier,monospace;font-size:28px;letter-spacing:4px;margin:16px 0;">${esc(spaced)}</p>
+<p>Enter it on the sign-in page, in the browser you want to read in. It works once and expires in 15 minutes. That browser then stays signed in to your library for 24 hours.</p>
+<p>Access is personal, confidential and not for redistribution. If you did not ask for this code, you can ignore this email.</p>`,
+    text: `Your APRI Complimentary Review Library sign-in code is ${spaced}. Enter it on the sign-in page, in the browser you want to read in. It works once and expires in 15 minutes. That browser then stays signed in to your library for 24 hours. Access is personal, confidential and not for redistribution. If you did not ask for this code, you can ignore this email.`,
   })
 }

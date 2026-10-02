@@ -108,7 +108,7 @@ const active = {
 test("an active subscriber receives their embedded private library URL", () => {
   assert.equal(
     subscriberLibraryEmbedUrl(active),
-    "https://www.papermark.com/view/private-a?embed=1",
+    "https://www.papermark.com/view/private-a/embed",
   )
 })
 
@@ -144,10 +144,10 @@ test("unsafe, unrelated and Masters URLs are rejected", () => {
 test("configured HTTPS Papermark custom domains are allowed without a shared fallback", () => {
   assert.equal(
     papermarkEmbedUrl(
-      "https://library.apri.example/client/private-a?email=required",
+      "https://library.apri.example/private-a?email=required",
       "library.apri.example",
     ),
-    "https://library.apri.example/client/private-a?email=required&embed=1",
+    "https://library.apri.example/private-a/embed?email=required",
   )
   assert.equal(subscriberLibraryEmbedUrl({ ...active, libraryLinkUrl: null }), null)
 })

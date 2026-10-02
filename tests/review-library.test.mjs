@@ -240,7 +240,10 @@ test('publications page: cards display all required fields', () => {
 
 test('homepage: review cards link to their corresponding secure URLs', () => {
   const src = read('src/app/page.tsx')
-  assert.match(src, /href=\{entryMode === "rooms" \? "\/review\/read" : entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
+  // Library mode: the Review Library with this edition chosen (APRI's code
+  // first). Papermark mode: the edition's own stored link.
+  assert.match(src, /href=\{entryMode === "library" \? `\/review\/library\?edition=\$\{card\.id\}` : card\.secureUrl\}/)
+  assert.doesNotMatch(src, /entryMode === "rooms"|"\/review\/read"/, 'no card leads to the retired rooms entry')
   assert.match(src, /slotKey=\{card\.slotKey\}/)
   assert.match(src, /Access review copy &rarr;/)
   assert.match(src, /newTab/)
@@ -268,7 +271,8 @@ test('publications page: has per-card review access button', () => {
 test('publications page: uses separate secure URLs and never routes cards to /review', () => {
   const src = read('src/app/publications/page.tsx')
   const archive = archiveSection(src)
-  assert.match(archive, /href=\{entryMode === "rooms" \? "\/review\/read" : entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
+  assert.match(archive, /href=\{entryMode === "library" \? `\/review\/library\?edition=\$\{card\.id\}` : card\.secureUrl\}/)
+  assert.doesNotMatch(archive, /entryMode === "rooms"|"\/review\/read"/, 'no card leads to the retired rooms entry')
   assert.match(archive, /key=\{card\.id\}/)
   assert.doesNotMatch(archive, /href="\/review"/)
   assert.doesNotMatch(src, /library\.papermarkUrl/)

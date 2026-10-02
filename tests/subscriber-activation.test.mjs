@@ -142,9 +142,9 @@ test("portal access is bound to the authenticated active subscriber and never fa
       subscriberId: "subscriber-a",
       status: "active",
       termEnd: "2099-12-31",
-      libraryLinkUrl: "https://docs.athenacentre.org/view/private-a",
+      libraryLinkUrl: "https://docs.athenacentre.org/private-a",
     }),
-    "https://docs.athenacentre.org/view/private-a?embed=1",
+    "https://docs.athenacentre.org/private-a/embed",
   )
   assert.equal(
     subscriberLibraryEmbedUrl({
@@ -240,7 +240,7 @@ test("existing library links are still validated if present", () => {
   const source = read("src/app/actions/subscribers.ts") + read("src/lib/subscriber-activation.ts")
   assert.match(
     source,
-    /row\.library_link_url && !papermarkEmbedUrl/,
+    /row\.library_link_url && !papermarkShareUrl/,
     "Invalid-link check should remain for existing links",
   )
   assert.match(

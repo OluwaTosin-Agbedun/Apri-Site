@@ -2,18 +2,22 @@ import assert from "node:assert/strict"
 import { createHmac } from "node:crypto"
 import { readFileSync } from "node:fs"
 import test from "node:test"
-import { papermarkEmbedUrl } from "../src/lib/papermark-embed.ts"
+import { papermarkEmbedUrl, papermarkShareUrl } from "../src/lib/papermark-embed.ts"
 import { verifyResendWebhook } from "../src/lib/resend-webhook.ts"
 
 const read=(p)=>readFileSync(new URL(`../${p}`,import.meta.url),"utf8")
 
 test("Papermark share links accept supported types and reject management URLs",()=>{
-  assert.ok(papermarkEmbedUrl("https://papermark.com/view/abc"))
-  assert.ok(papermarkEmbedUrl("https://papermark.com/view/abc/files"))
-  assert.ok(papermarkEmbedUrl("https://papermark.com/data-room/abc"))
-  assert.ok(papermarkEmbedUrl("https://docs.athenacentre.org/share/abc"))
-  assert.equal(papermarkEmbedUrl("https://papermark.com/dashboard"),null)
-  assert.equal(papermarkEmbedUrl("https://papermark.com/folders/00-masters"),null)
+  assert.ok(papermarkShareUrl("https://papermark.com/view/abc"))
+  assert.ok(papermarkShareUrl("https://papermark.com/view/abc/files"))
+  assert.ok(papermarkShareUrl("https://papermark.com/data-room/abc"))
+  assert.ok(papermarkShareUrl("https://docs.athenacentre.org/share/abc"))
+  assert.equal(papermarkShareUrl("https://papermark.com/dashboard"),null)
+  assert.equal(papermarkShareUrl("https://papermark.com/folders/00-masters"),null)
+  // Only Papermark's own /embed page can be framed; other shapes open in a tab.
+  assert.equal(papermarkEmbedUrl("https://papermark.com/view/abc"),"https://papermark.com/view/abc/embed")
+  assert.equal(papermarkEmbedUrl("https://papermark.com/view/abc/files"),null)
+  assert.equal(papermarkEmbedUrl("https://papermark.com/data-room/abc"),null)
   const classifier=read("src/lib/papermark-link.ts")
   for(const label of ["Single document","Multi-file","Data Room","Unverified"]) assert.match(classifier,new RegExp(label))
 })

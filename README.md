@@ -65,6 +65,17 @@ political-economy intelligence on Nigeria.
     mapped. Each permitted edition opens through the subscriber's own exact-document Papermark
     link, watermarked with their name.
   - The **legacy library** is used for plans with no Data Room.
+- **Viewing inside APRI.** Papermark lets another site frame only its `/embed` page
+  (`/view/<link>/embed`, or `/<slug>/embed` on a custom domain). Other viewer addresses send
+  `X-Frame-Options`, so browsers refuse them in a frame.
+  - `src/lib/papermark-embed.ts` builds that `/embed` address (`papermarkEmbedUrl`) and checks
+    stored links separately (`papermarkShareUrl`).
+  - A link with no `/embed` page opens in its own tab. **Open in a new tab** always uses the
+    share link itself.
+  - Inside the frame Papermark may ask the reader to confirm their email again after a reload:
+    its session cookie is `SameSite=Strict`, so it is not kept in a frame on papermark.com.
+  - Until 2 October 2026 the portal added `?embed=1`, which is not a Papermark option, so those
+    frames were refused.
 - **Access rules** live in one policy (`src/lib/access-policy.ts`):
   - **Term:** an edition is permitted when it is released ("On") for the subscriber's plan and
     its edition date falls within their paid term. Terms are counted in Africa/Lagos calendar
@@ -87,8 +98,14 @@ political-economy intelligence on Nigeria.
    | Option | What happens |
    |---|---|
    | **Papermark links** (default) | Each card opens that edition's own Papermark link. Papermark asks for an email code per edition. |
-   | **APRI Review Library** | Readers verify once on APRI (`/review/library/sign-in`). They see only their assigned editions, re-checked on every open. Papermark still asks per edition. |
-   | **Personal Papermark rooms** (the intended normal route) | The card goes to `/review/read`. An unknown browser enters the approved email once on APRI. APRI sends no email and asks for no code. APRI re-checks approval and that the reader's room shows exactly their current editions, then redirects to their personal Papermark room. **Papermark** emails one code, which the reader pastes into Papermark's screen. That code opens all their assigned published editions on that browser for Papermark's ~23-hour session. Downloads are off. Available only after an owner records the controlled two-reader test. |
+   | **APRI Review Library** (the intended normal route) | The card goes to `/review/library`. A browser that is not signed in enters the approved email; APRI emails **one code** (no link). After it, the reader sees a clean APRI list of every published edition assigned to them, for **24 hours** on that browser. **Read** re-checks the assignment and opens that PDF directly inside the reader's personal Papermark link, which admits only their address and asks for no second code. The link is open only while they are signed in. Before migration `20261011` is applied, Read uses each edition's own link (Papermark code per edition). |
+
+   Why APRI, not Papermark, checks the email: hosted Papermark has no supported way to accept a
+   reader APRI verified or to report one it verified, its verified session is per link (23
+   hours), and its session cookie is `SameSite=Strict`, so it cannot be embedded. The owner
+   chose this design on 2 October 2026. Details and evidence:
+   [`docs/review-reader-library.md`](docs/review-reader-library.md). `/review/read` now only
+   redirects to the library.
 
 4. **Downloads.** Complimentary Review downloads are **disabled**. A proposal to allow them is
    on hold.
@@ -155,16 +172,17 @@ The full write-up is in [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.m
 
 ### Review readers
 
-- The review cookie is separate from the subscriber cookie. Neither opens the other's pages.
-  - `apri_review_reader` is used for the remembered library.
-  - `apri_review_room` is used for routing to a personal room.
-- The personal-room entry path (`/review/read`) asks for no APRI code and sends no APRI email:
-  Papermark performs the email check.
-  - `apri_review_room` (90 days) only remembers which room a browser goes to. It is never a
-    sign-in.
-  - A signed-in Review Library reader outranks it, and sign-out or **Not you?** clears it.
-  - An unapproved address is told that a request or confirmation is not approval. Requests are
-    rate-limited per network and per address.
+- The review cookie (`apri_review_reader`) is separate from the subscriber cookie. Neither
+  opens the other's pages.
+- One 8-digit code by email (no link, and not in the subject line, so lock-screen previews do
+  not show it): single-use, 15 minutes, five tries per code, five codes per address per hour; a
+  new code replaces the last (issued in one transaction, so overlapping requests leave one live
+  code). Ten wrong codes in an hour pause that address for an hour.
+- The session lasts **24 hours from the code**, is recorded server-side and is revocable. Sign-out
+  ends it and closes the reader's personal Papermark link.
+- An unassigned address is told plainly that a request or confirmation is not approval.
+  Requests are rate-limited per network and per address.
+- The older routing cookie (`apri_review_room`) is no longer set and grants nothing.
 
 ### Admin
 
@@ -182,7 +200,7 @@ The full write-up is in [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.m
 | Access Health | Every subscriber's reconciliation state |
 | Documents | Publication records; **Who gets this edition** (plans, On/Off) |
 | Data Rooms | Map each plan to its Papermark Data Room |
-| Review Library | Daily view: a short list of problems only when a real one exists (missing settings or migrations, an edition whose readers are not yet applied to Papermark, rooms needing repair, refused emails), checked on the server each time; editions grouped MIN / AIU / PLM with status, homepage offer, approved-reader count and access health (sync, details, readers with Select all / Unselect all and preview, prepare secure access, publish, offer, withdraw, re-offer, history, order); **Approved readers** (find an email, see exactly what it can open, add or remove per edition, with apply and read-back to Papermark); **Personal rooms** status with **Repair**. **Advanced / Diagnostics**: where the cards lead, the two-reader test and proof, review email delivery records, the address book, library switch and Data Room. |
+| Review Library | Daily view: a short list of problems only when a real one exists (missing settings or migrations, an edition whose readers are not yet applied to Papermark, rooms needing repair, refused emails), checked on the server each time; editions grouped MIN / AIU / PLM with status, homepage offer, approved-reader count and access health (sync, details, readers with Select all / Unselect all and preview, prepare secure access, publish, offer, withdraw, re-offer, history, order); **Approved readers** (find an email, see exactly what it can open, add or remove per edition, with apply and read-back to Papermark); **Personal rooms** status with **Repair**. **Advanced / Diagnostics**: where the cards lead, personal reader access (when each reader's link closes, check and repair; never the link itself), review email delivery records, the address book, library switch and Data Room. |
 | Review Requests | Verified prospects, approvals, subscription processing |
 | Engagement | Who is reading what (subscribers and review readers), per edition |
 | Briefings, Copies, Team, Administrators | Briefing requests, issued copies, team portraits, accounts |
@@ -330,11 +348,12 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 | 28 | `20261008_review_reader_library.sql` | Remembered Review Library sign-in, sessions, reader events |
 | 29 | `20261009_review_reader_rooms.sql` | Personal Papermark rooms per reader |
 | 30 | `20261010_review_access_reliability.sql` | Owner-only review email outcomes and delivery events; room routing columns (confirmed edition set, per-reader lease) |
+| 31 | `20261011_review_reader_open_window.sql` | When each reader's personal Papermark link closes, and which room document is each edition: turns on direct, code-free Read |
 
-A read-only check on 2 October 2026 found every migration through `20261009` applied in
-production; `20261010` is new and must be applied before relying on review email diagnostics
-and room routing checks (code works without it). Verification queries are in each feature's
-document under `docs/`.
+A read-only check on 2 October 2026 found every migration through `20261010` applied in
+production. `20261011` is new: until it is applied, the library sends readers to each edition's
+own Papermark link (a Papermark code per edition) and no personal link is changed. Verification
+queries are in each feature's document under `docs/`.
 
 ---
 
@@ -409,6 +428,15 @@ was deployed, four reader sign-in requests from the network that had earlier req
 approved address left no sign-in token and no email attempt. The new code reads the origin
 before it creates a token, so the failure came before the database step and before any send.
 
+**New (2 October), not yet verified live:**
+- The one-code Review Library: one APRI code, a 24-hour session, and direct Read into each
+  reader's personal Papermark link, which asks for no second code and is open only while they
+  are signed in.
+- It needs migration `20261011_review_reader_open_window.sql`. Until that is applied, Read
+  uses each edition's own Papermark link.
+- The manual two-reader test switch in Admin is gone. Isolation is proven by tests and by
+  Papermark read-back on every change. The live checks are listed below.
+
 **Live:**
 - the plan-based paid access;
 - one-click Admin access controls;
@@ -423,13 +451,14 @@ and a different browser.
 **Still needs a live check on the deployed site:**
 - **The subscriber return journey** with controlled test subscribers on each plan. Steps are in
   [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.md).
-- **The personal Papermark rooms** two-reader test. It needs a Papermark API token and two test
-  inboxes. Steps are in [`docs/review-reader-library.md`](docs/review-reader-library.md).
+- **The one-code Review Library** on the deployed site, after migration `20261011` is applied:
+  code receipt, wrong, expired and resent codes, two PDFs with no second code, a return visit,
+  two isolated readers, removal, withdrawal, downloads and sign-out. Steps are in
+  [`docs/review-reader-library.md`](docs/review-reader-library.md).
 - **Which Vercel project serves the domain** has not been confirmed from this repository.
 
-- **Code delivery to a real inbox.** Papermark sends the reading code, and its delivery cannot be
-  read from APRI. APRI-sent review emails are now recorded (accepted, refused or unknown), and
-  delivery is shown only from Resend events.
+- **Code delivery to a real inbox.** APRI now sends the reader's one code. Each send is
+  recorded (accepted, refused or unknown), and delivery is shown only from Resend events.
 
 **On hold:** Complimentary Review downloads.
 
@@ -439,8 +468,9 @@ and a different browser.
 
 - [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.md): the sign-in incident, root cause,
   fix and live acceptance test.
-- [`docs/review-reader-library.md`](docs/review-reader-library.md): the Review Library, what
-  Papermark permits, personal rooms, code frequency, rollout and live test.
+- [`docs/review-reader-library.md`](docs/review-reader-library.md): the one-code Review Library,
+  what hosted Papermark permits and why APRI performs the check, the personal links, migrations
+  and the live acceptance checks.
 - [`docs/subscriber-access-recovery.md`](docs/subscriber-access-recovery.md): the paid access
   incident, the access rule, migration order and recovery.
 - [`docs/subscription-entitlement-rollout.md`](docs/subscription-entitlement-rollout.md): the

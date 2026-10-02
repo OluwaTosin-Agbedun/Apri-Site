@@ -1,8 +1,8 @@
 import EditionOrder from "./edition-order"
 import EntryModeForm from "./entry-mode-form"
-import { reviewEntryMode, reviewReaderSchemaReady, reviewRoomsProof } from "@/lib/review-reader"
+import { reviewEntryMode, reviewReaderSchemaReady } from "@/lib/review-reader"
 import ReaderRoomsPanel from "./reader-rooms-panel"
-import { readerRoomsSchemaReady, listReaderRooms } from "@/lib/review-reader-rooms"
+import { readerRoomsSchemaReady, listReaderRooms, openWindowReady } from "@/lib/review-reader-rooms"
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
@@ -225,7 +225,7 @@ export default async function ReviewLibraryPage() {
   const effectiveMode = await reviewEntryMode()
   const readerSchema = await reviewReaderSchemaReady()
   const roomsSchema = await readerRoomsSchemaReady()
-  const proof = await reviewRoomsProof()
+  const windowReady = roomsSchema && (await openWindowReady())
   const rooms = await roomsForOwner()
   const attempts = await recentReviewEmailAttempts(20)
   const problems = await reviewReadiness()
@@ -284,15 +284,10 @@ export default async function ReviewLibraryPage() {
         <div className="mt-6 space-y-10">
           <section>
             <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">Where public review cards lead</h3>
-            <EntryModeForm
-              key={effectiveMode}
-              mode={effectiveMode}
-              ready={readerSchema}
-              roomsReady={roomsSchema && Boolean(proof)}
-            />
+            <EntryModeForm key={effectiveMode} mode={effectiveMode} ready={readerSchema} />
           </section>
 
-          <ReaderRoomsPanel schemaReady={roomsSchema} proof={proof} rooms={rooms} />
+          <ReaderRoomsPanel schemaReady={roomsSchema} windowReady={windowReady} rooms={rooms} />
 
           <section>
             <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">Review email delivery</h3>
@@ -350,11 +345,12 @@ export default async function ReviewLibraryPage() {
   )
 }
 
-/** Reader rooms with their links: this page is owner-only, and a room link still needs the reader's Papermark code. */
+/** Reader rooms and when each reader's link closes. Never the link itself: it asks for no second code. */
 async function roomsForOwner() {
   const rooms = await listReaderRooms()
   if (rooms.length === 0) return []
-  const links = (await getSql()`select email, link_url from review_reader_rooms`) as { email: string; link_url: string | null }[]
-  const byEmail = new Map(links.map((l) => [l.email, l.link_url]))
-  return rooms.map((r) => ({ ...r, linkUrl: byEmail.get(r.email) ?? null }))
+  if (!(await openWindowReady())) return rooms.map((r) => ({ ...r, openUntil: null }))
+  const rows = (await getSql()`select email, link_open_until from review_reader_rooms`) as { email: string; link_open_until: string | Date | null }[]
+  const byEmail = new Map(rows.map((l) => [l.email, l.link_open_until ? new Date(l.link_open_until).toISOString() : null]))
+  return rooms.map((r) => ({ ...r, openUntil: byEmail.get(r.email) ?? null }))
 }

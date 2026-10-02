@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { normalisePapermarkUrl, papermarkEmbedUrl } from '../src/lib/papermark-embed.ts'
+import { normalisePapermarkUrl, papermarkShareUrl } from '../src/lib/papermark-embed.ts'
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
@@ -38,9 +38,9 @@ test('admin displays one access-level field, read-only status and enforced Indiv
 
 test('Papermark and APRI custom-domain links are normalized and validated', () => {
   assert.equal(normalisePapermarkUrl('docs.athenacentre.org/client/a'), 'https://docs.athenacentre.org/client/a')
-  assert.ok(papermarkEmbedUrl('https://docs.athenacentre.org/client/a'))
-  assert.ok(papermarkEmbedUrl('https://www.papermark.com/view/client-a'))
-  assert.equal(papermarkEmbedUrl('https://example.com/client-a'), null)
+  assert.ok(papermarkShareUrl('https://docs.athenacentre.org/client/a'))
+  assert.ok(papermarkShareUrl('https://www.papermark.com/view/client-a'))
+  assert.equal(papermarkShareUrl('https://example.com/client-a'), null)
 })
 
 test('activation reports each exact missing requirement', () => {

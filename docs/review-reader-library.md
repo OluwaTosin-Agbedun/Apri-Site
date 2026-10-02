@@ -1,219 +1,151 @@
-# Complimentary Review: one remembered library for approved readers
+# Complimentary Review Library: one APRI code, then every assigned edition
 
-## What changes for readers
+Last updated 2 October 2026.
 
-- Approved readers sign in once per browser at `/review/library/sign-in`, using the email address
-  their editions were issued to. They receive a link and an 8-digit code, the same design as the
-  subscriber fix.
-- After that, `/review/library` opens on that browser with no email step, for 90 days.
-- The library lists **all and only** the published editions assigned to that email. This uses
-  the existing per-edition recipient lists, and the rule is checked on every visit.
-- Each edition opens through `/review/library/open/{id}`. That route checks again, at the moment
-  of opening, that the email is still one of that edition's recipients and that the edition is
-  still published with a verified exact-document link.
-  - Only then does it redirect to that edition's existing Papermark link.
-  - A guessed id, a withdrawn or draft edition, or another reader's edition all get the same
-    "not available" answer.
-  - The library page itself never carries a Papermark URL.
-- Existing approved readers need no new request. Their assignments are keyed by email.
-  - An access link that Admin already sent (`/review/access?token=…`) now also opens the
-    remembered library.
-- A visitor who is not approved is pointed to the existing request process at `/review`.
-- This is separate from paid sign-in:
-  - its own cookie (`apri_review_reader`, path `/review`, audience `review-reader`), sessions and
-    tables;
-  - a subscriber cookie never opens it, and its cookie never opens the portal.
-- Signing out ends the session on the server too.
+## The reader journey
 
-## What Papermark actually permits
+1. An approved reader clicks **Access review copy** on the homepage or `/publications`. In
+   library mode the card goes to `/review/library?edition=<id>`.
+2. A browser without an APRI reader session is sent to `/review/library/sign-in`. The reader
+   types the address their editions were issued to.
+3. APRI emails **one 8-digit code**, with no link. It works once, for 15 minutes. Asking again
+   sends a new code, and the old one stops working. An address may receive at most five codes
+   an hour.
+4. The reader types the code. That browser is then signed in for **24 hours from the code**.
+   The session is a signed `apri_review_reader` cookie (HttpOnly, Secure, SameSite=Lax,
+   path `/review`) backed by a `review_reader_sessions` row, so it can be revoked server-side.
+   It is not extended by use.
+5. They see **Your review publications**: every published edition assigned to their address,
+   in MIN, AIU and PLM order. Each card shows the series, title, edition and date, a short
+   description, and a **Read** button. The page contains no Papermark address.
+6. **Read** (`/review/library/open/<id>`) re-checks the session and the assignment, then sends
+   the browser straight to that one PDF inside the reader's personal Papermark link. There is
+   no second code and no Papermark room listing on the way.
+7. Opening a second or third publication, refreshing the library, or returning through the
+   homepage or `/publications` within the 24 hours needs no email and no code.
 
-This comes from Papermark's open-source code and its public API spec.
+The `/review` request, its email confirmation, and owner approval and assignment in Admin are
+unchanged. Requesting or confirming gives no access by itself.
 
-- Papermark's email verification is **per link** and lasts **23 hours**:
-  - the verification token is keyed `link-verification:{linkId}:{teamId}:{email}`;
-  - the viewing session cookie is `pm_drs_{linkId}` or `pm_ls_{linkId}`.
-- Today each edition has its own document link. So Papermark asks a reader to confirm their email
-  by one-time code **once per edition, and again after 23 hours**. An APRI session cannot remove
-  that challenge, and APRI does not claim to. The library tells readers so.
-- The only Papermark mechanism that gives one verification across several PDFs is a **Data Room
-  link**: one Papermark session per link covers every document visible through it.
-  - The public API supports a per-reader Data Room link with **per-link document permissions**:
-    `POST /v1/links` with `dataroom_id`, then `PUT /v1/links/{id}/permissions`.
-  - Such a link can keep the allow list, `email_authenticated`, the watermark, screenshot
-    protection and `allow_download` (download is allowed or blocked per document).
-  - Papermark's own documentation is ambiguous on one fail-open point. A link with no
-    permission entries is described both as "viewers see the full dataroom" and as "hides every
-    item".
-- The live **Review Data Room holds 5 editions**: 3 published and **2 withdrawn**, the August
-  2026 Monthly Intelligence Note update and Political Landscape Monitor Issue 01 (read-only
-  check).
-  - A room-level link without per-link permissions would therefore expose withdrawn PDFs.
-  - It has **not** been used.
-- Not proven: one Papermark verification across a reader's assigned editions, with the
-  watermark, recipient restriction, screenshot protection and engagement records intact.
-  - Proving it needs live Papermark changes: new per-reader links for two controlled test
-    readers with different edition sets.
-  - It also needs mailboxes to receive Papermark's codes.
-  - It was not attempted, because live Papermark permissions must not change without your
-    decision.
+## Why APRI performs the only check (what hosted Papermark permits)
 
-## Decision needed before switching the public cards
+These facts come from Papermark's open-source code, checked against `main` (commit `ed19717`,
+28 August 2026), and its public OpenAPI spec (66 operations, fetched 2 October 2026).
 
-| Option | Reader experience | Risk |
+- **A verified session belongs to one link.** After Papermark's email code, its session cookie
+  `pm_drs_<linkId>` opens every document the link permits, including by the direct
+  `/view/<link>/d/<room document>` route, without asking again. It lasts a fixed 23 hours.
+  No team or link setting changes that.
+- **No supported API can pre-verify a reader.** Papermark has no API, viewer SSO, signed
+  viewer token or "skip verification" option. `?email=` only pre-fills the form.
+- **Papermark never tells APRI who passed its code.**
+- **No cross-site embedding.** The session cookie is `SameSite=Strict`, so a Papermark viewer
+  embedded in an APRI page cannot keep a session across PDFs.
+
+A custom APRI library behind one code, with PDFs that open without another code, therefore
+cannot also keep Papermark's own email code on. On 2 October 2026 the owner chose this design:
+
+- APRI's single-use code verifies the reader.
+- Each reader's **personal** Papermark link asks for their email only (no second code).
+- That link is **open only while the reader holds an APRI session**.
+
+Every edition's own Papermark link, which the cards use in Papermark mode, keeps Papermark's
+code.
+
+## The personal Papermark link (internal)
+
+- **One viewer group per reader**, whose only member is their address. It never admits a whole
+  domain or everyone.
+- **A permission row for every document** in the Review Data Room. View is allowed only for the
+  published editions assigned to that reader. Download is never allowed. Withdrawn, draft,
+  unassigned and newly synced PDFs have no view row, and Papermark refuses them.
+- **One group link** with these settings:
+  - `email_protected` on, `email_authenticated` off;
+  - an allow list of exactly that address;
+  - the personalised confidential watermark, screenshot protection, and downloads off.
+- **The link's expiry is the end of the reader's latest APRI session.** It is set when they
+  first press Read in a session (three Papermark calls, once per session, read back). It is closed
+  (expiry in the past) when their last session ends or they sign out. A link with no closing
+  time is treated as a fault.
+- **Every change counts only once Papermark's read-back confirms it.** Otherwise the link is
+  closed and the room marked for repair: nothing is ever reported as removed without that
+  confirmation.
+
+### What Papermark does and does not re-check, and how APRI covers it
+
+| Change | Papermark | APRI |
 |---|---|---|
-| A. Keep per-edition links (as built) | APRI remembers the reader; Papermark asks for a code once per edition per day | None new: every existing restriction stays |
-| B. Per-reader Data Room link with per-link permissions | One Papermark code per day across all of a reader's editions | New live links; the empty-permissions behaviour must be proven fail-closed; withdrawn PDFs must be removed from the room or excluded on every link; recipient changes must update each reader's link |
-| C. Drop Papermark's email code (`email_authenticated: false`) | No Papermark challenge | Weakens security: a forwarded Papermark URL plus the reader's address would open it. Not recommended |
+| Recipient removed from one edition | The permission row is re-checked on every document open | Library and Read refuse it at once; the room is reconciled before the next Read |
+| Removed from every edition | Group membership is **not** re-checked inside an existing Papermark session. Its download-code route can even start a fresh session for an earlier viewer without re-checking it | The link is closed (its expiry set in the past); Papermark checks expiry before its session on every request |
+| Edition withdrawn | Permission re-checked on every open | All rooms are reconciled; Read refuses it |
+| Sign-out | Not affected | The link is closed, or shortened to the reader's other session |
 
-## Rollout (reversible)
+### Limits of what Papermark shows and protects
 
-1. Deploy the code. Nothing changes publicly: the cards still link straight to Papermark.
-2. Apply `db/migrations/20261008_review_reader_library.sql` (additive). Check it with:
+- **The "Home" bar.** A document opened inside a room always has Papermark's bar, whose
+  "Home" link returns to the room listing. That listing shows only the reader's own editions.
+  Its look can be set through `PATCH /v1/datarooms/{id}/branding`; for example, the "Standard"
+  preset hides the banner and folder tree. That is a live Papermark change for the whole
+  Review Data Room, so it has not been made.
+- **Watermark and screenshot protection need page images.** They are drawn only when Papermark
+  has converted a PDF to page images. A PDF without them is served as the file itself, with
+  neither. This is true of every Papermark link, not only these. Check in Papermark that each
+  review PDF shows as pages.
+- **Screenshot protection runs in the browser.** It deters capture but cannot prevent it.
 
-   ```sql
-   select to_regclass('public.review_reader_sessions'),
-          to_regclass('public.review_reader_tokens'),
-          to_regclass('public.review_reader_events');
-   ```
+## Reliability
 
-3. Test with two controlled reader addresses assigned different editions:
-   - each sees only its own editions at `/review/library`;
-   - removing a recipient or withdrawing an edition hides it at once;
-   - a closed and reopened browser returns without an email.
-4. Only then, in **Admin → Review Library → Where public review cards lead**, choose **APRI
-   Review Library**. Choose **Papermark links** to switch back at any time.
-
-Rollback: set the cards back to Papermark links, then
-`db/rollback/20261008_review_reader_library.rollback.sql`.
-
-## Unchanged
-
-- The `/review` request form, its verification, Admin notification and manual approval.
-- Publication management, per-edition recipients and withdrawal.
-- Papermark links and their settings.
-- Direct-link click tracking (`review_access_clicked`).
-- The paid subscriber journey.
-
-New library visits and edition opens are recorded per reader and edition in
-`review_reader_events`, for Engagement.
-
----
-
-# Personal Papermark rooms: one code for all of a reader's editions
-
-Built after the decision above. It is off until the controlled test passes.
-
-## How it works
-
-For each approved reader, APRI creates and confirms the following in the existing Review Data
-Room. It reuses the PDFs already there and uploads nothing.
-
-1. **A viewer group.**
-   - Its only member is the reader's approved email.
-   - It admits no domain and is never "allow all".
-2. **A permission row for every document in the room.**
-   - Each published edition assigned to the reader is viewable.
-   - Everything else is hidden: withdrawn editions, unassigned editions and newly added PDFs.
-   - Download is never allowed.
-   - Papermark refuses any document whose group permission is missing, so a new group shows
-     nothing until rows exist.
-3. **One group link, created only after the permissions are read back and match exactly.**
-   - Email-authenticated, with the reader as its only allowed address.
-   - The personalised Complimentary Review watermark.
-   - Screenshot protection.
-   - Downloads off.
-
-Rooms are updated automatically when an owner:
-
-- changes an edition's recipients;
-- adopts recipients;
-- grants a prospect editions;
-- publishes, withdraws or re-offers an edition;
-- edits the shared list.
-
-Only readers who already have a room are touched, after the response. Admin's **Check all
-rooms** re-checks every room, and opening a room re-checks it if the last check was over 6
-hours ago.
-
-**When Papermark doesn't confirm a change:**
-
-- If a removal cannot be confirmed, or Papermark reports a download or another protection
-  wrong, that reader's link is **closed**: its expiry is set in the past and the URL is kept for
-  repair. Access is never reported as revoked until Papermark confirms it.
-- If the link cannot be closed either, the room shows **Needs repair** with the link id to
-  remove by hand.
-
-### Reading entry, with no APRI code and no APRI email (current)
-
-This supersedes the emailed reading link described in the next section, which has been removed.
-
-1. A card leads to `/review/read`.
-2. If the browser is not known, the reader enters the approved email once
-   (`/review/read/request`). An unapproved address is told that a request or a confirmed email
-   is not approval. Requests are rate-limited per network and per address.
-3. On every visit APRI re-checks approval and that the reader's room shows exactly the editions
-   assigned now (`review_reader_rooms.verified_editions`). If either has changed, the room is
-   reconciled with Papermark first. Only one reconcile runs per reader at a time
-   (`lease_until`).
-4. APRI redirects to the reader's personal Papermark room. **Papermark** emails one code to that
-   address, and the reader pastes it into Papermark's screen.
-
-### Earlier design: the emailed reading link (removed)
-
-1. A reader's **personal reading link** is emailed on request from `/review/read/request`. The
-   response is the same whatever address is entered. Readers already in the remembered library
-   can also use it.
-2. One click opens their room. **Papermark asks for its one-time code.**
-3. That browser is remembered, so the public cards go straight to their room next time.
-
-APRI only routes the reader here. The email check is Papermark's: a forwarded link still needs a
-code sent to the reader's own inbox.
-
-## How often Papermark asks for a fresh code
-
-From Papermark's own code, its room session lasts **23 hours** and is tied to the browser. So a
-reader enters one code, and it opens all their editions on that browser for about a day. A fresh
-code is needed:
-
-- the next day;
-- on another browser or device;
-- after clearing cookies;
-- possibly after a browser update.
-
-Access is not permanent.
+- **One reconcile per reader at a time.** A 3-minute lease prevents overlapping requests from
+  creating a second group or link. A reader who presses Read during one is told their copy is
+  being prepared, and the next Read finishes it. This is not a loop: the lease expires, and
+  Admin shows Repair.
+- **Rooms are prepared after sign-in**, in the background, so the first Read is quick. Papermark
+  calls are paced under its rate limit.
+- **Failures are reported by kind**, both to the reader and in owner-only diagnostics:
+  - access not assigned;
+  - being prepared;
+  - a problem on APRI's side (configuration or database);
+  - the email provider refused the email;
+  - no clear answer from the provider.
+- **Diagnostics never contain a code, token, link or email body.**
+- **Before migration `20261011` is applied**, Read uses each edition's own Papermark link, as
+  before, and no personal link is changed.
 
 ## Migrations, in order
 
-1. `20261007_subscriber_sign_in_sessions.sql`
-2. `20261008_review_reader_library.sql`
-3. `20261009_review_reader_rooms.sql`
+| Migration | Needed for |
+|---|---|
+| `20261008_review_reader_library.sql` | Reader codes and sessions |
+| `20261009_review_reader_rooms.sql` | Personal Papermark rooms |
+| `20261010_review_access_reliability.sql` | Email outcomes; confirmed edition set and per-reader lease |
+| `20261011_review_reader_open_window.sql` | **New.** `link_open_until` and `room_documents`. Turns on direct, code-free Read |
 
-All three are additive and none of them changes Papermark. Check the third with:
+Each file is additive and safe to re-run, and each has a rollback in `db/rollback/`. Before
+rolling back `20261011`, close the personal links in Papermark.
+
+Read-only check that the schema is ready:
 
 ```sql
-select to_regclass('public.review_reader_rooms'), to_regclass('public.review_reader_room_events');
+select column_name from information_schema.columns
+where table_name = 'review_reader_rooms'
+  and column_name in ('verified_editions', 'lease_until', 'link_open_until', 'room_documents');
+-- expect four rows
 ```
 
-## Controlled live test (required before the public cards change)
+## Live acceptance checks still required
 
-1. Deploy, apply the migrations, and keep the public cards on **Papermark links**.
-2. In Admin → Review Library → Edition recipients, assign two test addresses you control to
-   **different** editions.
-3. In **Personal Papermark rooms**, enter both addresses and press **Prepare rooms**. Each
-   result should read "Ready: N editions visible, M hidden, downloads off".
-4. Open each **Open room** link in its own private window. For each reader, confirm all of the
-   following:
-   - Papermark asks for **one** code.
-   - Every assigned PDF opens without another code.
-   - The other reader's PDFs and the withdrawn PDFs are not listed and cannot be opened.
-   - There is no download control.
-   - The watermark shows that reader's email.
-5. Remove one recipient and assign a different edition. Press **Check all rooms**, reload each
-   room, and confirm the removed PDF is gone and the new one appears.
-6. Tick the checks and press **Record test as passed**.
-7. Only then, under **Where public review cards lead**, choose **Personal Papermark rooms**.
-   Press **Prepare all approved readers**; at Papermark's ~50 calls a minute, 35 readers take a
-   few minutes, so run it again for any room not yet ready.
+Use controlled test inboxes only, on the deployed site:
 
-**To reverse:** choose **Papermark links**, or **Withdraw the test result**. Existing rooms stay
-in place, and you can close them in Papermark.
+1. **Code receipt.** Request a code; it arrives. Try a wrong code, an expired code and a resent
+   code, then sign in.
+2. **Multiple PDFs.** Read two assigned publications: no second code, and Papermark asks only
+   for the email, once per browser per day.
+3. **Return visit.** Close and reopen the browser within 24 hours: the library opens with no
+   code.
+4. **Isolation.** A second test reader with different editions sees only their own.
+5. **Removal and withdrawal.** Remove one edition from a reader and withdraw another: both are
+   refused.
+6. **Downloads.** Downloads stay disabled, and the watermark shows the reader's address on
+   every page, which confirms that each PDF is served as page images.
+7. **Sign-out.** Sign out, then open the personal link directly: Papermark refuses it as
+   expired.

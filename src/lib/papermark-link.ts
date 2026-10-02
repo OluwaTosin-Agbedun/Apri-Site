@@ -1,4 +1,4 @@
-import { normalisePapermarkUrl, papermarkEmbedUrl } from "./papermark-embed"
+import { normalisePapermarkUrl, papermarkShareUrl } from "./papermark-embed"
 
 export type PapermarkLinkType = "Single document" | "Multi-file" | "Data Room" | "Unverified"
 
@@ -8,7 +8,7 @@ export function inspectPapermarkShareLink(
 ): { url: string; host: string; type: PapermarkLinkType } | null {
   if (!value) return null
   const url = normalisePapermarkUrl(value)
-  if (!papermarkEmbedUrl(url, customDomain)) return null
+  if (!papermarkShareUrl(url, customDomain)) return null
   const parsed = new URL(url)
   const path = parsed.pathname.toLowerCase()
   const type: PapermarkLinkType =

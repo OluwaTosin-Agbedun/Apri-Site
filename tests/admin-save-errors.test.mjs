@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import test from "node:test"
-import { normalisePapermarkUrl, papermarkEmbedUrl } from "../src/lib/papermark-embed.ts"
+import { normalisePapermarkUrl, papermarkShareUrl } from "../src/lib/papermark-embed.ts"
 import { seatsForSubscriptionRequest } from "../src/lib/entitlements.ts"
 
 const read = (path) =>
@@ -24,7 +24,7 @@ test("subscriber Save accepts and normalises APRI and custom Papermark domains",
     "https://docs.athenacentre.org/view/private-test",
   )
   assert.ok(
-    papermarkEmbedUrl(
+    papermarkShareUrl(
       "https://library.example.org/private-test",
       "library.example.org",
     ),
