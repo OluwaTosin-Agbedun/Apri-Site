@@ -1,49 +1,57 @@
 import { NextResponse, after } from "next/server"
-import { verifyRoomEntry, setRoomHint, readRoomHint } from "@/lib/review-room-entry"
+import { readRoomHint, clearRoomHint } from "@/lib/review-room-entry"
 import { currentReviewReader, recordReaderEvent, reviewEntryMode } from "@/lib/review-reader"
-import { readyRoomLink, prepareReaderRooms, reconcileReaderRoom } from "@/lib/review-reader-rooms"
+import { roomEntryFor, reconcileReaderRoom } from "@/lib/review-reader-rooms"
+import { enforceReviewRateLimit } from "@/lib/review-security"
 
 export const dynamic = "force-dynamic"
 
 /**
- * GET /review/read[?t=entry-token]
+ * GET /review/read -- the reading entry path.
  *
- * The reading entry path: sends an approved reader to their personal
- * Papermark room, where Papermark performs the email check (one code, then
- * its 23-hour session on that browser covers every edition assigned to them).
- * APRI asks for no code of its own here. The room link is handed out only
- * while APRI has confirmed with Papermark that it shows exactly the reader's
- * assigned editions, with downloads off.
+ * Sends an approved reader to their personal Papermark room, where Papermark
+ * performs the only email check: one code to that address, then Papermark's
+ * session on that browser (about 23 hours) opens every edition assigned to
+ * them. APRI sends no email and asks for no code here.
+ *
+ * Every visit re-checks approval (published edition, exact verified link,
+ * this edition's own recipients) and hands out the room only while it is
+ * confirmed to show exactly the editions assigned now; otherwise the room is
+ * reconciled with Papermark first, or the reader is told it is being prepared.
  */
 export async function GET(request: Request) {
-  const url = new URL(request.url)
-  const token = url.searchParams.get("t")
-  let email: string | null = null
-  if (token) {
-    email = await verifyRoomEntry(token)
-    if (email) await setRoomHint(email)
+  const to = (path: string) => noStore(NextResponse.redirect(new URL(path, request.url), 303))
+  try {
+    await enforceReviewRateLimit("review_read_open", 60)
+  } catch {
+    return to("/review/read/request?busy=1")
   }
-  email ??= (await readRoomHint()) ?? (await currentReviewReader())?.email ?? null
-  if (!email) return noStore(NextResponse.redirect(new URL("/review/read/request", request.url), 303))
+  // A signed-in Review Library reader comes first; the routing cookie only
+  // remembers which room this browser goes to.
+  const session = await currentReviewReader()
+  const hinted = session ? null : await readRoomHint()
+  const email = session?.email ?? hinted
+  if (!email) return to("/review/read/request")
 
-  let room = await readyRoomLink(email)
-  if (!room && (await reviewEntryMode()) === "rooms") {
-    // First visit after the rollout: build and confirm the room now.
-    await prepareReaderRooms([email])
-    room = await readyRoomLink(email)
+  const entry = await roomEntryFor(email, { allowCreate: (await reviewEntryMode()) === "rooms" })
+  if (entry.kind === "not_approved") {
+    if (hinted) await clearRoomHint()
+    return to("/review/read/request?not_approved=1")
   }
-  if (!room) return noStore(NextResponse.redirect(new URL("/review/read/request?unavailable=1", request.url), 303))
+  if (entry.kind === "preparing") return to("/review/read/request?preparing=1")
+  if (entry.kind === "unavailable") return to("/review/read/request?unavailable=1")
 
-  // A periodic re-check after the response, so a missed change is caught.
-  if (!room.verifiedAt || Date.now() - new Date(room.verifiedAt).getTime() > 6 * 3600_000) {
+  // A periodic re-check after the response, so a change made directly in
+  // Papermark is caught.
+  if (!entry.verifiedAt || Date.now() - new Date(entry.verifiedAt).getTime() > 6 * 3600_000) {
     after(async () => {
       try {
-        await reconcileReaderRoom(email!)
+        await reconcileReaderRoom(email)
       } catch {}
     })
   }
   await recordReaderEvent(email, "library_opened")
-  return noStore(NextResponse.redirect(room.url, 303))
+  return noStore(NextResponse.redirect(entry.url, 303))
 }
 
 function noStore(response: NextResponse) {

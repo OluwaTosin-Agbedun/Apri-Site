@@ -62,11 +62,19 @@ export default function ReviewLibraryForm(props: {
   lastSyncResult: string
   editions: Edition[]
   addressBook: string[]
+  /** "editions": daily publication management. "setup": library switch and Data Room, shown under Advanced. */
+  part?: "editions" | "setup"
 }) {
+  if (props.part === "setup") {
+    return (
+      <div className="space-y-8">
+        <EnableSection enabled={props.enabled} />
+        <DataRoomSection dataroomId={props.dataroomId} />
+      </div>
+    )
+  }
   return (
     <div className="space-y-8">
-      <EnableSection enabled={props.enabled} />
-      <DataRoomSection dataroomId={props.dataroomId} />
       <SyncSection
         dataroomId={props.dataroomId}
         lastSyncAt={props.lastSyncAt}
@@ -219,11 +227,22 @@ function EditionsSection({
   async function run(id: string, fn: () => Promise<FormState>) {
     setBusy(id)
     setMessage("")
-    const x = await fn()
-    setBusy(null)
-    setMessage(x?.message ?? "")
-    if (x?.ok) router.refresh()
+    try {
+      const x = await fn()
+      setMessage(x?.message ?? "")
+      if (x?.ok) router.refresh()
+    } catch {
+      setMessage("That did not finish: nothing may have changed. Refresh the page and try again.")
+    } finally {
+      setBusy(null)
+    }
   }
+  const groups = [
+    { key: "MIN", label: "Monthly Intelligence Notes" },
+    { key: "AIU", label: "Athena Intelligence Updates" },
+    { key: "PLM", label: "Political Landscape Monitors" },
+    { key: null, label: "Not yet assigned to a series" },
+  ] as const
   return (
     <section>
       <div className="mb-5">
@@ -236,16 +255,24 @@ function EditionsSection({
       {message && (
         <p className="border border-border p-3 text-sm mb-4">{message}</p>
               )}
-      <div className="space-y-6">
-        {editions.map((e) => (
-          <EditionCard
-            key={e.id}
-            edition={e}
-            busy={busy === e.id}
-            run={run}
-            addressBook={addressBook}
-          />
-        ))}
+      <div className="space-y-10">
+        {groups.map((g) => {
+          const items = editions.filter((e) => (g.key === null ? !["MIN", "AIU", "PLM"].includes(e.series ?? "") : e.series === g.key))
+          if (items.length === 0) return null
+          return (
+            <div key={g.key ?? "none"}>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">
+                {g.key ? `${g.key} · ` : ""}
+                {g.label}
+              </h3>
+              <div className="space-y-6">
+                {items.map((e) => (
+                  <EditionCard key={e.id} edition={e} busy={busy === e.id} run={run} addressBook={addressBook} />
+                ))}
+              </div>
+            </div>
+          )
+        })}
       </div>
     </section>
   )
@@ -269,7 +296,24 @@ function EditionCard({
     e.secureLinkDocumentId === e.papermarkDocumentId
   // The server refuses too; this only stops offering a button that cannot work.
   const canPrepareLink =
-    e.access.mode === "edition" && e.access.recipients.length > 0 && !e.secureLinkId
+    e.access.mode === "edition" &&
+    e.access.recipients.length > 0 &&
+    !e.secureLinkId &&
+    (e.publicationState === "draft" || e.publicationState === "published")
+  const health =
+    e.publicationState === "withdrawn"
+      ? { text: "Access withdrawn", tone: "text-muted-foreground" }
+      : !e.secureLinkId
+        ? { text: "No secure access yet", tone: "text-amber-700" }
+        : !exact
+          ? { text: "Secure link needs checking", tone: "text-red-700" }
+          : e.access.status === "in_sync"
+            ? { text: "Secure link verified · readers applied", tone: "text-green-700" }
+            : e.access.status === "pending_apply"
+              ? { text: "Reader changes not yet applied to Papermark", tone: "text-amber-700" }
+              : e.access.status === "legacy_shared"
+                ? { text: "Old shared list (adopt to manage per edition)", tone: "text-amber-700" }
+                : { text: "Secure link verified", tone: "text-green-700" }
   const status =
     e.publicationState === "withdrawn"
       ? e.withdrawal.state === "revoked"
@@ -297,9 +341,18 @@ function EditionCard({
             {e.editionLabel || "Edition label needed"}
             </p>
         </div>
-        <span className="text-xs font-medium">{status}</span>
+        <div className="text-right space-y-1 shrink-0">
+          <span className="block text-xs font-medium">{status}</span>
+          {e.withdrawal.offered && <span className="block text-xs text-accent">Offered on the homepage</span>}
+          <span className="block text-xs text-muted-foreground">
+            {e.access.mode === "shared_legacy" ? "Shared list" : `${e.access.recipients.length} approved reader${e.access.recipients.length === 1 ? "" : "s"}`}
+          </span>
+          <span className={`block text-xs ${health.tone}`}>{health.text}</span>
+        </div>
       </div>
-      <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-2 text-xs mb-6">
+      <details className="mb-6">
+        <summary className="cursor-pointer text-xs text-muted-foreground">Technical details (Papermark document, link and sync)</summary>
+      <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-2 text-xs mt-3">
         <Info
           name="Papermark PDF filename"
           value={e.papermarkFilename || "Not recorded"}
@@ -344,7 +397,9 @@ function EditionCard({
           }
         />
       </dl>
+      </details>
       <EditionAccessPanel
+        key={`${e.access.mode}:${e.access.recipients.join(",")}`}
         editionId={e.id}
         editionName={editionName}
         published={e.publicationState === "published"}

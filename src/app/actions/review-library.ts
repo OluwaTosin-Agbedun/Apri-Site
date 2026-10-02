@@ -1485,6 +1485,11 @@ export async function prepareEditionSecureLink(editionId: string): Promise<FormS
   const edition = await loadEditionForAccess(sql, editionId)
   if (!edition) return { message: "Edition not found." }
   if (!edition.series) return { message: "Assign a series first. No link was created." }
+  // A withdrawn or ignored edition never gets a new link (a withdrawn one
+  // keeps its reader list as a record, which must not re-open access).
+  if (edition.publicationState !== "draft" && edition.publicationState !== "published") {
+    return { message: "Secure access is prepared only for a draft or published edition. No link was created." }
+  }
 
   // A link is created with exactly this edition's recipients -- never the
   // shared list -- and not at all until at least one has been chosen.

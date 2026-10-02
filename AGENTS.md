@@ -1,3 +1,12 @@
+# APRI site: rules for anyone changing this repository
+
+- Start with `README.md`: it describes the whole project, how to run, test and deploy it, and what still needs a live check.
+- **Update `README.md` in the same commit as every change** (pages, Admin controls, environment variables, migrations, scripts, docs, rollout steps) and refresh its "Last updated" date. `tests/readme.test.mjs` fails if a migration, a document in `docs/` or a variable in `.env.example` is missing from it.
+- This is Next.js 16 (App Router), not Vite: read the relevant guide in `node_modules/next/dist/docs/` before writing code, and heed deprecation notices.
+- Never commit a secret or put one in client code; run the type check, tests, build and `pnpm check:secrets` before committing.
+
+The section below is an older scaffold description and does not describe this project.
+
 # figma-make-app
 
 React + Vite + Tailwind CSS project running inside Figma Make.

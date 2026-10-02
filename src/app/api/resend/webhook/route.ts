@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { principalForResendEmail, recordClientEvent, alreadyRecordedSent, type EngagementEventType } from "@/lib/client-engagement"
 import { verifyResendWebhook } from "@/lib/resend-webhook"
+import { applyReviewEmailEvent } from "@/lib/review-email-attempts"
 
 const TYPES: Record<string, EngagementEventType> = {
   "email.sent":"signin_email_sent", "email.delivered":"email_delivered",
@@ -19,6 +20,13 @@ export async function POST(request: Request) {
   try { event = JSON.parse(body) } catch { return NextResponse.json({error:"Invalid payload."},{status:400}) }
   const type = event.type ? TYPES[event.type] : undefined
   const emailId = event.data?.email_id
+  const occurredAt = event.created_at ? new Date(event.created_at) : new Date()
+  // A Complimentary Review email: its delivery evidence goes to the owner-only
+  // review email record (delivered, bounced, complained, delayed), never to a
+  // subscriber.
+  if (emailId && event.type && (await applyReviewEmailEvent(emailId, event.type, occurredAt))) {
+    return NextResponse.json({ok:true})
+  }
   if (!type || !emailId) return NextResponse.json({ok:true})
   const principal = await principalForResendEmail(emailId)
   // The welcome carries no sign-in link: its "sent" event is not a sign-in email.

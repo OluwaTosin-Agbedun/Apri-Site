@@ -14,6 +14,7 @@ import {
   READER_LINK_COOKIE,
   readerShortCookieOptions,
   normaliseReaderEmail,
+  reviewEntryMode,
   reviewReaderSchemaReady,
   readerHasEditions,
   issueReaderSignIn,
@@ -61,12 +62,16 @@ export async function requestReviewLibrarySignIn(_prev: FormState, formData: For
   ;(await cookies()).set(READER_PENDING_COOKIE, pending, readerShortCookieOptions())
   if (await readerHasEditions(email)) {
     try {
+      const base = siteUrl()
       const { token, code } = await issueReaderSignIn(email, hashToken(pending))
       const edition = String(formData.get("edition") ?? "")
       const next = UUID.test(edition) ? `&edition=${edition}` : ""
-      await sendReviewLibrarySignIn(email, `${siteUrl()}/review/library/verify?token=${encodeURIComponent(token)}${next}`, code)
+      await sendReviewLibrarySignIn(email, `${base}/review/library/verify?token=${encodeURIComponent(token)}${next}`, code)
     } catch {
-      // The neutral answer stands; the reader can ask again.
+      // The email was NOT handed to the provider (or was refused). Saying it
+      // is on its way would be false; the attempt is in the owner's
+      // diagnostics.
+      return { message: "We could not send the sign-in email just now. Please try again in a few minutes." }
     }
   }
   return NEUTRAL
@@ -143,37 +148,64 @@ export async function setReviewEntryMode(_prev: FormState, formData: FormData): 
   revalidatePath("/")
   revalidatePath("/publications")
   revalidatePath("/admin/review-library")
-  return {
-    ok: true,
-    message: mode === "rooms"
-      ? "Saved: public cards now open each approved reader's personal Papermark room (one Papermark code per browser, about a day at a time). Anyone else is offered the reading-link form and the review request."
-      : mode === "library"
-        ? "Saved: public cards now open the APRI Review Library. Approved readers sign in once per browser; anyone else is offered the request form."
-        : "Saved: public cards link straight to each edition's Papermark link again.",
+  // Read back what is now in effect, so the message can never disagree with
+  // the setting shown after a refresh.
+  const effective = await reviewEntryMode()
+  if (effective !== mode) {
+    return { message: `Not in effect: the cards still lead to ${ENTRY_MODE_LABEL[effective]}. ${mode === "rooms" ? "Personal rooms need their migration and the recorded two-reader test." : "Check the migrations."}` }
   }
+  return { ok: true, message: `Saved. Public review cards now lead to ${ENTRY_MODE_LABEL[effective]}.` }
 }
 
+const ENTRY_MODE_LABEL = {
+  papermark: "each edition's own Papermark link",
+  library: "the APRI Review Library (APRI sign-in, then a Papermark code per edition)",
+  rooms: "each approved reader's personal Papermark room (one Papermark code)",
+} as const
+
+const NOT_APPROVED_MESSAGE =
+  "No Complimentary Review editions are assigned to that address yet. Requesting a review, or confirming your email, does not give access by itself: APRI approves each reader."
+
 /**
- * Emails an approved reader their personal reading link. The same answer for
- * every address, so the form never reveals who is approved. No code is asked
- * for on APRI: the email check is Papermark's, when the link is opened.
+ * The reading entry for a browser APRI does not recognise yet: the reader
+ * types the address their editions were issued to, and -- if, and only if,
+ * that exact address is assigned at least one published edition -- goes
+ * straight on to their personal Papermark room, where Papermark sends its
+ * one code to that address. APRI sends no email and asks for no code.
+ *
+ * The routing cookie set here is not a sign-in: it only remembers which room
+ * this browser goes to. Anyone who types someone else's address reaches a
+ * Papermark screen that sends its code to that person, not to them.
+ *
+ * An address that is not approved is told so, which reveals that one
+ * address's status to whoever typed it; rate limits per network and per
+ * address stop the list being worked through.
  */
-export async function requestReviewReadingLink(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function openReviewLibrary(_prev: FormState, formData: FormData): Promise<FormState> {
   const email = normaliseReaderEmail(formData.get("email"))
-  if (!email) return { message: "Enter a valid email address." }
+  if (!email) return { message: "Enter the email address your review editions were issued to." }
   try {
-    await enforceReviewRateLimit("review_reading_link", 6)
+    await enforceReviewRateLimit("review_open_library", 12)
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Too many attempts. Please try again later." }
   }
-  if (await readerHasEditions(email)) {
-    try {
-      const { signRoomEntry } = await import("@/lib/review-room-entry")
-      const { sendReviewReadingLink } = await import("@/lib/review-email")
-      await sendReviewReadingLink(email, `${siteUrl()}/review/read?t=${encodeURIComponent(await signRoomEntry(email))}`)
-    } catch {
-      // The neutral answer stands.
-    }
-  }
-  return { ok: true, message: "If that address has Complimentary Review editions, your personal reading link is on its way. Please check your inbox." }
+  const sql = getSql()
+  const identity = hashToken(`open:${email}`)
+  const [{ n }] = (await sql`
+    select count(*)::int as n from review_rate_limits
+    where action = 'review_open_email' and identity_hash = ${identity} and created_at > now() - interval '1 hour'
+  `) as { n: number }[]
+  if (n >= 10) return { message: "Too many attempts for this address. Please try again later." }
+  await sql`insert into review_rate_limits (action, identity_hash) values ('review_open_email', ${identity})`
+  if (!(await readerHasEditions(email))) return { message: NOT_APPROVED_MESSAGE }
+  const { setRoomHint } = await import("@/lib/review-room-entry")
+  await setRoomHint(email)
+  redirect("/review/read")
+}
+
+/** "Not you?": this browser forgets which reader it routes to. */
+export async function forgetReviewReader(): Promise<void> {
+  const { clearRoomHint } = await import("@/lib/review-room-entry")
+  await clearRoomHint()
+  redirect("/review/read/request")
 }

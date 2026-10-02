@@ -16,6 +16,7 @@ import {
   sendReviewVerification,
   sendSubscriptionMessages,
   sendSubscriptionConfirmation,
+  ReviewEmailNotSent,
 } from "@/lib/review-email"
 import {
   expectedRecipientsForEdition,
@@ -125,11 +126,20 @@ export async function requestReview(
   await sql`update review_tokens set consumed_at=now() where prospect_id=${id}::uuid and purpose='email_verification' and consumed_at is null`
   await sql`insert into review_tokens(prospect_id,purpose,token_hash,expires_at) values(${id}::uuid,'email_verification',${tokenHash},now()+interval '24 hours')`
   await sql`insert into review_prospect_events(prospect_id,event_type,to_status,detail) values(${id}::uuid,'review_requested','Review Requested','Review request received')`
-  await sendReviewVerification(
-    email,
-    fullName,
-    `${baseUrl()}/review/verify?token=${encodeURIComponent(token)}`,
-  )
+  try {
+    await sendReviewVerification(
+      email,
+      fullName,
+      `${baseUrl()}/review/verify?token=${encodeURIComponent(token)}`,
+    )
+  } catch {
+    // The request is stored; only the email failed. Say so, rather than
+    // telling the visitor to wait for an email that is not coming.
+    return {
+      message:
+        "Your request was saved, but we could not send the confirmation email just now. Please try again in a few minutes.",
+    }
+  }
   return {
     ok: true,
     message: "Please check your email to confirm your APRI review request.",
@@ -199,8 +209,9 @@ export async function verifyReviewToken(
       url: `${baseUrl()}/admin/review-requests/${p.id}`,
     })
     await sql`update review_prospects set manager_notified_at=now(),manager_notification_error=null where id=${p.id}::uuid and manager_notified_at is null`
-  } catch {
-    await sql`update review_prospects set manager_notification_error='Notification pending' where id=${p.id}::uuid and manager_notified_at is null`
+  } catch (error) {
+    const reason = error instanceof ReviewEmailNotSent ? `Not sent: ${error.outcome.status}` : "Notification pending"
+    await sql`update review_prospects set manager_notification_error=${reason} where id=${p.id}::uuid and manager_notified_at is null`
   }
   return "confirmed"
 }
@@ -284,15 +295,26 @@ export async function sendSecureReviewAccess(
   const token = newToken()
   await sql`update review_tokens set consumed_at=now() where prospect_id=${p.id}::uuid and purpose='review_access' and consumed_at is null`
   await sql`insert into review_tokens(prospect_id,purpose,token_hash,expires_at) values(${p.id}::uuid,'review_access',${hashToken(token)},now()+interval '24 hours')`
-  await sendReviewAccess(
-    p.email,
-    p.full_name,
-    `${baseUrl()}/review/access?token=${encodeURIComponent(token)}`,
-  )
+  try {
+    await sendReviewAccess(
+      p.email,
+      p.full_name,
+      `${baseUrl()}/review/access?token=${encodeURIComponent(token)}`,
+    )
+  } catch (error) {
+    // Not sent: the link is withdrawn and nothing is marked as sent.
+    await sql`update review_tokens set consumed_at=now() where token_hash=${hashToken(token)} and consumed_at is null`
+    const reason = error instanceof ReviewEmailNotSent ? error.outcome.message : "the email could not be handed to the provider"
+    return { ok: false, message: `The access email was not sent: ${reason}. Nothing was marked as sent; try again.` }
+  }
   await sql`update review_prospects set status='Review Access Sent',access_sent_at=now(),updated_at=now() where id=${p.id}::uuid`
-  await sql`insert into review_prospect_events(prospect_id,event_type,from_status,to_status,detail,actor_admin_id) values(${p.id}::uuid,'review_access_sent',${p.status},'Review Access Sent','Secure library access email sent',${admin.id}::uuid)`
+  await sql`insert into review_prospect_events(prospect_id,event_type,from_status,to_status,detail,actor_admin_id) values(${p.id}::uuid,'review_access_sent',${p.status},'Review Access Sent','Secure library access email accepted by the email provider',${admin.id}::uuid)`
   revalidatePath(`/admin/review-requests/${p.id}`)
-  return { ok: true, message: "Secure review access sent." }
+  return {
+    ok: true,
+    message:
+      "Accepted by the email provider. That is not proof of delivery: Admin -> Review Library -> Advanced shows delivery once the provider reports it.",
+  }
 }
 
 // Approving a prospect no longer appends them to the shared list, which would

@@ -263,6 +263,8 @@ export async function destroyReaderSession(): Promise<void> {
   }
   store.set(READER_COOKIE, "", { ...readerCookieOptions(), maxAge: 0 })
   store.set("apri_review_session", "", { ...readerCookieOptions(), maxAge: 0 })
+  // And the routing cookie, so a shared browser stops opening this reader's room.
+  store.set("apri_review_room", "", { ...readerCookieOptions(), maxAge: 0 })
 }
 
 /** Library visits and edition opens, by reader and edition, for Engagement. Never fails a request. */

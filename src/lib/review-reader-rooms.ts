@@ -52,6 +52,8 @@ type RoomRow = {
   verified_visible: string | null
   verified_at: string | null
   last_error: string | null
+  verified_editions?: string | null
+  lease_until?: string | null
 }
 
 type Page<T> = { data?: T[]; next_cursor?: string | null } | T[]
@@ -103,6 +105,50 @@ export async function readerRoomsSchemaReady(): Promise<boolean> {
 }
 export function resetReaderRoomsSchemaCache() {
   ready = null
+  routing = null
+}
+
+/**
+ * Whether 20261010 added the routing columns (verified_editions, lease_until).
+ * Without them rooms still work exactly as before; with them a reader is sent
+ * to a room only while it shows their current editions, and one reconcile per
+ * reader runs at a time.
+ */
+let routing: { value: boolean; at: number } | null = null
+async function routingColumnsReady(): Promise<boolean> {
+  if (routing && Date.now() - routing.at < (routing.value ? 300_000 : 60_000)) return routing.value
+  try {
+    const [row] = (await getSql()`
+      select count(*)::int = 2 as ok from information_schema.columns
+      where table_schema = 'public' and table_name = 'review_reader_rooms' and column_name in ('verified_editions', 'lease_until')
+    `) as { ok: boolean }[]
+    routing = { value: row?.ok === true, at: Date.now() }
+  } catch {
+    routing = { value: false, at: Date.now() }
+  }
+  return routing.value
+}
+
+/** The set of review editions a room shows, as stored and compared. */
+export function editionSetKey(editionIds: readonly string[]): string {
+  return [...new Set(editionIds)].sort().join(",")
+}
+
+/** One reconcile per reader at a time: a short lease, taken atomically. */
+async function takeLease(email: string): Promise<boolean> {
+  if (!(await routingColumnsReady())) return true
+  const rows = (await getSql()`
+    update review_reader_rooms set lease_until = now() + interval '3 minutes'
+    where email = ${email} and (lease_until is null or lease_until < now())
+    returning email
+  `) as { email: string }[]
+  return rows.length > 0
+}
+async function dropLease(email: string): Promise<void> {
+  if (!(await routingColumnsReady())) return
+  try {
+    await getSql()`update review_reader_rooms set lease_until = null where email = ${email}`
+  } catch {}
 }
 
 /**
@@ -189,6 +235,29 @@ async function closeLink(row: RoomRow, reason: string): Promise<RoomResult> {
  */
 export async function reconcileReaderRoom(rawEmail: string, options: { create?: boolean; docs?: RoomDocument[] } = {}): Promise<RoomResult> {
   const email = rawEmail.trim().toLowerCase()
+  const sql = getSql()
+  // A reader about to get a room has a row (and so a lease) first.
+  if (options.create && (await readerRoomsSchemaReady())) {
+    const roomId = await reviewRoomId()
+    const assigned = await getReviewLibraryForEmail(email)
+    if (roomId && assigned.length > 0) {
+      await sql`insert into review_reader_rooms (email, papermark_dataroom_id, state) values (${email}, ${roomId}, 'updating') on conflict (email) do nothing`
+    }
+  }
+  const [exists] = (await readerRoomsSchemaReady())
+    ? ((await sql`select 1 from review_reader_rooms where email = ${email}`) as unknown[])
+    : []
+  if (exists && !(await takeLease(email))) {
+    return { email, state: "updating", message: "Another update for this reader is already running; it will finish shortly.", visible: 0, hidden: 0 }
+  }
+  try {
+    return await reconcileLeased(email, options)
+  } finally {
+    if (exists) await dropLease(email)
+  }
+}
+
+async function reconcileLeased(email: string, options: { create?: boolean; docs?: RoomDocument[] }): Promise<RoomResult> {
   const none = (message: string): RoomResult => ({ email, state: "none", message, visible: 0, hidden: 0 })
   if (!(await readerRoomsSchemaReady())) return none("Apply 20261009_review_reader_rooms.sql first.")
   if (!isPapermarkConfigured()) return none("Papermark is not configured.")
@@ -319,6 +388,10 @@ export async function reconcileReaderRoom(rawEmail: string, options: { create?: 
       verified_at: new Date().toISOString(),
       last_error: notInRoom.length ? `Assigned but not in the Review Data Room: ${notInRoom.join("; ").slice(0, 300)}` : null,
     })
+    if (await routingColumnsReady()) {
+      const shown = editions.filter((e) => byDocument.has(e.papermarkDocumentId)).map((e) => e.id)
+      await sql`update review_reader_rooms set verified_editions = ${editionSetKey(shown)} where email = ${email}`
+    }
     return { email, state: "ready", message: `Ready: ${visible.length} edition${visible.length === 1 ? "" : "s"} visible, ${hidden} hidden, downloads off.`, visible: visible.length, hidden }
   } catch (error) {
     const message = error instanceof PapermarkError ? error.message : "Papermark could not be reached."
@@ -341,14 +414,29 @@ export async function reconcileReaderRoom(rawEmail: string, options: { create?: 
 }
 
 /** Every reader who has a room and could be affected by a change to this edition. */
-export async function reconcileReadersForEdition(editionId: string): Promise<RoomResult[]> {
+export async function reconcileReadersForEdition(editionId: string, options: { create?: boolean } = {}): Promise<RoomResult[]> {
   if (!(await readerRoomsSchemaReady())) return []
-  const rows = (await getSql()`
+  const sql = getSql()
+  // An edition still judged by the shared list has no recipient rows: every
+  // room may be affected.
+  const [mode] = (await sql`select recipient_mode from review_publication_editions where id = ${editionId}::uuid`) as { recipient_mode: string }[]
+  if (mode?.recipient_mode === "shared_legacy") return reconcileAllReaderRooms()
+  const rows = (await sql`
     select distinct r.email from review_reader_rooms r
     join review_edition_recipients x on x.email = r.email
     where x.edition_id = ${editionId}::uuid
   `) as { email: string }[]
-  return reconcileMany(rows.map((r) => r.email))
+  const emails = rows.map((r) => r.email)
+  if (options.create) {
+    // Rooms in use: a reader newly assigned this edition gets their room now.
+    const fresh = (await sql`
+      select distinct x.email from review_edition_recipients x
+      where x.edition_id = ${editionId}::uuid and x.revoked_at is null
+        and not exists (select 1 from review_reader_rooms r where r.email = x.email)
+    `) as { email: string }[]
+    return [...(await reconcileMany(emails)), ...(await reconcileMany(fresh.map((r) => r.email), true))]
+  }
+  return reconcileMany(emails)
 }
 
 /** Specific readers (an Admin recipient change), if they have rooms. */
@@ -375,7 +463,14 @@ async function reconcileMany(emails: string[], create = false): Promise<RoomResu
     docs = undefined
   }
   const out: RoomResult[] = []
-  for (const email of emails) out.push(await reconcileReaderRoom(email, { create, docs }))
+  for (const email of emails) {
+    // One reader's failure never stops the others being brought into line.
+    try {
+      out.push(await reconcileReaderRoom(email, { create, docs }))
+    } catch (error) {
+      out.push({ email, state: "failed", message: error instanceof Error ? error.message.slice(0, 200) : "Unexpected failure.", visible: 0, hidden: 0 })
+    }
+  }
   return out
 }
 
@@ -419,11 +514,13 @@ export function scheduleRoomReconcile(target: { editionId: string } | { prospect
     after(async () => {
       try {
         if (!(await readerRoomsSchemaReady())) return
+        const { reviewEntryMode } = await import("./review-reader")
+        const create = (await reviewEntryMode()) === "rooms"
         if (target === "all") await reconcileAllReaderRooms()
-        else if ("editionId" in target) await reconcileReadersForEdition(target.editionId)
+        else if ("editionId" in target) await reconcileReadersForEdition(target.editionId, { create })
         else {
           const [p] = (await getSql()`select lower(btrim(email)) as email from review_prospects where id = ${target.prospectId}::uuid`) as { email: string }[]
-          if (p) await reconcileReaders([p.email])
+          if (p) await (create ? prepareReaderRooms([p.email]) : reconcileReaders([p.email]))
         }
       } catch {
         // Rooms left updating or failed are shown in Admin and retried by "Check all rooms".
@@ -432,4 +529,52 @@ export function scheduleRoomReconcile(target: { editionId: string } | { prospect
   } catch {
     // Outside a request (tests, scripts): nothing to schedule.
   }
+}
+
+export type RoomEntry =
+  | { kind: "ready"; url: string; verifiedAt: string | null }
+  | { kind: "not_approved" }
+  | { kind: "preparing" }
+  | { kind: "unavailable"; reason: string }
+
+/**
+ * Decides, at the moment a reader opens access, where they may go. Approval
+ * is re-read (the same rule as the library: published, exact verified link,
+ * this edition's own recipients). A room is handed out only while it is
+ * confirmed ready AND shows exactly the editions assigned now; otherwise it
+ * is reconciled with Papermark first. A reader who is no longer approved, or
+ * whose room cannot be confirmed, is not sent to it.
+ */
+export async function roomEntryFor(rawEmail: string, options: { allowCreate: boolean }): Promise<RoomEntry> {
+  const email = rawEmail.trim().toLowerCase()
+  const editions = await getReviewLibraryForEmail(email)
+  if (editions.length === 0) return { kind: "not_approved" }
+  if (!(await readerRoomsSchemaReady())) return { kind: "unavailable", reason: "rooms_not_installed" }
+  const current = async () => {
+    const columns = await routingColumnsReady()
+    const [row] = (columns
+      ? await getSql()`select state, link_url, verified_at, verified_editions, lease_until from review_reader_rooms where email = ${email}`
+      : await getSql()`select state, link_url, verified_at, null::text as verified_editions, null::timestamptz as lease_until from review_reader_rooms where email = ${email}`) as {
+      state: RoomState; link_url: string | null; verified_at: string | Date | null; verified_editions: string | null; lease_until: string | Date | null
+    }[]
+    return { row, columns }
+  }
+  const expected = editionSetKey(editions.map((e) => e.id))
+  const usable = (row: Awaited<ReturnType<typeof current>>["row"], columns: boolean) =>
+    Boolean(row && row.state === "ready" && row.link_url && (!columns || row.verified_editions === expected))
+
+  let { row, columns } = await current()
+  if (usable(row, columns)) {
+    return { kind: "ready", url: row!.link_url!, verifiedAt: row!.verified_at ? new Date(row!.verified_at).toISOString() : null }
+  }
+  if (row?.lease_until && new Date(row.lease_until) > new Date()) return { kind: "preparing" }
+  if (!row && !options.allowCreate) return { kind: "unavailable", reason: "no_room" }
+
+  const result = await reconcileReaderRoom(email, { create: options.allowCreate })
+  ;({ row, columns } = await current())
+  if (usable(row, columns)) {
+    return { kind: "ready", url: row!.link_url!, verifiedAt: row!.verified_at ? new Date(row!.verified_at).toISOString() : null }
+  }
+  if (result.state === "updating") return { kind: "preparing" }
+  return { kind: "unavailable", reason: result.state === "none" ? "no_room" : "needs_repair" }
 }

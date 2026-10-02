@@ -691,7 +691,7 @@ describe('admin UI', () => {
     // release retired: a link is prepared per edition, with exactly that
     // edition's recipients, and only once there is at least one.
     assert.match(form, /onClick=\{\(\) => run\(e\.id, \(\) => prepareEditionSecureLink\(e\.id\)\)\}/)
-    assert.match(form, /const canPrepareLink =\s*e\.access\.mode === "edition" && e\.access\.recipients\.length > 0 && !e\.secureLinkId/)
+    assert.match(form, /const canPrepareLink =\s*e\.access\.mode === "edition" &&\s*e\.access\.recipients\.length > 0 &&\s*!e\.secureLinkId &&\s*\(e\.publicationState === "draft" \|\| e\.publicationState === "published"\)/)
   })
 
   it('an edition with an exact link shows it as verified and offers no second link', () => {

@@ -143,7 +143,22 @@ hours ago.
 - If the link cannot be closed either, the room shows **Needs repair** with the link id to
   remove by hand.
 
-### Reading entry, with no APRI code
+### Reading entry, with no APRI code and no APRI email (current)
+
+This supersedes the emailed reading link described in the next section, which has been removed.
+
+1. A card leads to `/review/read`.
+2. If the browser is not known, the reader enters the approved email once
+   (`/review/read/request`). An unapproved address is told that a request or a confirmed email
+   is not approval. Requests are rate-limited per network and per address.
+3. On every visit APRI re-checks approval and that the reader's room shows exactly the editions
+   assigned now (`review_reader_rooms.verified_editions`). If either has changed, the room is
+   reconciled with Papermark first. Only one reconcile runs per reader at a time
+   (`lease_until`).
+4. APRI redirects to the reader's personal Papermark room. **Papermark** emails one code to that
+   address, and the reader pastes it into Papermark's screen.
+
+### Earlier design: the emailed reading link (removed)
 
 1. A reader's **personal reading link** is emailed on request from `/review/read/request`. The
    response is the same whatever address is entered. Readers already in the remembered library

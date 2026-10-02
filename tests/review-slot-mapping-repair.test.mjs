@@ -108,7 +108,7 @@ describe('the production fault', () => {
     // The edition card replaced the slot card: a link can be prepared once the
     // edition is mapped to a series and has recipients, and never twice.
     const form = read(FORM)
-    assert.match(form, /const canPrepareLink =\s*e\.access\.mode === "edition" && e\.access\.recipients\.length > 0 && !e\.secureLinkId/)
+    assert.match(form, /const canPrepareLink =\s*e\.access\.mode === "edition" &&\s*e\.access\.recipients\.length > 0 &&\s*!e\.secureLinkId &&\s*\(e\.publicationState === "draft" \|\| e\.publicationState === "published"\)/)
     assert.match(form, /disabled=\{busy \|\| !e\.series \|\| exact \|\| !canPrepareLink\}/)
     // and the repair is what populates that column
     assert.match(fnBody(read(ACTIONS), 'repairFixedSlotMappings'), /papermark_document_id = \$\{only\.documentId\}/)
