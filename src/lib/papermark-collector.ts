@@ -131,7 +131,18 @@ export async function knownLinkIds(): Promise<Set<string>> {
       where papermark_link_id is not null and papermark_link_id <> ''
   `) as { id: string }[]
 
-  return new Set([...rows, ...editions, ...withdrawn].map((r) => r.id).filter(Boolean))
+  // Personal reader rooms (20261009), when present.
+  let rooms: { id: string }[] = []
+  try {
+    rooms = (await sql`
+      select papermark_link_id as id from review_reader_rooms
+      where papermark_link_id is not null and papermark_link_id <> ''
+    `) as { id: string }[]
+  } catch {
+    rooms = []
+  }
+
+  return new Set([...rows, ...editions, ...withdrawn, ...rooms].map((r) => r.id).filter(Boolean))
 }
 
 /**

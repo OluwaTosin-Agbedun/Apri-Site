@@ -508,7 +508,7 @@ describe('public library gating', () => {
   it('the public page uses verified secure links directly', () => {
     const start = page.indexOf('<section id="review-publications"')
     const archive = page.slice(start, page.indexOf('</section>', start))
-    assert.match(archive, /href=\{entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
+    assert.match(archive, /href=\{entryMode === "rooms" \? "\/review\/read" : entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
     assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')
     assert.match(archive, /Access review copy/)
     assert.match(archive, /newTab/)

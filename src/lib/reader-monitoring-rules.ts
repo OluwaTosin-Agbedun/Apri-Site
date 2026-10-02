@@ -257,6 +257,8 @@ export function accessRouteLabel(method: string | null | undefined): string {
       return "Legacy library folder link"
     case "publication-access-link":
       return "Legacy per-publication link"
+    case "review-reader-room":
+      return "Personal Review Library room"
     case "review-edition-link":
     case "review-slot-link":
       return "Papermark review link (opened directly)"

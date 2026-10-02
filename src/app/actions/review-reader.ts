@@ -124,9 +124,17 @@ export async function reviewLibrarySignOut(): Promise<void> {
 export async function setReviewEntryMode(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireOwner()
   const mode = String(formData.get("mode") ?? "")
-  if (mode !== "papermark" && mode !== "library") return { message: "Choose where the cards lead." }
+  if (mode !== "papermark" && mode !== "library" && mode !== "rooms") return { message: "Choose where the cards lead." }
   if (mode === "library" && !(await reviewReaderSchemaReady())) {
     return { message: "Apply 20261008_review_reader_library.sql first; until then the cards keep their direct links." }
+  }
+  if (mode === "rooms") {
+    const { readerRoomsSchemaReady } = await import("@/lib/review-reader-rooms")
+    const { reviewRoomsProof } = await import("@/lib/review-reader")
+    if (!(await readerRoomsSchemaReady())) return { message: "Apply 20261009_review_reader_rooms.sql first." }
+    if (!(await reviewRoomsProof())) {
+      return { message: "Record the controlled two-reader Papermark test below first. Until then the cards keep their current links." }
+    }
   }
   await getSql()`
     insert into app_settings (key, value) values ('review_entry_mode', ${mode})
@@ -137,8 +145,35 @@ export async function setReviewEntryMode(_prev: FormState, formData: FormData): 
   revalidatePath("/admin/review-library")
   return {
     ok: true,
-    message: mode === "library"
-      ? "Saved: public cards now open the APRI Review Library. Approved readers sign in once per browser; anyone else is offered the request form."
-      : "Saved: public cards link straight to each edition's Papermark link again.",
+    message: mode === "rooms"
+      ? "Saved: public cards now open each approved reader's personal Papermark room (one Papermark code per browser, about a day at a time). Anyone else is offered the reading-link form and the review request."
+      : mode === "library"
+        ? "Saved: public cards now open the APRI Review Library. Approved readers sign in once per browser; anyone else is offered the request form."
+        : "Saved: public cards link straight to each edition's Papermark link again.",
   }
+}
+
+/**
+ * Emails an approved reader their personal reading link. The same answer for
+ * every address, so the form never reveals who is approved. No code is asked
+ * for on APRI: the email check is Papermark's, when the link is opened.
+ */
+export async function requestReviewReadingLink(_prev: FormState, formData: FormData): Promise<FormState> {
+  const email = normaliseReaderEmail(formData.get("email"))
+  if (!email) return { message: "Enter a valid email address." }
+  try {
+    await enforceReviewRateLimit("review_reading_link", 6)
+  } catch (error) {
+    return { message: error instanceof Error ? error.message : "Too many attempts. Please try again later." }
+  }
+  if (await readerHasEditions(email)) {
+    try {
+      const { signRoomEntry } = await import("@/lib/review-room-entry")
+      const { sendReviewReadingLink } = await import("@/lib/review-email")
+      await sendReviewReadingLink(email, `${siteUrl()}/review/read?t=${encodeURIComponent(await signRoomEntry(email))}`)
+    } catch {
+      // The neutral answer stands.
+    }
+  }
+  return { ok: true, message: "If that address has Complimentary Review editions, your personal reading link is on its way. Please check your inbox." }
 }

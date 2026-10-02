@@ -72,12 +72,30 @@ export function resetReviewReaderSchemaCache() {
  * edition's Papermark link (the current behaviour, and the default), or into
  * the remembered APRI Review Library. Reversible from Admin at any time.
  */
-export async function reviewEntryMode(): Promise<"papermark" | "library"> {
+export async function reviewEntryMode(): Promise<"papermark" | "library" | "rooms"> {
   try {
     const [row] = (await getSql()`select value from app_settings where key = 'review_entry_mode'`) as { value: string }[]
+    if (row?.value === "rooms") {
+      // Only after an owner has recorded the controlled two-reader proof.
+      const { readerRoomsSchemaReady } = await import("./review-reader-rooms")
+      return (await readerRoomsSchemaReady()) && (await reviewRoomsProof()) ? "rooms" : "papermark"
+    }
     return row?.value === "library" && (await reviewReaderSchemaReady()) ? "library" : "papermark"
   } catch {
     return "papermark"
+  }
+}
+
+export type RoomsProof = { at: string; by: string; readers: number; checks: string[] }
+
+/** The owner's record that the controlled two-reader Papermark test passed, or null. */
+export async function reviewRoomsProof(): Promise<RoomsProof | null> {
+  try {
+    const [row] = (await getSql()`select value from app_settings where key = 'review_rooms_proof'`) as { value: string }[]
+    const proof = row ? (JSON.parse(row.value) as RoomsProof) : null
+    return proof && typeof proof.at === "string" ? proof : null
+  } catch {
+    return null
   }
 }
 

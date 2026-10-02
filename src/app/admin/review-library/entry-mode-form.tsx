@@ -8,7 +8,16 @@ import { Busy } from "@/components/Spinner"
  * Where the public Complimentary Review cards lead. Reversible: switch back at
  * any time and the cards link straight to Papermark again.
  */
-export default function EntryModeForm({ mode, ready }: { mode: "papermark" | "library"; ready: boolean }) {
+export default function EntryModeForm({
+  mode,
+  ready,
+  roomsReady,
+}: {
+  mode: "papermark" | "library" | "rooms"
+  ready: boolean
+  /** Rooms migration applied and the two-reader proof recorded. */
+  roomsReady: boolean
+}) {
   const [state, action, pending] = useActionState(setReviewEntryMode, undefined)
   return (
     <section className="mb-8 border border-border bg-card/30 p-6">
@@ -18,11 +27,14 @@ export default function EntryModeForm({ mode, ready }: { mode: "papermark" | "li
         <strong> APRI Review Library</strong> lets approved readers verify their email once on APRI and return on
         the same browser without verifying again; they see only the editions assigned to their email, checked on
         every open. Papermark still asks each reader to confirm their email when they open an edition, once a day per edition.
+        <strong> Personal Papermark rooms</strong> open each approved reader&rsquo;s own room: Papermark asks for one code,
+        which opens all their editions on that browser for about 23 hours.
       </p>
       <form action={action} className="flex flex-wrap items-center gap-3">
         <select name="mode" defaultValue={mode} className="border border-border bg-background px-3 py-2 text-sm" aria-label="Where cards lead">
           <option value="papermark">Papermark links (current)</option>
           <option value="library" disabled={!ready}>APRI Review Library{ready ? "" : " (apply migration 20261008 first)"}</option>
+          <option value="rooms" disabled={!roomsReady}>Personal Papermark rooms — one code{roomsReady ? "" : " (record the two-reader test first)"}</option>
         </select>
         <button type="submit" className="btn-primary text-xs" disabled={pending} aria-busy={pending}>
           <Busy pending={pending} idle="Save" busy="Saving…" />

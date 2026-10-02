@@ -623,7 +623,7 @@ describe('instrumented surfaces', () => {
     const page = read('src/app/publications/page.tsx')
     const start = page.indexOf('<section id="review-publications"')
     const archive = page.slice(start, page.indexOf('</section>', start))
-    assert.match(archive, /href=\{entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
+    assert.match(archive, /href=\{entryMode === "rooms" \? "\/review\/read" : entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
     assert.match(archive, /slotKey=\{card\.slotKey\}/)
     assert.match(archive, /newTab/)
     assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')

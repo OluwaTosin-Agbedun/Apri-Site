@@ -1,4 +1,5 @@
 "use server"
+import { scheduleRoomReconcile } from "@/lib/review-reader-rooms"
 
 // ---------------------------------------------------------------------------
 // Ensure the three fixed slots exist (idempotent)
@@ -606,6 +607,8 @@ export async function saveApprovedRecipients(
   formData: FormData,
 ): Promise<FormState> {
   await requireOwner()
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile("all")
 
   const raw = String(
     formData.get("recipients") ??
@@ -1592,6 +1595,8 @@ export async function recoverAugustMinEdition(): Promise<FormState> {
 export async function publishEditionAsLatest(editionId: string): Promise<FormState> {
   const admin = await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ editionId })
   const sql = getSql()
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }
@@ -1617,6 +1622,8 @@ export async function publishEditionAsLatest(editionId: string): Promise<FormSta
 export async function publishHistoricalEdition(editionId: string): Promise<FormState> {
   await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ editionId })
   const sql = getSql()
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }

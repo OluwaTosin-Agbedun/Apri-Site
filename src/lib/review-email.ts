@@ -115,3 +115,20 @@ export function sendReviewLibrarySignIn(email: string, url: string, code: string
 <p>Access is personal, confidential and not for redistribution. If you did not ask for this, you can ignore it.</p>`,
   })
 }
+
+/**
+ * An approved reader's personal reading link. One click opens their own
+ * Papermark room, where Papermark asks for its one-time code; every edition
+ * assigned to them is then open for Papermark's session on that browser.
+ */
+export function sendReviewReadingLink(email: string, url: string) {
+  return send({
+    from: `APRI <${from}>`,
+    to: email,
+    subject: "Your APRI Complimentary Review Library",
+    html: `<p>Use the link below to open your APRI Complimentary Review Library. It shows every edition issued to you.</p>
+<p><a href="${esc(url)}">Open my Review Library</a></p>
+<p>APRI's secure viewer will email you a one-time code to confirm your address. One code opens all your editions on that browser for about a day; after that, or on another browser or device, it asks for a fresh code.</p>
+<p>This link is personal to you and works for 30 days. Access is confidential and not for redistribution.</p>`,
+  })
+}

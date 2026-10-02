@@ -235,7 +235,7 @@ describe("the public cards, reversibly", () => {
     const fn = actions.slice(actions.indexOf("export async function setReviewEntryMode"))
     assert.ok(fn.indexOf("await requireOwner()") < fn.indexOf("getSql()"))
     for (const p of ["src/app/page.tsx", "src/app/publications/page.tsx"]) {
-      assert.match(read(p), /href=\{entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
+      assert.match(read(p), /href=\{entryMode === "rooms" \? "\/review\/read" : entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
     }
   })
 })

@@ -96,3 +96,109 @@ Rollback: set the cards back to Papermark links, then
 
 New library visits and edition opens are recorded per reader and edition in
 `review_reader_events`, for Engagement.
+
+---
+
+# Personal Papermark rooms: one code for all of a reader's editions
+
+Built after the decision above. It is off until the controlled test passes.
+
+## How it works
+
+For each approved reader, APRI creates and confirms the following in the existing Review Data
+Room. It reuses the PDFs already there and uploads nothing.
+
+1. **A viewer group.**
+   - Its only member is the reader's approved email.
+   - It admits no domain and is never "allow all".
+2. **A permission row for every document in the room.**
+   - Each published edition assigned to the reader is viewable.
+   - Everything else is hidden: withdrawn editions, unassigned editions and newly added PDFs.
+   - Download is never allowed.
+   - Papermark refuses any document whose group permission is missing, so a new group shows
+     nothing until rows exist.
+3. **One group link, created only after the permissions are read back and match exactly.**
+   - Email-authenticated, with the reader as its only allowed address.
+   - The personalised Complimentary Review watermark.
+   - Screenshot protection.
+   - Downloads off.
+
+Rooms are updated automatically when an owner:
+
+- changes an edition's recipients;
+- adopts recipients;
+- grants a prospect editions;
+- publishes, withdraws or re-offers an edition;
+- edits the shared list.
+
+Only readers who already have a room are touched, after the response. Admin's **Check all
+rooms** re-checks every room, and opening a room re-checks it if the last check was over 6
+hours ago.
+
+**When Papermark doesn't confirm a change:**
+
+- If a removal cannot be confirmed, or Papermark reports a download or another protection
+  wrong, that reader's link is **closed**: its expiry is set in the past and the URL is kept for
+  repair. Access is never reported as revoked until Papermark confirms it.
+- If the link cannot be closed either, the room shows **Needs repair** with the link id to
+  remove by hand.
+
+### Reading entry, with no APRI code
+
+1. A reader's **personal reading link** is emailed on request from `/review/read/request`. The
+   response is the same whatever address is entered. Readers already in the remembered library
+   can also use it.
+2. One click opens their room. **Papermark asks for its one-time code.**
+3. That browser is remembered, so the public cards go straight to their room next time.
+
+APRI only routes the reader here. The email check is Papermark's: a forwarded link still needs a
+code sent to the reader's own inbox.
+
+## How often Papermark asks for a fresh code
+
+From Papermark's own code, its room session lasts **23 hours** and is tied to the browser. So a
+reader enters one code, and it opens all their editions on that browser for about a day. A fresh
+code is needed:
+
+- the next day;
+- on another browser or device;
+- after clearing cookies;
+- possibly after a browser update.
+
+Access is not permanent.
+
+## Migrations, in order
+
+1. `20261007_subscriber_sign_in_sessions.sql`
+2. `20261008_review_reader_library.sql`
+3. `20261009_review_reader_rooms.sql`
+
+All three are additive and none of them changes Papermark. Check the third with:
+
+```sql
+select to_regclass('public.review_reader_rooms'), to_regclass('public.review_reader_room_events');
+```
+
+## Controlled live test (required before the public cards change)
+
+1. Deploy, apply the migrations, and keep the public cards on **Papermark links**.
+2. In Admin → Review Library → Edition recipients, assign two test addresses you control to
+   **different** editions.
+3. In **Personal Papermark rooms**, enter both addresses and press **Prepare rooms**. Each
+   result should read "Ready: N editions visible, M hidden, downloads off".
+4. Open each **Open room** link in its own private window. For each reader, confirm all of the
+   following:
+   - Papermark asks for **one** code.
+   - Every assigned PDF opens without another code.
+   - The other reader's PDFs and the withdrawn PDFs are not listed and cannot be opened.
+   - There is no download control.
+   - The watermark shows that reader's email.
+5. Remove one recipient and assign a different edition. Press **Check all rooms**, reload each
+   room, and confirm the removed PDF is gone and the new one appears.
+6. Tick the checks and press **Record test as passed**.
+7. Only then, under **Where public review cards lead**, choose **Personal Papermark rooms**.
+   Press **Prepare all approved readers**; at Papermark's ~50 calls a minute, 35 readers take a
+   few minutes, so run it again for any room not yet ready.
+
+**To reverse:** choose **Papermark links**, or **Withdraw the test result**. Existing rooms stay
+in place, and you can close them in Papermark.

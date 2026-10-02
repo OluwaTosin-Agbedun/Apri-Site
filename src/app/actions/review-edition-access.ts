@@ -27,6 +27,7 @@ import {
   readSharedRecipients,
 } from "@/lib/edition-recipients-dal"
 import { editionRecipientsReady } from "@/lib/edition-recipients-schema"
+import { scheduleRoomReconcile } from "@/lib/review-reader-rooms"
 
 /**
  * Owner-only management of each Complimentary Review edition's recipients.
@@ -94,6 +95,8 @@ export async function saveEditionRecipients(
 ): Promise<EditionAccessResult> {
   const admin = await requireOwner()
   if (!UUID.test(editionId)) return { ok: false, message: "Unknown edition." }
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ editionId })
   const posted = sanitisePostedAddresses(emails)
   if (!posted) return { ok: false, message: "That recipient list could not be read. Nothing was saved." }
 
@@ -284,6 +287,8 @@ export async function applyEditionRecipients(
 ): Promise<EditionApplyResult> {
   await requireOwner()
   if (!UUID.test(editionId)) return { ok: false, matches: false, message: "Unknown edition." }
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ editionId })
   if (!HASH.test(previewedHash ?? "")) {
     return { ok: false, matches: false, message: "Preview this edition before applying." }
   }
@@ -403,6 +408,8 @@ export type AdoptionResult = { ok: boolean; adopted: number; message: string }
 export async function adoptEditionAccess(editionId: string): Promise<AdoptionResult> {
   const admin = await requireOwner()
   if (!UUID.test(editionId)) return { ok: false, adopted: 0, message: "Unknown edition." }
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ editionId })
 
   const sql = getSql()
   if (!(await editionRecipientsReady(sql, { fresh: true }))) {
@@ -650,6 +657,8 @@ export async function grantProspectEditions(
 ): Promise<FormState> {
   const admin = await requireOwner()
   if (!UUID.test(prospectId)) return { message: "Unknown review request." }
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ prospectId })
 
   const posted = formData.getAll("editionId").map(String)
   if (posted.length > MAX_POSTED_EDITIONS) {

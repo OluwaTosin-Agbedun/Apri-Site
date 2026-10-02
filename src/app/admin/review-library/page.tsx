@@ -1,6 +1,8 @@
 import EditionOrder from "./edition-order"
 import EntryModeForm from "./entry-mode-form"
-import { reviewEntryMode, reviewReaderSchemaReady } from "@/lib/review-reader"
+import { reviewEntryMode, reviewReaderSchemaReady, reviewRoomsProof } from "@/lib/review-reader"
+import ReaderRoomsPanel from "./reader-rooms-panel"
+import { readerRoomsSchemaReady, listReaderRooms } from "@/lib/review-reader-rooms"
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
@@ -161,7 +163,16 @@ export default async function ReviewLibraryPage() {
       title="Complimentary Review Library"
       description="Manage current and historical editions in the versioned Review Library."
     >
-      <EntryModeForm mode={await reviewEntryMode()} ready={await reviewReaderSchemaReady()} />
+      <EntryModeForm
+        mode={await reviewEntryMode()}
+        ready={await reviewReaderSchemaReady()}
+        roomsReady={(await readerRoomsSchemaReady()) && Boolean(await reviewRoomsProof())}
+      />
+      <ReaderRoomsPanel
+        schemaReady={await readerRoomsSchemaReady()}
+        proof={await reviewRoomsProof()}
+        rooms={await roomsForOwner()}
+      />
 
       <EditionOrder
         groups={(["MIN", "AIU", "PLM"] as const).map((series) => ({
@@ -250,4 +261,13 @@ export default async function ReviewLibraryPage() {
       />
     </AdminShell>
   )
+}
+
+/** Reader rooms with their links: this page is owner-only, and a room link still needs the reader's Papermark code. */
+async function roomsForOwner() {
+  const rooms = await listReaderRooms()
+  if (rooms.length === 0) return []
+  const links = (await getSql()`select email, link_url from review_reader_rooms`) as { email: string; link_url: string | null }[]
+  const byEmail = new Map(links.map((l) => [l.email, l.link_url]))
+  return rooms.map((r) => ({ ...r, linkUrl: byEmail.get(r.email) ?? null }))
 }

@@ -160,7 +160,7 @@ export default async function HomePage() {
               {reviewLibrary.items.map((card) => (
                 <TrackedAccessLink
                   key={card.slotKey}
-                  href={entryMode === "library" ? `/review/library/open/${card.id}` : card.secureUrl}
+                  href={entryMode === "rooms" ? "/review/read" : entryMode === "library" ? `/review/library/open/${card.id}` : card.secureUrl}
                   eventType="review_access_clicked"
                   slotKey={card.slotKey}
                   publicationId={card.id}

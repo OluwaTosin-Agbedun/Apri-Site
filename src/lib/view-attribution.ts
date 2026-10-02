@@ -39,6 +39,7 @@ export type AttributionMethod =
   | 'dataroom-link'
   | 'review-slot-link'
   | 'review-edition-link'
+  | 'review-reader-room'
   | 'client-folder-link'
   | 'publication-access-link'
   | 'verified-email'
@@ -174,6 +175,31 @@ export async function attribute(view: IncomingView): Promise<Attribution> {
         slotKey: editions[0].series,
         matchedBy: 'review-edition-link',
         viewerEmail: email,
+      }
+    }
+  }
+
+  // A reader's personal room: the link names the reader; the document names
+  // the edition. Still a review read, never a paid one.
+  if (linkId) {
+    let rooms: { email: string }[] = []
+    try {
+      rooms = (await sql`select email from review_reader_rooms where papermark_link_id = ${linkId} limit 1`) as { email: string }[]
+    } catch {
+      rooms = []
+    }
+    if (rooms[0]) {
+      const editions = view.papermarkDocumentId
+        ? ((await sql`select series from review_publication_editions where papermark_document_id = ${view.papermarkDocumentId} limit 1`) as { series: string | null }[])
+        : []
+      return {
+        subscriberId: null,
+        briefingRequestId: null,
+        publicationId: null,
+        readerType: 'complimentary_review',
+        slotKey: editions[0]?.series ?? null,
+        matchedBy: 'review-reader-room',
+        viewerEmail: email ?? rooms[0].email,
       }
     }
   }

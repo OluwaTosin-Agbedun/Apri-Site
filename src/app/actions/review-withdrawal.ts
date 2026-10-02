@@ -27,6 +27,7 @@ import {
   recordWithdrawalUnconfirmed,
   reofferEdition,
 } from "@/lib/review-withdrawal-dal"
+import { scheduleRoomReconcile } from "@/lib/review-reader-rooms"
 
 /**
  * Owner-only actions for withdrawing a Complimentary Review edition, choosing
@@ -286,6 +287,8 @@ export async function withdrawReviewEdition(
   const admin = await requireOwner()
   const refused = (message: string): WithdrawalOutcome => ({ ok: false, status: "refused", message, accessPaths: [] })
   if (!UUID.test(editionId ?? "")) return refused("Unknown edition. Nothing was changed.")
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ editionId })
   if (typeof previewKey !== "string" || previewKey.length > 300) return refused("Preview the withdrawal again. Nothing was changed.")
   const sql = getSql()
   if (!(await editionWithdrawalReady(sql, { fresh: true }))) return refused(WITHDRAWAL_MIGRATION_PENDING_MESSAGE)
@@ -384,6 +387,8 @@ export async function offerReviewEdition(editionId: string): Promise<OfferResult
 export async function reofferWithdrawnEdition(editionId: string): Promise<OfferResult> {
   const admin = await requireOwner()
   if (!UUID.test(editionId ?? "")) return { ok: false, message: "Unknown edition." }
+  // Readers with a personal room are brought into line after the response.
+  scheduleRoomReconcile({ editionId })
   const sql = getSql()
   if (!(await editionWithdrawalReady(sql, { fresh: true }))) {
     return { ok: false, message: WITHDRAWAL_MIGRATION_PENDING_MESSAGE }

@@ -3,6 +3,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { currentReviewReader, recordReaderEvent } from "@/lib/review-reader"
 import { getReviewLibraryForEmail } from "@/lib/publications"
+import { readyRoomLink } from "@/lib/review-reader-rooms"
 import { reviewLibrarySignOut } from "@/app/actions/review-reader"
 import SiteHeader from "@/components/SiteHeader"
 import SubmitButton from "@/components/SubmitButton"
@@ -24,6 +25,9 @@ export default async function Library({ searchParams }: { searchParams: Promise<
   if (!reader) redirect("/review/library/sign-in")
   const { unavailable } = await searchParams
   const editions = await getReviewLibraryForEmail(reader.email)
+  // A confirmed personal room opens every edition with one Papermark code,
+  // so the per-edition links (one code each) are not offered beside it.
+  const room = editions.length > 0 ? await readyRoomLink(reader.email) : null
   await recordReaderEvent(reader.email, "library_opened")
   return (
     <div className="min-h-screen">
@@ -49,6 +53,16 @@ export default async function Library({ searchParams }: { searchParams: Promise<
             That edition is not available to your address. The editions available to you are listed below.
           </p>
         )}
+        {room && (
+          <div className="border border-accent/40 bg-accent/5 p-6 mb-10 max-w-2xl">
+            <a href="/review/read" target="_blank" rel="noopener noreferrer" className="btn-primary">
+              Open all my editions
+            </a>
+            <p className="text-xs text-muted-foreground mt-3">
+              One code from APRI&rsquo;s secure viewer opens every edition below on this browser for about a day.
+            </p>
+          </div>
+        )}
         {editions.length === 0 && (
           <p className="text-sm text-foreground/70 mb-12 max-w-2xl">
             No review publications are available to your address at the moment. If you expected to see one here,
@@ -62,9 +76,11 @@ export default async function Library({ searchParams }: { searchParams: Promise<
               <h2 className="font-serif text-xl mt-3">{c.pubTitle}</h2>
               {c.editionLabel && <p className="text-xs text-muted-foreground mt-2">{c.editionLabel}</p>}
               <p className="text-sm text-foreground/70 my-5 flex-1">{c.description}</p>
-              <a href={`/review/library/open/${c.id}`} target="_blank" rel="noopener noreferrer" className="btn-primary">
-                Open secure publication
-              </a>
+              {!room && (
+                <a href={`/review/library/open/${c.id}`} target="_blank" rel="noopener noreferrer" className="btn-primary">
+                  Open secure publication
+                </a>
+              )}
             </article>
           ))}
         </div>
