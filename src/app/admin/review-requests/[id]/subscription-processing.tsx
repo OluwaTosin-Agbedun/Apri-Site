@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useActionState } from "react"
 import { activateSubscriptionRequest, saveCommercialMilestones } from "@/app/actions/review-admin"
 import type { FormState } from "@/lib/definitions"
@@ -173,7 +174,7 @@ export default function SubscriptionProcessing({ request: r }: { request: Proces
         </p>
         <div className="sm:col-span-2 flex items-center gap-4">
           <button className="btn-secondary" disabled={saving}>
-            {saving ? "Saving…" : "Save milestones"}
+            <Busy pending={saving} idle={"Save milestones"} busy={"Saving…"} />
           </button>
           {saved?.message && (
             <p className={saved.ok ? "text-sm text-foreground/80" : "text-sm text-red-700"} role="status">

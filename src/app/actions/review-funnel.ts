@@ -217,6 +217,15 @@ export async function consumeReviewAccessToken(
   `) as { prospect_id: string }[]
   if (!rows[0]) return false
   await createReviewSession(rows[0].prospect_id)
+  // And the remembered Review Library session, so this reader returns on this
+  // browser without another email. Best effort: the one-day session stands.
+  try {
+    const { reviewReaderSchemaReady, createReaderSession } = await import("@/lib/review-reader")
+    if (await reviewReaderSchemaReady()) {
+      const [p] = (await sql`select lower(btrim(email)) as email from review_prospects where id = ${rows[0].prospect_id}::uuid`) as { email: string }[]
+      if (p?.email) await createReaderSession(p.email, "access_link")
+    }
+  } catch {}
   return true
 }
 

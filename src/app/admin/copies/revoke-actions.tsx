@@ -1,5 +1,6 @@
 'use client'
 
+import { Busy } from "@/components/Spinner"
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { markRevoked } from '@/app/actions/copies'
@@ -26,7 +27,7 @@ export default function RevokeActions({ accessId }: { accessId: string }) {
         disabled={pending}
         className="text-xs font-medium text-accent hover:text-accent-hover cursor-pointer disabled:opacity-40"
       >
-        {pending ? 'Saving…' : 'Mark withdrawn'}
+        <Busy pending={pending} idle={"Mark withdrawn"} busy={"Saving…"} />
       </button>
       {error && <p className="text-xs text-red-700 max-w-[14rem] text-right">{error}</p>}
     </div>

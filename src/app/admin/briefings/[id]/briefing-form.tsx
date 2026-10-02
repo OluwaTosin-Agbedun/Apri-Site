@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useActionState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { saveBriefing } from "@/app/actions/briefings"
@@ -49,6 +50,6 @@ export default function BriefingForm({ draft }: { draft: BriefingDraft }) {
     <div><label className={label}>Request details</label><textarea name="description" rows={5} defaultValue={draft.description} className={field}/></div>
     <div><label className={label}>Internal notes</label><textarea name="notes" rows={4} defaultValue={draft.notes} placeholder="Internal notes visible only to administrators." className={field}/></div>
     {state?.message && <p className="text-sm">{state.message}</p>}
-    <button disabled={pending} className="bg-accent text-white px-6 py-2 text-sm">{pending ? "Saving…" : "Save"}</button>
+    <button disabled={pending} className="bg-accent text-white px-6 py-2 text-sm"><Busy pending={pending} idle={"Save"} busy={"Saving…"} /></button>
   </form>
 }

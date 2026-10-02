@@ -27,6 +27,7 @@
         lasts 90 days. Sending another is for a lost email or a new device.
       */
 
+import { Busy } from "@/components/Spinner"
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -182,7 +183,7 @@ export default function SeatActions({
             disabled={pending || !ready}
             className="bg-foreground text-background px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            {pending ? "Working…" : "Activate & send onboarding emails"}
+            <Busy pending={pending} idle={"Activate & send onboarding emails"} busy={"Working…"} />
           </button>
         ) : (
           <button
@@ -191,7 +192,7 @@ export default function SeatActions({
             disabled={pending}
             className="bg-foreground text-background px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-50 transition-colors cursor-pointer"
           >
-            {pending ? "Sending…" : "Send a new sign-in link"}
+            <Busy pending={pending} idle={"Send a new sign-in link"} busy={"Sending…"} />
           </button>
         )}
 

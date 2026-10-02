@@ -780,3 +780,24 @@ export async function setPaidPeriodVoided(_prev: FormState, formData: FormData):
   revalidatePath(`/admin/subscribers/${subscriberId}`)
   return { ok: true, message: `Period ${action === "void" ? "voided" : "restored"}. ${reconciled.message}` }
 }
+
+/**
+ * Signs a subscriber out of every browser, for a lost device or a security
+ * concern. Their subscription, term, level and documents are untouched; they
+ * sign in again with a fresh email. Never emails.
+ */
+export async function signOutSubscriberEverywhere(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireAdmin()
+  const subscriberId = String(formData.get("subscriberId") ?? "")
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(subscriberId)) return { message: "Unknown subscriber." }
+  const { signInSchemaReady } = await import("@/lib/sign-in-schema")
+  if (!(await signInSchemaReady())) {
+    return { message: "Apply 20261007_subscriber_sign_in_sessions.sql first; until then signed-in browsers cannot be signed out from here." }
+  }
+  const known = (await getSql()`select 1 from subscribers where id = ${subscriberId}::uuid and client_type = 'subscriber'`) as unknown[]
+  if (known.length === 0) return { message: "Unknown subscriber." }
+  const { revokeAllSessions } = await import("@/lib/subscriber-session-admin")
+  const closed = await revokeAllSessions(subscriberId)
+  revalidatePath(`/admin/subscribers/${subscriberId}`)
+  return { ok: true, message: `Signed out of every browser${closed ? ` (${closed} open)` : ""}. They sign in again with a fresh email; nothing else changed.` }
+}

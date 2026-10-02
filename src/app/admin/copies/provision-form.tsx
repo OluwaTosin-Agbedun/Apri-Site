@@ -1,5 +1,6 @@
 'use client'
 
+import { Busy } from "@/components/Spinner"
 import { useActionState, useState } from 'react'
 import Link from 'next/link'
 import { provisionCopy } from '@/app/actions/copies'
@@ -184,7 +185,7 @@ export default function ProvisionForm({ target }: { target: ProvisionTarget }) {
           disabled={pending}
           className="bg-accent text-white px-6 py-2.5 text-sm font-medium tracking-wide hover:bg-accent-hover disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {pending ? 'Saving…' : 'Save copy'}
+          <Busy pending={pending} idle={"Save copy"} busy={"Saving…"} />
         </button>
       </div>
     </form>

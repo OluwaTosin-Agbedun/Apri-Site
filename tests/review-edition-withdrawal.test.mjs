@@ -715,7 +715,7 @@ describe("a withdrawn edition leaves every public and grant path", () => {
 
   it("/publications, /review/library, grants and send-access list only published editions", () => {
     const pub = read(PUBLICATIONS)
-    for (const name of ["getReviewPublicationArchive", "getProspectReviewLibrary"]) {
+    for (const name of ["getReviewPublicationArchive", "reviewEditionsForEmail"]) {
       const b = body(pub, name)
       assert.equal((b.match(/e\.publication_state = 'published'/g) ?? []).length, 2, name)
     }

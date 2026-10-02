@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useActionState, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -198,7 +199,7 @@ function SyncSection({
           if (x?.ok) router.refresh()
         }}
               >
-        {busy ? "Syncing…" : "Sync"}
+        <Busy pending={busy} idle={"Sync"} busy={"Syncing…"} />
               </button>
       {message && <p className="text-sm mt-3">{message}</p>}
     </section>

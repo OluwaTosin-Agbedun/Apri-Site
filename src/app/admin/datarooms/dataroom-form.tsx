@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useActionState, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -84,7 +85,7 @@ export default function DataRoomMappingForm({
                 disabled={loadingRooms}
                 className={btnSecondary}
               >
-                {loadingRooms ? "Loading..." : "Fetch Data Rooms from Papermark"}
+                <Busy pending={loadingRooms} idle={"Fetch Data Rooms from Papermark"} busy={"Loading..."} />
               </button>
             ) : (
               <select name="dataroomId" className={field} required>
@@ -103,7 +104,7 @@ export default function DataRoomMappingForm({
         </div>
         <div className="flex items-center gap-4">
           <button type="submit" disabled={pending || rooms.length === 0} className={btnPrimary}>
-            {pending ? "Saving..." : "Save mapping"}
+            <Busy pending={pending} idle={"Save mapping"} busy={"Saving..."} />
           </button>
           {state?.message && (
             <p className={`text-sm ${state.ok ? "text-accent" : "text-red-600"}`}>
@@ -386,7 +387,7 @@ function LegacyAuditSection() {
       <h4 className="text-sm font-medium text-foreground mb-2">Legacy Open Edition audit</h4>
       <div className="flex items-center gap-3">
         <button type="button" onClick={handle} disabled={busy} className={btnSecondary}>
-          {busy ? "Auditing..." : "Audit legacy OPEN records"}
+          <Busy pending={busy} idle={"Audit legacy OPEN records"} busy={"Auditing..."} />
         </button>
         <span className="text-xs text-muted-foreground">
           Archives unreferenced OPEN documents. Referenced records are left unchanged.
@@ -430,7 +431,7 @@ export function CreatePublicationButton({
       disabled={busy}
       className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer"
     >
-      {busy ? "Creating..." : "Create publication details"}
+      <Busy pending={busy} idle={"Create publication details"} busy={"Creating..."} />
     </button>
   )
 }
@@ -486,7 +487,7 @@ export function LinkExistingPublication({
         disabled={busy || !pubId.trim()}
         className="text-[0.65rem] text-accent hover:text-accent-hover disabled:opacity-50 cursor-pointer"
       >
-        {busy ? "..." : "Link"}
+        <Busy pending={busy} idle={"Link"} busy={"..."} />
       </button>
       <button
         type="button"
@@ -526,7 +527,7 @@ export function GenerateDocumentDetailsButton({
         disabled={busy}
         className="text-[0.65rem] text-accent hover:text-accent-hover transition-colors disabled:opacity-50 cursor-pointer ml-2"
       >
-        {busy ? "..." : "Generate missing details"}
+        <Busy pending={busy} idle={"Generate missing details"} busy={"..."} />
       </button>
       {msg && <span className="text-[0.65rem] text-foreground/70">{msg}</span>}
     </span>

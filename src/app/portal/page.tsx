@@ -1,3 +1,4 @@
+import SubmitButton from "@/components/SubmitButton"
 import Link from "next/link"
 import { after } from "next/server"
 import { reconcileIfDue } from "@/lib/subscriber-access-reconciliation"
@@ -627,12 +628,9 @@ function NoticeShell({ title, children }: { title: string; children: React.React
             APRI
           </Link>
           <form action={subscriberSignOut}>
-            <button
-              type="submit"
-              className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer py-2"
-            >
+            <SubmitButton busy="Signing out…" className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
               Sign out
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </header>
@@ -657,12 +655,9 @@ function LockedLibrary({ name }: { name: string }) {
             APRI
           </Link>
           <form action={subscriberSignOut}>
-            <button
-              type="submit"
-              className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer py-2"
-            >
+            <SubmitButton busy="Signing out…" className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
               Sign out
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </header>

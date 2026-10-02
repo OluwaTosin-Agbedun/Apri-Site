@@ -1,101 +1,78 @@
 import "server-only"
 import { cookies } from "next/headers"
-import { SignJWT, jwtVerify } from "jose"
+import { getSql } from "./db"
+import { signInSchemaReady } from "./sign-in-schema"
 import {
-  portalPrincipalFromClaims,
-  type PortalPrincipal,
-} from "./portal-session-claims"
+  SUBSCRIBER_COOKIE_NAME,
+  signSubscriberSession,
+  verifySubscriberSession,
+  subscriberCookieOptions,
+  type SubscriberSessionClaims,
+} from "./subscriber-session-token"
 
 /**
- * Subscriber sessions, kept entirely separate from admin sessions.
+ * Subscriber sessions, kept entirely separate from admin and review sessions.
  *
- * A distinct cookie name and a distinct payload shape mean an admin token can
- * never be replayed as a subscriber token or the reverse: `decrypt` below
- * rejects any payload that does not carry a subscriberId, and the admin
- * verifier rejects any payload without an adminId.
+ * A distinct cookie name and audience mean an admin or review token can never
+ * be replayed as a subscriber token or the reverse.
+ *
+ * The cookie is a signed claim of WHICH session this browser holds; whether
+ * that session is still open is the database's to say (subscriber_sessions),
+ * re-read on every protected request together with the subscriber's status
+ * and term. So signing out, Admin's "Sign out of all browsers", a suspension
+ * or an ended term takes effect at once, whatever the cookie says.
+ *
+ * Long-lived by design: a subscriber signs in once per browser and stays
+ * signed in while they keep using it (ninety days, renewed with use).
  */
-const COOKIE_NAME = "apri_subscriber"
+
+export type SubscriberSessionPayload = SubscriberSessionClaims
+
+export { verifySubscriberSession as decrypt } from "./subscriber-session-token"
 
 /**
- * Deliberately long: a subscriber signs in once and stays signed in.
- *
- * The link is meant to be a one-off after activation, not a toll paid on every
- * visit. Ninety days spans a quarterly reading rhythm, so someone who signed in
- * when they were activated is still signed in when the next Quarterly Brief
- * lands.
- *
- * Much longer than the 8-hour admin session, and that asymmetry is intentional:
- * an admin can change money and access, a subscriber can only read what is
- * already theirs. Suspending a seat still takes effect immediately, because the
- * row is re-read from the database on every request rather than trusted from the
- * cookie -- so a long session never means a long goodbye.
+ * Records a session and sets this browser's cookie. Only callable where Next
+ * allows a cookie write: a Route Handler or a Server Action.
  */
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 90 // 90 days
-
-export type SubscriberSessionPayload = PortalPrincipal
-
-function getKey(): Uint8Array {
-  const secret = process.env.SESSION_SECRET
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      "SESSION_SECRET is missing or too short (need at least 32 characters). " +
-        "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
-    )
-  }
-  return new TextEncoder().encode(secret)
-}
-
-async function encrypt(payload: SubscriberSessionPayload): Promise<string> {
-  return new SignJWT({ ...payload, aud: "subscriber" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${MAX_AGE_SECONDS}s`)
-    .sign(getKey())
-}
-
-/**
- * Returns the verified payload, or null. Never throws: a forged, expired or
- * truncated cookie is simply "not signed in".
- */
-export async function decrypt(
-  token?: string,
-): Promise<SubscriberSessionPayload | null> {
-  if (!token) return null
-  try {
-    const { payload } = await jwtVerify(token, getKey(), {
-      algorithms: ["HS256"], // Pinned, to prevent algorithm confusion.
-      audience: "subscriber", // An admin token cannot satisfy this.
-    })
-    return portalPrincipalFromClaims(payload)
-  } catch {
-    return null
-  }
-}
-
 export async function createSubscriberSession(
   principalId: string,
-  principalType: "subscriber" = "subscriber",
+  method: "link" | "code" = "link",
 ): Promise<void> {
-  const token = await encrypt({ principalId, principalType })
+  let sid: string | undefined
+  if (await signInSchemaReady()) {
+    const [row] = (await getSql()`
+      insert into subscriber_sessions (subscriber_id, method)
+      values (${principalId}::uuid, ${method})
+      returning id
+    `) as { id: string }[]
+    sid = row!.id
+  }
+  const token = await signSubscriberSession({ principalId, sid })
   const cookieStore = await cookies()
-
-  cookieStore.set(COOKIE_NAME, token, {
-    httpOnly: true, // Unreadable from JavaScript, so XSS cannot steal it.
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: MAX_AGE_SECONDS,
-  })
+  cookieStore.set(SUBSCRIBER_COOKIE_NAME, token, subscriberCookieOptions())
 }
 
 export async function readSubscriberSession(): Promise<SubscriberSessionPayload | null> {
   const cookieStore = await cookies()
-  return decrypt(cookieStore.get(COOKIE_NAME)?.value)
+  return verifySubscriberSession(cookieStore.get(SUBSCRIBER_COOKIE_NAME)?.value)
 }
 
+/** Signs this browser out: its session record is closed, then the cookie goes. */
 export async function destroySubscriberSession(): Promise<void> {
+  const session = await readSubscriberSession()
+  if (session?.sid) {
+    try {
+      await getSql()`
+        update subscriber_sessions set revoked_at = now(), revoke_reason = 'signed_out'
+        where id = ${session.sid}::uuid and subscriber_id = ${session.principalId}::uuid and revoked_at is null
+      `
+    } catch {
+      // The cookie still goes below; a recorded session that cannot be closed
+      // here is closed by Admin's "Sign out of all browsers".
+    }
+  }
   const cookieStore = await cookies()
-  cookieStore.delete(COOKIE_NAME)
+  cookieStore.delete(SUBSCRIBER_COOKIE_NAME)
 }
 
-export { COOKIE_NAME as SUBSCRIBER_COOKIE_NAME }
+export { SUBSCRIBER_COOKIE_NAME }

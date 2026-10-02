@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -57,7 +58,7 @@ function ManualSyncPanel() {
         already delivered is left alone.
       </p>
       <button type="button" onClick={handleSync} disabled={busy} className={btnSecondary}>
-        {busy ? "Syncing..." : "Sync Papermark analytics now"}
+        <Busy pending={busy} idle={"Sync Papermark analytics now"} busy={"Syncing..."} />
       </button>
       {msg && (
         <p className={`text-sm mt-3 ${ok ? "text-accent" : "text-red-600"}`}>{msg}</p>

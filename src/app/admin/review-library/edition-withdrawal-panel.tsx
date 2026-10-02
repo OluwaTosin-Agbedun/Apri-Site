@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -138,7 +139,7 @@ export function EditionWithdrawalPanel({
           disabled={busy}
           onClick={() => void act(() => withdrawReviewEdition(editionId, "", "none"))}
         >
-          {busy ? "Checking Papermark..." : "Complete withdrawal"}
+          <Busy pending={busy} idle={"Complete withdrawal"} busy={"Checking Papermark..."} />
         </button>
         {resultBlock}
         {history}
@@ -327,7 +328,7 @@ export function EditionWithdrawalPanel({
                 void act(() => withdrawReviewEdition(editionId, preview.previewKey, replacement))
               }}
             >
-              {busy ? "Withdrawing..." : "Confirm withdrawal"}
+              <Busy pending={busy} idle={"Confirm withdrawal"} busy={"Withdrawing..."} />
             </button>
             <button type="button" className={secondary} disabled={busy} onClick={() => setPreview(null)}>
               Cancel

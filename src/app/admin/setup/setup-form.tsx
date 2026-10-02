@@ -1,5 +1,6 @@
 'use client'
 
+import { Busy } from "@/components/Spinner"
 import { useActionState } from 'react'
 import { setupFirstAdmin } from '@/app/actions/auth'
 
@@ -86,7 +87,7 @@ export default function SetupForm() {
         disabled={pending}
         className="w-full bg-foreground text-background px-6 py-3 text-sm font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-50 transition-colors cursor-pointer"
       >
-        {pending ? 'Creating account…' : 'Create owner account'}
+        <Busy pending={pending} idle={"Create owner account"} busy={"Creating account…"} />
       </button>
     </form>
   )

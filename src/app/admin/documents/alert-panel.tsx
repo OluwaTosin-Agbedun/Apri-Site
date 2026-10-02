@@ -1,5 +1,6 @@
 'use client'
 
+import { Busy } from "@/components/Spinner"
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAlertPreview, sendPublishAlert } from '@/app/actions/subscribers'
@@ -79,7 +80,7 @@ export default function AlertPanel({
           disabled={pending}
           className="text-xs font-medium text-accent hover:text-accent-hover cursor-pointer disabled:opacity-40"
         >
-          {pending ? 'Checking…' : 'Alert subscribers'}
+          <Busy pending={pending} idle={"Alert subscribers"} busy={"Checking…"} />
         </button>
         {error && (
           <p className="mt-2 text-xs text-red-700 max-w-[18rem] text-right">{error}</p>

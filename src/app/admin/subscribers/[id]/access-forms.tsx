@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useActionState, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -46,7 +47,7 @@ export function RepairForm({ subscriberId }: { subscriberId: string }) {
     <form action={action}>
       <input type="hidden" name="subscriberId" value={subscriberId} />
       <button className="btn-primary text-xs" type="submit" disabled={pending}>
-        {pending ? "Preparing…" : "Prepare library access"}
+        <Busy pending={pending} idle={"Prepare library access"} busy={"Preparing…"} />
       </button>
       <Result state={state} />
     </form>
@@ -62,7 +63,7 @@ export function AddPeriodForm({ subscriberId, level }: { subscriberId: string; l
       <label className="text-xs text-muted-foreground flex flex-col gap-1">To (inclusive)<input className={input} type="date" name="endsOn" required /></label>
       <input type="hidden" name="level" value={level} />
       <label className="text-xs text-muted-foreground flex flex-col gap-1 grow min-w-[12rem]">Reason (invoice or agreement)<input className={input} name="reason" required maxLength={500} /></label>
-      <button className="btn-secondary text-xs" type="submit" disabled={pending}>{pending ? "Adding…" : "Add an earlier term"}</button>
+      <button className="btn-secondary text-xs" type="submit" disabled={pending}><Busy pending={pending} idle={"Add an earlier term"} busy={"Adding…"} /></button>
       <div className="basis-full"><Result state={state} /></div>
     </form>
   )
@@ -118,7 +119,7 @@ export function PublicationAccessControl({
       </select>
       <input name="reason" maxLength={500} aria-label="Reason (optional)" placeholder="Reason (optional)" className={`${input} grow min-w-[10rem]`} />
       <button className="btn-primary text-xs disabled:opacity-40 disabled:cursor-default" type="submit" disabled={pending || decision === (current ?? "automatic")}>
-        {pending ? "Saving…" : "Save"}
+        <Busy pending={pending} idle={"Save"} busy={"Saving…"} />
       </button>
       <div className="basis-full min-w-0 break-words"><Result state={state} /></div>
     </form>
@@ -165,7 +166,7 @@ export function EditionAvailabilityForm({
           <option value="undecided">Not decided yet</option>
         </select>
         <input name="reason" maxLength={500} aria-label="Reason (optional)" placeholder="Reason (optional)" className={`${input} grow min-w-[14rem]`} />
-        <button className="btn-secondary text-xs" type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</button>
+        <button className="btn-secondary text-xs" type="submit" disabled={pending}><Busy pending={pending} idle={"Save"} busy={"Saving…"} /></button>
       </div>
       <Result state={result} />
     </form>

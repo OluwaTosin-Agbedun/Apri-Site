@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -153,7 +154,7 @@ export function EditionAccessPanel({
               void act(() => adoptEditionAccess(editionId))
             }}
           >
-            {busy ? "Checking Papermark..." : "Adopt current Papermark access"}
+            <Busy pending={busy} idle={"Adopt current Papermark access"} busy={"Checking Papermark..."} />
           </button>
         ) : (
           <p className="text-xs text-red-600">

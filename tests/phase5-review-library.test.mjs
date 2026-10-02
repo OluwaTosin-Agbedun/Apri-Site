@@ -80,7 +80,7 @@ describe('per-card secure document links', () => {
   it('public cards use their stored secure document links', () => {
     const start = pubPage.indexOf('<section id="review-publications"')
     const archive = pubPage.slice(start, pubPage.indexOf('</section>', start))
-    assert.match(archive, /href=\{card\.secureUrl\}/)
+    assert.match(archive, /href=\{entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
     assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')
     assert.match(archive, /newTab/)
   })
@@ -406,7 +406,7 @@ test('publications page shows MIN, AIU and PLM as three columns on desktop, stac
   assert.match(section, /const cards = archive\.filter\(\(item\) => item\.slotKey === series\)\s*if \(!cards\.length\) return null/)
   assert.match(section, /\{cards\.map\(\(card\) => \(/)
   // Every card keeps its own secure link and edition details.
-  assert.match(section, /href=\{card\.secureUrl\}/)
+  assert.match(section, /href=\{entryMode === "library" \? `\/review\/library\/open\/\$\{card\.id\}` : card\.secureUrl\}/)
   assert.match(section, /\{card\.editionLabel \|\| card\.editionDate\}/)
   // The separate complimentary review request stays below the listing.
   assert.ok(src.indexOf('Request Complimentary Review Access') > src.indexOf('</section>'))

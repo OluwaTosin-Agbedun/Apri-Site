@@ -7,6 +7,7 @@ import {
   getReviewPublicationArchive,
 } from "@/lib/publications"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
+import { reviewEntryMode } from "@/lib/review-reader"
 
 export const revalidate = 300
 
@@ -17,9 +18,10 @@ export const metadata = {
 }
 
 export default async function PublicationsPage() {
-  const [publications, archive] = await Promise.all([
+  const [publications, archive, entryMode] = await Promise.all([
     getPublishedPublications(),
     getReviewPublicationArchive(),
+    reviewEntryMode(),
   ])
 
   return (
@@ -108,7 +110,7 @@ export default async function PublicationsPage() {
                             confidential and not for redistribution.
                           </p>
                           <TrackedAccessLink
-                            href={card.secureUrl}
+                            href={entryMode === "library" ? `/review/library/open/${card.id}` : card.secureUrl}
                             eventType="review_access_clicked"
                             slotKey={card.slotKey}
                             publicationId={card.id}

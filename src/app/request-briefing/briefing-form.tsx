@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useActionState } from "react"
 import Link from "next/link"
 import { requestBriefing } from "@/app/actions/public"
@@ -268,7 +269,7 @@ export default function BriefingForm({
           disabled={pending}
           className="bg-foreground text-background px-8 py-3.5 text-sm font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {pending ? "Submitting…" : "Request a Briefing"}
+          <Busy pending={pending} idle={"Request a Briefing"} busy={"Submitting…"} />
         </button>
       </div>
     </form>

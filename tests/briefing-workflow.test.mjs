@@ -98,7 +98,8 @@ test("magic-link sign-in rejects briefing tokens", () => {
     /createSubscriberSession\(principal\.id, "briefing"\)/,
   )
   assert.match(magic, /principal\.type !== "subscriber"/)
-  assert.match(magic, /createSubscriberSession\(subscriber\.id, "subscriber"\)/)
+  assert.match(magic, /return openSession\(subscriber\.id, "link", hashToken\(token\)\)/)
+  assert.match(magic, /await createSubscriberSession\(subscriberId, method\)/)
 })
 
 test("portal session rejects briefing principals", () => {

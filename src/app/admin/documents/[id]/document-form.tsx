@@ -1,5 +1,6 @@
 'use client'
 
+import { Busy } from "@/components/Spinner"
 import { useActionState } from 'react'
 import Link from 'next/link'
 import { saveDocument } from '@/app/actions/documents'
@@ -298,7 +299,7 @@ export default function DocumentForm({ draft }: { draft: DocumentDraft }) {
           disabled={pending}
           className="bg-accent text-white px-6 py-2 text-sm font-medium tracking-wide hover:bg-accent-hover disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {pending ? 'Saving…' : 'Save'}
+          <Busy pending={pending} idle={"Save"} busy={"Saving…"} />
         </button>
       </div>
     </form>

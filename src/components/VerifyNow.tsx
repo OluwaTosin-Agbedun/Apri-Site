@@ -1,5 +1,6 @@
 'use client'
 
+import { Busy } from "@/components/Spinner"
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { runLinkVerification } from '@/app/actions/verification'
@@ -31,7 +32,7 @@ export default function VerifyNow({ subtle = false }: { subtle?: boolean }) {
             : 'border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-900 hover:bg-red-100 disabled:opacity-50 transition-colors cursor-pointer'
         }
       >
-        {pending ? 'Checking links…' : 'Re-check now'}
+        <Busy pending={pending} idle={"Re-check now"} busy={"Checking links…"} />
       </button>
       {message && (
         <p className="mt-2 text-xs text-foreground/70 max-w-xs">{message}</p>

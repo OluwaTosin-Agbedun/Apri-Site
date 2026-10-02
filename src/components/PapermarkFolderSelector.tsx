@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { saveFolderAndSyncLibrary, type ClientKind } from "@/app/actions/papermark-client-library"
@@ -131,7 +132,7 @@ export default function PapermarkFolderSelector({
           }
           className="bg-foreground text-background px-4 py-2 text-sm disabled:opacity-40"
         >
-          {pending ? "Saving and syncing…" : "Save and sync library"}
+          <Busy pending={pending} idle={"Save and sync library"} busy={"Saving and syncing…"} />
         </button>
       </div>
 

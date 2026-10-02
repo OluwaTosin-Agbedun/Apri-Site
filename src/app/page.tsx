@@ -7,6 +7,7 @@ import { AccessBadge, AccessActionInline } from "@/components/PublicationAccess"
 import { accessNotice } from "@/lib/delivery"
 import AccessForm from "./access-form"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
+import { reviewEntryMode } from "@/lib/review-reader"
 import {
   PUBLICATION_SECTIONS,
   getPublishedPublications,
@@ -94,9 +95,10 @@ function PublicationCard({ doc }: { doc: Publication }) {
 }
 
 export default async function HomePage() {
-  const [documents, reviewLibrary] = await Promise.all([
+  const [documents, reviewLibrary, entryMode] = await Promise.all([
     getPublishedPublications(),
     getReviewLibrary(),
+    reviewEntryMode(),
   ])
 
   return (
@@ -158,7 +160,7 @@ export default async function HomePage() {
               {reviewLibrary.items.map((card) => (
                 <TrackedAccessLink
                   key={card.slotKey}
-                  href={card.secureUrl}
+                  href={entryMode === "library" ? `/review/library/open/${card.id}` : card.secureUrl}
                   eventType="review_access_clicked"
                   slotKey={card.slotKey}
                   publicationId={card.id}

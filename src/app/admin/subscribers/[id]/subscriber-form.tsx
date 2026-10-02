@@ -19,6 +19,7 @@
                 alphabetically. The label follows the seat count being edited,
                 so L2 reads as Individual or Professional Team as it is typed.
               */
+import { Busy } from "@/components/Spinner"
 import { useActionState, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -288,7 +289,7 @@ export default function SubscriberForm({ draft }: { draft: SubscriberDraft }) {
           disabled={pending}
           className="bg-accent text-white px-6 py-2 text-sm font-medium tracking-wide hover:bg-accent-hover disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {pending ? "Saving…" : "Save"}
+          <Busy pending={pending} idle={"Save"} busy={"Saving…"} />
         </button>
       </div>
     </form>

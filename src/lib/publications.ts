@@ -530,6 +530,59 @@ export async function getProspectReviewLibrary(
     `) as { email: string }[]
     const email = (prospects[0]?.email ?? "").trim().toLowerCase()
     if (!email) return []
+    return await reviewEditionsForEmail(email, null, settings)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Every published Complimentary Review edition assigned to one email address,
+ * in the Publications order -- the rule the remembered Review Library lists
+ * by. Exactly the same rule as getProspectReviewLibrary: an edition is
+ * included only while it is published with a verified, exact-document link
+ * and the address is one of ITS recipients (or, for an edition not yet
+ * adopted, on the shared list its link was written from).
+ */
+export async function getReviewLibraryForEmail(email: string): Promise<SecureReviewCard[]> {
+  try {
+    return await reviewEditionsForEmail(email, null)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * One edition, only if it is currently assigned to this address and still
+ * published -- checked on every open, so a withdrawal or a removed recipient
+ * takes effect at once. A guessed, withdrawn, draft or another reader's
+ * edition all give null.
+ */
+export async function getReviewEditionForEmail(email: string, editionId: string): Promise<SecureReviewCard | null> {
+  if (!PROSPECT_UUID.test(editionId ?? "")) return null
+  try {
+    return (await reviewEditionsForEmail(email, editionId))[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+async function reviewEditionsForEmail(
+  rawEmail: string,
+  editionId: string | null,
+  preloaded?: { key: string; value: string }[],
+): Promise<SecureReviewCard[]> {
+  const email = (rawEmail ?? "").trim().toLowerCase()
+  if (!email || !email.includes("@") || email.length > 254) return []
+  {
+    const sql = getSql()
+    const settings = preloaded ?? ((await sql`
+      select key, value from app_settings
+      where key in ('review_library_enabled', 'review_approved_recipients')
+    `) as { key: string; value: string }[])
+    const setting = (key: string) =>
+      settings.find((row) => row.key === key)?.value
+    if (setting("review_library_enabled") !== "true") return []
     const onSharedList = deserialiseRecipients(
       setting("review_approved_recipients"),
     ).includes(email)
@@ -546,6 +599,7 @@ export async function getProspectReviewLibrary(
       where e.publication_state = 'published'
         and e.secure_link_url <> '' and e.secure_link_verified_at is not null
         and e.secure_link_document_id = e.papermark_document_id
+        and (${editionId}::uuid is null or e.id = ${editionId}::uuid)
         and (
           (e.recipient_mode = 'edition' and exists (
             select 1 from review_edition_recipients r
@@ -567,6 +621,7 @@ export async function getProspectReviewLibrary(
         and e.secure_link_url <> '' and e.secure_link_verified_at is not null
         and e.secure_link_document_id = e.papermark_document_id
         and e.secure_link_id is not null and ${onSharedList}::boolean
+        and (${editionId}::uuid is null or e.id = ${editionId}::uuid)
       order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
                (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last,
@@ -599,8 +654,6 @@ export async function getProspectReviewLibrary(
       papermarkDocumentId: r.papermark_document_id,
       isLatest: r.is_latest,
     }))
-  } catch {
-    return []
   }
 }
 

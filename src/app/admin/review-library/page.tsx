@@ -1,4 +1,6 @@
 import EditionOrder from "./edition-order"
+import EntryModeForm from "./entry-mode-form"
+import { reviewEntryMode, reviewReaderSchemaReady } from "@/lib/review-reader"
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import AdminShell from "@/components/AdminShell"
@@ -159,6 +161,8 @@ export default async function ReviewLibraryPage() {
       title="Complimentary Review Library"
       description="Manage current and historical editions in the versioned Review Library."
     >
+      <EntryModeForm mode={await reviewEntryMode()} ready={await reviewReaderSchemaReady()} />
+
       <EditionOrder
         groups={(["MIN", "AIU", "PLM"] as const).map((series) => ({
           series,

@@ -779,17 +779,18 @@ export async function recordPortalDownloadClick(
   documentId: string,
 ): Promise<FormState> {
   const sql = getSql()
-  const { readSubscriberSession } = await import("@/lib/subscriber-session")
+  const { getCurrentSubscriber } = await import("@/lib/subscriber-dal")
 
-  const session = await readSubscriberSession()
-  if (!session) return { message: "Not authenticated." }
+  // The full session check, not the cookie alone.
+  const session = await getCurrentSubscriber()
+  if (!session || !session.hasAccess) return { message: "Not authenticated." }
 
   if (!documentId || documentId.length > 200) return { message: "Invalid document." }
 
   await sql`
     insert into client_engagement_events
       (subscriber_id, event_type, occurred_at)
-    values (${session.principalId}::uuid, 'document_downloaded', now())
+    values (${session.id}::uuid, 'document_downloaded', now())
   `
 
   return { ok: true, message: "Download recorded." }

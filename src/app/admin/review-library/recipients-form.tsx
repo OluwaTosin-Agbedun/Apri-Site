@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useActionState, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -81,7 +82,7 @@ export function ApprovedRecipientsSection({
           />
         </div>
         <button type="submit" disabled={pending || legacyEditionCount > 0} className={btnSecondary}>
-          {pending ? "Saving..." : "Save address book"}
+          <Busy pending={pending} idle={"Save address book"} busy={"Saving..."} />
         </button>
         {state?.message && (
           <p className={`text-sm ${state.ok ? "text-accent" : "text-red-600"}`}>
@@ -182,7 +183,7 @@ export function PublicationTitleEditor({
 
       <div className="flex items-center gap-3 mt-3 flex-wrap">
         <button type="button" onClick={handleSave} disabled={busy} className={btnSecondary}>
-          {busy ? "Saving..." : "Save title"}
+          <Busy pending={busy} idle={"Save title"} busy={"Saving..."} />
         </button>
         <button
           type="button"

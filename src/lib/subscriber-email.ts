@@ -6,6 +6,8 @@ import { emailNotice } from "./delivery"
 import { APRI_PRODUCTION_URL, portalSignInUrl, portalVerificationUrl } from "./app-url"
 import { recordClientEvent, type ClientPrincipal } from "./client-engagement"
 import { deliverEmail, fingerprint, type EmailOutcome } from "./email-delivery"
+import { signInCodeFor } from "./magic-link"
+import { formatSignInCode } from "./magic-token"
 
 export type { EmailOutcome } from "./email-delivery"
 
@@ -60,6 +62,7 @@ export async function sendSignInLink(args: {
   token: string
 }): Promise<EmailOutcome> {
   const url = portalVerificationUrl(args.token)
+  const code = await signInCodeFor(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   const outcome = await send({
@@ -75,6 +78,7 @@ export async function sendSignInLink(args: {
       </p>
 
       ${button("Open my library", url)}
+      ${codeBlock(code)}
 
       <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#888888;">
         If you did not request this, you can ignore this message &mdash; nothing has changed
@@ -198,6 +202,7 @@ export async function sendSecureAccess(args: {
   attemptKey: string
 }): Promise<EmailOutcome> {
   const url = portalVerificationUrl(args.token)
+  const code = await signInCodeFor(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
   const outcome = await send({
     from: `APRI <${FROM}>`,
@@ -213,6 +218,7 @@ export async function sendSecureAccess(args: {
       </p>
 
       ${button("Open my library", url)}
+      ${codeBlock(code)}
 
       <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#888888;">
         If it has expired, request a fresh link from
@@ -324,6 +330,20 @@ function shell(body: string): string {
   </table>
 </body>
 </html>`
+}
+
+/**
+ * The code beside the link. Typed on the sign-in page, it signs in the browser
+ * it is typed into, which is how a subscriber whose email app opens links in
+ * its own browser stays signed in in the browser they actually use.
+ */
+function codeBlock(code: string | null): string {
+  if (!code) return ""
+  return `<p style="margin:24px 0 8px;font-size:14px;line-height:1.7;color:#333333;">
+        Reading on a different browser or device from this email? Go to the APRI sign-in page there, enter
+        your email address, then this code. It works once, within 15 minutes:
+      </p>
+      <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:26px;letter-spacing:4px;color:#1a1a1a;">${esc(formatSignInCode(code))}</p>`
 }
 
 function button(label: string, url: string): string {

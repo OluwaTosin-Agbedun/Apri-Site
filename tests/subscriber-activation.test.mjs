@@ -90,7 +90,9 @@ test("subscriber sessions preserve principal identity and reject malformed claim
     null,
   )
 
-  const source = read("src/lib/subscriber-session.ts")
+  // The cookie options live with the token, shared by the session module and the proxy.
+  assert.match(read("src/lib/subscriber-session.ts"), /subscriberCookieOptions\(\)/)
+  const source = read("src/lib/subscriber-session-token.ts")
   assert.match(source, /httpOnly: true/)
   assert.match(source, /secure: process\.env\.NODE_ENV === "production"/)
   assert.match(source, /sameSite: "lax"/)

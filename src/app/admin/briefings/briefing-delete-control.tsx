@@ -1,5 +1,6 @@
 "use client"
 
+import { Busy } from "@/components/Spinner"
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { deleteBriefing } from "@/app/actions/briefings"
@@ -58,7 +59,7 @@ export default function BriefingDeleteControl({
         title={canDelete ? undefined : "Only owners can delete briefing requests."}
         className="text-xs font-medium text-red-700 hover:text-red-900 disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        {pending ? "Deleting…" : "Delete briefing request"}
+        <Busy pending={pending} idle={"Delete briefing request"} busy={"Deleting…"} />
       </button>
       {message && <p className="mt-3 text-xs text-red-700">{message}</p>}
     </div>

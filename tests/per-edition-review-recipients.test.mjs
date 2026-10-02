@@ -870,15 +870,17 @@ describe("/review/library", () => {
   const lib = read(PUBLICATIONS)
   const fn = lib.slice(lib.indexOf("export async function getProspectReviewLibrary"), lib.indexOf("export async function getAllPublications"))
 
-  it("shows only the editions granted to the signed-in prospect", () => {
-    assert.match(page, /getProspectReviewLibrary\(id\)/)
+  it("shows only the editions granted to the signed-in reader's verified email", () => {
+    assert.match(page, /getReviewLibraryForEmail\(reader\.email\)/)
     assert.doesNotMatch(page, /getReviewLibrary\(\)/)
   })
 
-  it("requires a valid session and an access-sent prospect", () => {
-    assert.match(page, /readReviewSession\(\)/)
-    assert.match(page, /UUID\.test\(id\)/)
-    assert.match(page, /access_sent_at is not null/)
+  it("requires a valid reader session, or an access-sent prospect's one-day session", () => {
+    assert.match(page, /const reader = await currentReviewReader\(\)\s*if \(!reader\) redirect/)
+    const readerLib = read("src/lib/review-reader.ts")
+    assert.match(readerLib, /readReviewSession\(\)/)
+    assert.match(readerLib, /access_sent_at is not null/)
+    assert.match(readerLib, /revoked_at is null and created_at > now\(\) - interval '365 days'/)
   })
 
   it("matches the prospect's own address and nothing broader", () => {
@@ -1134,7 +1136,7 @@ describe("before the migration has run", () => {
 
   it("each public query has a pre-migration form that names no new column or table", () => {
     const lib = read(PUBLICATIONS)
-    for (const name of ["getReviewLibrary", "getReviewPublicationArchive", "getProspectReviewLibrary"]) {
+    for (const name of ["getReviewLibrary", "getReviewPublicationArchive", "reviewEditionsForEmail"]) {
       const b = body(lib, name)
       assert.match(b, /const perEdition = await editionRecipientsReady\(sql\)/, name)
       const fallback = b.slice(b.indexOf(": await sql`"))

@@ -32,20 +32,20 @@ export const getCurrentSubscriber = cache(
     const session = await readSubscriberSession()
     if (!session) return null
     if (session.principalType !== "subscriber") return null
-    return loadSessionSubscriber(session.principalId)
+    return loadSessionSubscriber(session.principalId, { sid: session.sid, iat: session.iat })
   },
 )
 
 /**
- * Whether this device already holds a valid portal session.
+ * Whether this browser holds an open portal session.
  *
- * Used by the sign-in page so a verified device is sent straight to the
- * library. Verification happens once per device: after the one-time link has
- * been used, the session lasts 90 days and the subscriber never meets the email
- * step again on that browser.
+ * Used by the sign-in page so a signed-in browser goes straight to the
+ * library. The same full check as the portal itself -- signature, session
+ * record and subscriber -- so a signed-out or ended session never bounces
+ * between the two pages.
  */
 export async function hasPortalSession(): Promise<boolean> {
-  return (await readSubscriberSession()) !== null
+  return (await getCurrentSubscriber()) !== null
 }
 
 export async function requirePortalPrincipal(): Promise<CurrentSubscriber> {

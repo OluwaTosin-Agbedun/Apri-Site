@@ -1,3 +1,4 @@
+import SubmitButton from '@/components/SubmitButton'
 import Link from 'next/link'
 import { subscriberSignOut } from '@/app/actions/subscriber-auth'
 
@@ -45,12 +46,9 @@ export default function PortalHeader({
         </div>
 
         <form action={subscriberSignOut}>
-          <button
-            type="submit"
-            className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer shrink-0 py-2"
-          >
+          <SubmitButton busy="Signing out…" className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer shrink-0 py-2 inline-flex items-center gap-2">
             Sign out
-          </button>
+          </SubmitButton>
         </form>
       </div>
     </header>

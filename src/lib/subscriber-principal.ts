@@ -75,19 +75,70 @@ export function subscriberFromRow(row: SubscriberRow, today: string = lagosToday
   }
 }
 
-/** The subscriber a session names, or null. */
-export async function loadSessionSubscriber(principalId: string): Promise<CurrentSubscriber | null> {
+/**
+ * The subscriber a session names, or null when the session is no longer open.
+ *
+ * A recorded session (one with a session id) must still be open: not signed
+ * out, not ended by Admin, and under a year old. A cookie issued before
+ * sessions were recorded carries no id; it is honoured until it expires
+ * unless Admin has since signed the subscriber out of all browsers.
+ *
+ * Status and term are returned, not judged: the portal shows a lapsed or
+ * suspended subscriber a notice and no documents.
+ */
+export async function loadSessionSubscriber(
+  principalId: string,
+  session: { sid?: string; iat?: number } = {},
+): Promise<CurrentSubscriber | null> {
   const sql = getSql()
-  const rows = (await sql`
-    select id, full_name, name, organization, email, role_title,
-           level, public_tier,
-           to_char(term_start, 'YYYY-MM-DD') as term_start,
-           to_char(term_end, 'YYYY-MM-DD') as term_end,
-           status, library_link_url, papermark_folder_id
-    from subscribers
-    where id = ${principalId}
-    limit 1
-  `) as SubscriberRow[]
+  if (!/^[0-9a-f-]{36}$/i.test(principalId)) return null
+  let rows: SubscriberRow[]
+  if (session.sid) {
+    try {
+      rows = (await sql`
+        select s.id, s.full_name, s.name, s.organization, s.email, s.role_title,
+               s.level, s.public_tier,
+               to_char(s.term_start, 'YYYY-MM-DD') as term_start,
+               to_char(s.term_end, 'YYYY-MM-DD') as term_end,
+               s.status, s.library_link_url, s.papermark_folder_id
+        from subscribers s
+        join subscriber_sessions ss on ss.id = ${session.sid}::uuid and ss.subscriber_id = s.id
+        where s.id = ${principalId}::uuid
+          and ss.revoked_at is null
+          and ss.created_at > now() - interval '365 days'
+        limit 1
+      `) as SubscriberRow[]
+    } catch {
+      // No session table (the migration was rolled back): a recorded session
+      // cannot be confirmed, so it is not honoured.
+      return null
+    }
+    if (rows[0]) {
+      try {
+        await sql`
+          update subscriber_sessions set last_seen_at = now()
+          where id = ${session.sid}::uuid and last_seen_at < now() - interval '1 hour'
+        `
+      } catch {
+        // Telemetry only.
+      }
+    }
+  } else {
+    rows = (await sql`
+      select id, full_name, name, organization, email, role_title,
+             level, public_tier,
+             to_char(term_start, 'YYYY-MM-DD') as term_start,
+             to_char(term_end, 'YYYY-MM-DD') as term_end,
+             status, library_link_url, papermark_folder_id
+      from subscribers s
+      where id = ${principalId}::uuid
+        and (
+          (to_jsonb(s) ->> 'sessions_revoked_at') is null
+          or (to_jsonb(s) ->> 'sessions_revoked_at')::timestamptz < to_timestamp(${session.iat ?? 0})
+        )
+      limit 1
+    `) as SubscriberRow[]
+  }
   const row = rows[0]
   return row ? subscriberFromRow(row) : null
 }

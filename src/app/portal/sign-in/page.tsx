@@ -16,7 +16,7 @@ export default async function SignInPage({
   searchParams,
   // Next 16: searchParams is a promise.
 }: {
-  searchParams: Promise<{ expired?: string; reason?: string }>
+  searchParams: Promise<{ expired?: string; reason?: string; signed_out?: string }>
 }) {
   // Already verified on this device: go straight to the library rather than
   // asking again. This covers briefing clients as well as subscribers -- the
@@ -24,9 +24,15 @@ export default async function SignInPage({
   // through the email step on every visit.
   if (await hasPortalSession()) redirect("/portal")
 
-  const { expired, reason } = await searchParams
+  const { expired, reason, signed_out } = await searchParams
   const message =
-    reason === "used"
+    signed_out
+      ? "You have signed out of this browser. Sign in again below whenever you need your library."
+      : reason === "session-failed"
+        ? "Your sign-in link was accepted, but your session could not be opened just now. The same link or code still works for a few minutes: try it again shortly, or request a fresh one below."
+        : reason === "unavailable"
+          ? "We could not check your sign-in link just now. It has not been used: try the same link again in a minute."
+          : reason === "used"
       ? "That sign-in link has already been used. Request a fresh link below."
       : reason === "expired"
         ? "That sign-in link has expired. Links expire after 15 minutes; request a fresh one below."
@@ -58,12 +64,13 @@ export default async function SignInPage({
           Sign in
         </h1>
         <p className="text-sm text-foreground/70 leading-relaxed mb-8">
-          Enter the email address on your subscription. We will send a link to
-          confirm this device once; after that you will come straight here to your
-          library, with no email step.
+          Enter the email address on your subscription. We will email you a link and
+          a code. Use either one in this browser once; after that, Access Subscriber
+          Library brings you straight to your library on this browser, with no email
+          step.
         </p>
 
-        {(expired || reason) && (
+        {(expired || reason || signed_out) && (
           <div className="border border-border bg-accent/5 p-5 mb-8">
             <p className="text-sm text-foreground/80 leading-relaxed">
               {message}

@@ -14,6 +14,8 @@ import AccessPanel from "./access-panel"
 import { loadSubscriberAccess } from "@/lib/access-policy-dal"
 import { portalDocumentTitle } from "@/lib/papermark-dataroom-contract"
 import { expiryProblem } from "@/lib/personal-links"
+import SessionControls from "./session-controls"
+import { loadSessionSummary } from "@/lib/subscriber-session-admin"
 
 export const dynamic = "force-dynamic"
 
@@ -168,6 +170,7 @@ export default async function EditSubscriberPage({
 
   const status = row.status.toLowerCase()
   const onboarding = await getOnboardingStatus(row.id)
+  const sessions = await loadSessionSummary(row.id)
   // This subscriber's own latest access email that Resend accepted, and
   // whether it later bounced. Filtered by this record's id only, so another
   // subscriber's delivery can never unlock the button here.
@@ -240,6 +243,9 @@ export default async function EditSubscriberPage({
             subscriberName={draft.fullName}
             subscriberEmail={row.email}
           />
+        )}
+        {sessions.ready && (
+          <SessionControls subscriberId={row.id} open={sessions.open} lastSeenAt={sessions.lastSeenAt} />
         )}
         <p className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground leading-relaxed max-w-xl">
           Which editions this subscriber receives is decided by their paid periods and each edition&rsquo;s date,

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
-import { headers } from "next/headers"
+import { headers, cookies } from "next/headers"
 import { getSql } from "@/lib/db"
-import { signInWithToken } from "@/lib/magic-link"
+import { signInWithToken, inspectToken } from "@/lib/magic-link"
+import { hashToken } from "@/lib/magic-token"
+import { signInSchemaReady } from "@/lib/sign-in-schema"
+import { PENDING_COOKIE, LINK_COOKIE, linkCookieOptions, pendingCookieOptions } from "@/lib/sign-in-cookies"
 
 export const dynamic = "force-dynamic"
 
@@ -43,25 +46,50 @@ export async function GET(request: Request) {
     )
   }
 
+  // Once sign-in sessions are recorded, a link spends itself at once only in
+  // the browser that asked for it. Opened anywhere else -- the browser built
+  // into an email app, another device, or a mail scanner following links --
+  // it asks for a confirming click, and the sign-in page offers the code
+  // instead, so the session lands in the browser the subscriber returns to.
+  try {
+    if (await signInSchemaReady()) {
+      const cookieStore = await cookies()
+      const pending = cookieStore.get(PENDING_COOKIE)?.value
+      const state = await inspectToken(token, pending ? hashToken(pending) : null)
+      if (!state.usable) {
+        await recordAttempt(ip)
+        return NextResponse.redirect(new URL(`/portal/sign-in?reason=${state.reason}`, request.url))
+      }
+      if (!state.sameBrowser) {
+        cookieStore.set(LINK_COOKIE, token, linkCookieOptions())
+        return NextResponse.redirect(new URL("/portal/verify/continue", request.url), 303)
+      }
+    }
+  } catch {
+    return NextResponse.redirect(new URL("/portal/sign-in?reason=unavailable", request.url))
+  }
+
   let signedIn: Awaited<ReturnType<typeof signInWithToken>>
   try {
     signedIn = await signInWithToken(token)
   } catch {
-    // Database/configuration failures must still land on a useful recovery page.
+    // The link was not checked (the database could not be reached): it is
+    // still unspent, so the same link can simply be tried again.
     return NextResponse.redirect(
-      new URL("/portal/sign-in?expired=1", request.url),
+      new URL("/portal/sign-in?reason=unavailable", request.url),
     )
   }
 
   // Only failures are recorded. A subscriber who signs in successfully should
   // never be counted toward a limit meant for someone probing.
   if (!signedIn.ok) {
-    await recordAttempt(ip)
+    if (signedIn.reason !== "session-failed") await recordAttempt(ip)
     return NextResponse.redirect(
       new URL(`/portal/sign-in?reason=${signedIn.reason}`, request.url),
     )
   }
 
+  ;(await cookies()).set(PENDING_COOKIE, "", { ...pendingCookieOptions(), maxAge: 0 })
   return NextResponse.redirect(new URL("/portal", request.url))
 }
 

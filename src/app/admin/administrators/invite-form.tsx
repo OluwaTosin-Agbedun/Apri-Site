@@ -1,5 +1,6 @@
 'use client'
 
+import { Busy } from "@/components/Spinner"
 import { useActionState, useState } from 'react'
 import { inviteAdmin } from '@/app/actions/auth'
 
@@ -101,7 +102,7 @@ export default function InviteForm() {
             disabled={pending}
             className="bg-accent text-white px-6 py-2 text-sm font-medium tracking-wide hover:bg-accent-hover disabled:opacity-50 transition-colors cursor-pointer"
           >
-            {pending ? 'Adding…' : 'Add Administrator'}
+            <Busy pending={pending} idle={"Add Administrator"} busy={"Adding…"} />
           </button>
         </div>
       </form>

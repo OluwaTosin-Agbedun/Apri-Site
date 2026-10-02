@@ -1,4 +1,5 @@
 "use client"
+import { Busy } from "@/components/Spinner"
 import { useActionState, useEffect, useState } from "react"
 import {
   requestReview,
@@ -134,7 +135,7 @@ export default function ReviewForm({ utm }: { utm: Record<string, string> }) {
         </p>
       )}
       <button disabled={pending} className="btn-primary disabled:opacity-60">
-        {pending ? "Submitting…" : "Request Complimentary Review Access"}
+        <Busy pending={pending} idle={"Request Complimentary Review Access"} busy={"Submitting…"} />
       </button>
     </form>
   )
