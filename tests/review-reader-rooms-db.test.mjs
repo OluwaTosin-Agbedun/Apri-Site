@@ -468,6 +468,20 @@ describe("opening access re-checks approval and the room's editions every time",
     assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready", "Repair brings it back")
   })
 
+  it("without the verification columns no room is handed out, not even one marked ready", async () => {
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    await sql`alter table review_reader_rooms rename column verified_editions to verified_editions_hidden`
+    rooms.resetReaderRoomsSchemaCache()
+    try {
+      assert.equal((await room(E)).state, "ready", "the row still says ready")
+      assert.deepEqual(await rooms.roomEntryFor(E, { allowCreate: true }), { kind: "unavailable", reason: "rooms_not_installed" })
+    } finally {
+      await sql`alter table review_reader_rooms rename column verified_editions_hidden to verified_editions`
+      rooms.resetReaderRoomsSchemaCache()
+    }
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+  })
+
   it("a change to an edition still judged by the shared list reconciles every room", async () => {
     await edition("legacy")
     await sql`update review_publication_editions set recipient_mode = 'shared_legacy' where id = ${ed.legacy}::uuid`

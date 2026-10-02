@@ -110,9 +110,9 @@ export function resetReaderRoomsSchemaCache() {
 
 /**
  * Whether 20261010 added the routing columns (verified_editions, lease_until).
- * Without them rooms still work exactly as before; with them a reader is sent
- * to a room only while it shows their current editions, and one reconcile per
- * reader runs at a time.
+ * A reader is sent to a room only while its read-back shows their current
+ * editions, and one reconcile per reader runs at a time. Without the columns
+ * there is no such proof, so no reader is sent to any room.
  */
 let routing: { value: boolean; at: number } | null = null
 async function routingColumnsReady(): Promise<boolean> {
@@ -550,6 +550,7 @@ export async function roomEntryFor(rawEmail: string, options: { allowCreate: boo
   const editions = await getReviewLibraryForEmail(email)
   if (editions.length === 0) return { kind: "not_approved" }
   if (!(await readerRoomsSchemaReady())) return { kind: "unavailable", reason: "rooms_not_installed" }
+  if (!(await routingColumnsReady())) return { kind: "unavailable", reason: "rooms_not_installed" }
   const current = async () => {
     const columns = await routingColumnsReady()
     const [row] = (columns
@@ -560,8 +561,11 @@ export async function roomEntryFor(rawEmail: string, options: { allowCreate: boo
     return { row, columns }
   }
   const expected = editionSetKey(editions.map((e) => e.id))
+  // Ready only with proof: the room's last read-back must equal the editions
+  // assigned now. Without the verification columns there is no such proof, so
+  // no room is ever "ready" -- a stale room cannot be reached that way.
   const usable = (row: Awaited<ReturnType<typeof current>>["row"], columns: boolean) =>
-    Boolean(row && row.state === "ready" && row.link_url && (!columns || row.verified_editions === expected))
+    Boolean(columns && row && row.state === "ready" && row.link_url && row.verified_editions === expected)
 
   let { row, columns } = await current()
   if (usable(row, columns)) {

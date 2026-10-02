@@ -20,12 +20,10 @@ import {
   SUBSCRIPTION_MIGRATION_PENDING,
 } from "@/lib/subscription-schema"
 import { activateSubscriberRecord, activationDone } from "@/lib/subscriber-activation"
+import { emailOrigin } from "@/lib/app-url"
 
 const UUID = /^[0-9a-f-]{36}$/i
-const base = () => {
-  if (!process.env.APP_URL) throw new Error("APP_URL is not configured")
-  return process.env.APP_URL.replace(/\/$/, "")
-}
+const base = emailOrigin
 export async function retryReviewNotification(formData: FormData) {
   await requireOwner()
   const id = String(formData.get("id") || "")

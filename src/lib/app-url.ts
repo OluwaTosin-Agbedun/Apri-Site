@@ -17,3 +17,26 @@ export function portalVerificationUrl(token: string): string {
 export function portalSignInUrl(): string {
   return `${APRI_PRODUCTION_URL}/portal/sign-in`
 }
+
+/**
+ * The origin in Complimentary Review emails (review request confirmation,
+ * access and reader sign-in emails, and the manager's links): APP_URL when it
+ * names an http(s) origin, as a sandbox does, otherwise the production site,
+ * exactly as the subscriber emails above.
+ *
+ * Review emails used to require APP_URL and threw before sending when it was
+ * unset. The live deployment has no APP_URL, so every review email failed
+ * there while subscriber emails, which never read it, were delivered.
+ */
+export function emailOrigin(): string {
+  const raw = (process.env.APP_URL ?? '').trim()
+  if (raw) {
+    try {
+      const url = new URL(raw)
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url.origin
+    } catch {
+      // A malformed value falls back to the production site.
+    }
+  }
+  return APRI_PRODUCTION_URL
+}

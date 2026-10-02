@@ -33,6 +33,7 @@ import {
   type PlanKey,
 } from "@/lib/subscription-journey"
 import { subscriptionActivationReady } from "@/lib/subscription-schema"
+import { emailOrigin } from "@/lib/app-url"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -55,11 +56,7 @@ const clean = (v: FormDataEntryValue | null, max: number) =>
   typeof v === "string" ? v.trim().slice(0, max) : ""
 const emailOk = (v: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) && v.length <= 254
-const baseUrl = () => {
-  const value = process.env.APP_URL
-  if (!value) throw new Error("APP_URL is not configured")
-  return value.replace(/\/$/, "")
-}
+const baseUrl = emailOrigin
 
 function attributedSource(self: string, utm: string, referrer: string) {
   const source = utm.toLowerCase()

@@ -8,6 +8,7 @@ import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
 import { enforceReviewRateLimit } from "@/lib/review-security"
 import { sendReviewLibrarySignIn } from "@/lib/review-email"
+import { emailOrigin } from "@/lib/app-url"
 import type { FormState } from "@/lib/definitions"
 import {
   READER_PENDING_COOKIE,
@@ -38,11 +39,7 @@ function destination(edition: unknown): string {
   return UUID.test(id) ? `/review/library/open/${id}` : "/review/library"
 }
 
-function siteUrl(): string {
-  const value = process.env.APP_URL
-  if (!value) throw new Error("APP_URL is not configured")
-  return value.replace(/\/$/, "")
-}
+const siteUrl = emailOrigin
 
 /**
  * Asks for a Review Library sign-in email. The same answer whether or not the

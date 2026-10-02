@@ -182,7 +182,7 @@ The full write-up is in [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.m
 | Access Health | Every subscriber's reconciliation state |
 | Documents | Publication records; **Who gets this edition** (plans, On/Off) |
 | Data Rooms | Map each plan to its Papermark Data Room |
-| Review Library | Daily view: one setup warning if anything is incomplete; editions grouped MIN / AIU / PLM with status, homepage offer, approved-reader count and access health (sync, details, readers with Select all / Unselect all and preview, prepare secure access, publish, offer, withdraw, re-offer, history, order); **Approved readers** (find an email, see exactly what it can open, add or remove per edition, with apply and read-back to Papermark); **Personal rooms** status with **Repair**. **Advanced / Diagnostics**: where the cards lead, the two-reader test and proof, review email delivery records, the address book, library switch and Data Room. |
+| Review Library | Daily view: a short list of problems only when a real one exists (missing settings or migrations, an edition whose readers are not yet applied to Papermark, rooms needing repair, refused emails), checked on the server each time; editions grouped MIN / AIU / PLM with status, homepage offer, approved-reader count and access health (sync, details, readers with Select all / Unselect all and preview, prepare secure access, publish, offer, withdraw, re-offer, history, order); **Approved readers** (find an email, see exactly what it can open, add or remove per edition, with apply and read-back to Papermark); **Personal rooms** status with **Repair**. **Advanced / Diagnostics**: where the cards lead, the two-reader test and proof, review email delivery records, the address book, library switch and Data Room. |
 | Review Requests | Verified prospects, approvals, subscription processing |
 | Engagement | Who is reading what (subscribers and review readers), per edition |
 | Briefings, Copies, Team, Administrators | Briefing requests, issued copies, team portraits, accounts |
@@ -272,7 +272,7 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 |---|---|
 | `DATABASE_URL` | Neon Postgres connection string |
 | `SESSION_SECRET` | Signs all sessions and keys sign-in codes (32+ characters) |
-| `APP_URL` | The deployed origin, used in emailed links |
+| `APP_URL` | Optional. The origin used in review emails when set (for a sandbox). Unset, review and subscriber emails both use `https://apri.athenacentre.org` |
 | `PAPERMARK_API_TOKEN` | Papermark API (server-only) |
 | `PAPERMARK_API_BASE` | Optional, for self-hosted Papermark |
 | `PAPERMARK_CUSTOM_DOMAIN` | Optional verified custom domain for links |
@@ -398,7 +398,16 @@ pnpm check:secrets                # staged changes; --all for every tracked file
 
 ## Current status and what still needs a live check
 
-Last updated **3 October 2026**.
+Last updated **2 October 2026**.
+
+**Fixed (2 October):** every review email failed on the live site. The /review
+confirmation, the Admin access email and the reader sign-in email all required `APP_URL`,
+which the live deployment does not set, and threw before anything was sent. Subscriber
+emails never read it, so they kept arriving. Review emails now use the same production
+origin unless `APP_URL` names another. Evidence (read-only, counts only): after the new code
+was deployed, four reader sign-in requests from the network that had earlier requested a sign-in for an
+approved address left no sign-in token and no email attempt. The new code reads the origin
+before it creates a token, so the failure came before the database step and before any send.
 
 **Live:**
 - the plan-based paid access;

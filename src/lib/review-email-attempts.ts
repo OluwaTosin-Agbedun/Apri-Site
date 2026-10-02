@@ -109,7 +109,7 @@ export type ReviewEmailAttempt = {
 /** The honest one-line status an owner sees for one attempt. */
 export function attemptStatus(a: Pick<ReviewEmailAttempt, "outcome" | "deliveredAt" | "bouncedAt" | "complainedAt" | "delayedAt" | "detail">): string {
   if (a.outcome === "rejected") return `Refused by the email provider: ${a.detail ?? "no reason given"}`
-  if (a.outcome === "not_configured") return "Not sent: email is not configured on this deployment"
+  if (a.outcome === "not_configured") return `Not sent: ${a.detail ?? "email is not configured on this deployment"}`
   if (a.outcome === "unknown") return `Unclear: the provider did not answer clearly (${a.detail ?? "no detail"}). It may still arrive.`
   if (a.bouncedAt) return "Accepted, then bounced (the provider reported it could not be delivered)"
   if (a.complainedAt) return "Delivered, then marked as spam by the recipient"

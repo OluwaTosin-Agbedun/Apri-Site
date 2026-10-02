@@ -20,6 +20,7 @@ import ReviewLibraryForm from "./review-form"
 import ApprovedReadersPanel from "./approved-readers-panel"
 import RoomsStatus from "./rooms-status"
 import { recentReviewEmailAttempts, attemptStatus, maskEmail } from "@/lib/review-email-attempts"
+import { reviewReadiness } from "@/lib/review-readiness"
 
 export const dynamic = "force-dynamic"
 export const metadata = { title: "Review Library · APRI" }
@@ -39,7 +40,7 @@ export default async function ReviewLibraryPage() {
         title="Complimentary Review Library"
         description="Waiting for the per-edition access database migration."
       >
-        <section className="border border-amber-300 bg-amber-50 p-6 text-sm leading-relaxed max-w-2xl">
+        <section className="border border-border p-6 text-sm leading-relaxed max-w-2xl">
           <h3 className="font-serif text-lg mb-2">Database migration required</h3>
           <p className="mb-2">
             This version manages each edition&apos;s approved emails separately, which needs the
@@ -227,11 +228,7 @@ export default async function ReviewLibraryPage() {
   const proof = await reviewRoomsProof()
   const rooms = await roomsForOwner()
   const attempts = await recentReviewEmailAttempts(20)
-  const MODE_TEXT = {
-    papermark: "each edition's own Papermark link (Papermark asks for a code per edition)",
-    library: "the APRI Review Library (an APRI sign-in email, then a Papermark code per edition)",
-    rooms: "each approved reader's personal Papermark room (one Papermark code)",
-  } as const
+  const problems = await reviewReadiness()
 
   return (
     <AdminShell
@@ -240,24 +237,20 @@ export default async function ReviewLibraryPage() {
       title="Complimentary Review Library"
       description="Publish MIN, AIU and PLM editions, choose who may read each one, and see what every reader can open."
     >
-      {effectiveMode !== "rooms" || !proof ? (
-        <div className="mb-8 border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900" role="status">
-          <p>
-            <strong>One setup task:</strong>{" "}one-code personal rooms are not active yet. Run the two-reader Papermark test in
-            Advanced &rarr; Personal rooms, then switch the cards there. Until then, review cards lead to {MODE_TEXT[effectiveMode]}.
+      {problems.length > 0 && (
+        <section className="mb-8 border border-border p-4 text-sm" role="status" aria-label="Reader access problems">
+          <p className="font-medium mb-2">
+            {problems.length === 1 ? "One problem affects reader access" : `${problems.length} problems affect reader access`}
           </p>
-          {effectiveMode === "library" && (
-            <p className="mt-2">
-              That route sends an APRI sign-in email before Papermark&rsquo;s code. To avoid the APRI email until rooms are
-              proven, choose &ldquo;Each edition&rsquo;s own Papermark link&rdquo; in Advanced.
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="mb-8 text-sm text-foreground/80">
-          Review cards open each approved reader&rsquo;s personal Papermark room: Papermark emails one code, which opens all their
-          editions on that browser for about a day.
-        </p>
+          <ul className="list-disc pl-5 space-y-1 text-foreground/80">
+            {problems.map((p) => (
+              <li key={p.key}>
+                {p.level === "blocker" && <span className="font-medium">Blocking: </span>}
+                {p.message}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <ReviewLibraryForm
