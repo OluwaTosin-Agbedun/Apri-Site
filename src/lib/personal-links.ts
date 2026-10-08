@@ -79,9 +79,9 @@ export type PapermarkLinkRead =
   /** A 404. Papermark revokes a link by soft-deleting it, so this means revoked or deleted. */
   | { state: "gone" }
   /** Any other failure. Never taken as proof either way. */
-  | { state: "unknown"; message: string }
+  | { state: "unknown"; message: string; retryAt?: number }
 
-export type MintResult = { ok: true; linkId: string; url: string } | { ok: false; message: string }
+export type MintResult = { ok: true; linkId: string; url: string } | { ok: false; message: string; retryAt?: number }
 
 export type PersonalLinkDeps = {
   /** Every document the subscriber's library lists: the room's present documents. */
@@ -92,12 +92,12 @@ export type PersonalLinkDeps = {
   /** Records a minted link. Resolves to null when a live row already exists for the document. */
   save(document: RoomDocument, minted: { linkId: string; url: string }): Promise<string | null>
   /** Withdraws one link in Papermark. A link that has already gone counts as withdrawn. */
-  withdraw(linkId: string): Promise<{ ok: true } | { ok: false; message: string }>
+  withdraw(linkId: string): Promise<{ ok: true } | { ok: false; message: string; retryAt?: number }>
   /** Marks one stored row revoked. */
   retire(rowId: string): Promise<void>
   read(linkId: string): Promise<PapermarkLinkRead>
   /** Re-applies the subscription's expiry to one stored link. */
-  correctExpiry(link: StoredLink): Promise<{ ok: true } | { ok: false; message: string }>
+  correctExpiry(link: StoredLink): Promise<{ ok: true } | { ok: false; message: string; retryAt?: number }>
 }
 
 /**
@@ -150,9 +150,9 @@ export type DocumentResult =
   /** A stored link that was not checked with Papermark on this run. */
   | { document: RoomDocument; status: "stored" }
   | { document: RoomDocument; status: "repaired"; repair: string }
-  | { document: RoomDocument; status: "failed"; reason: string }
+  | { document: RoomDocument; status: "failed"; reason: string; retryAt?: number }
   /** A stored link Papermark could not be asked about. Not counted as ready. */
-  | { document: RoomDocument; status: "unconfirmed"; reason: string }
+  | { document: RoomDocument; status: "unconfirmed"; reason: string; retryAt?: number }
 
 export type PersonalLinkReport = {
   results: DocumentResult[]
@@ -244,7 +244,7 @@ export async function preparePersonalLinks(
 
   let strays = 0
 
-  async function withdraw(linkId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  async function withdraw(linkId: string): Promise<{ ok: true } | { ok: false; message: string; retryAt?: number }> {
     const outcome = await settle(() => deps.withdraw(linkId))
     if (!outcome.ok) return { ok: false, message: "Papermark could not be reached." }
     return outcome.value
@@ -268,7 +268,7 @@ export async function preparePersonalLinks(
   async function issue(document: RoomDocument): Promise<DocumentResult> {
     const minted = await settle(() => deps.create(document))
     if (!minted.ok) return { document, status: "failed", reason: "Papermark could not be reached." }
-    if (!minted.value.ok) return { document, status: "failed", reason: minted.value.message }
+    if (!minted.value.ok) return { document, status: "failed", reason: minted.value.message, ...(minted.value.retryAt ? { retryAt: minted.value.retryAt } : {}) }
     const recorded = await record(document, minted.value)
     if (recorded === "already") return { document, status: "stored" }
     if (recorded !== "recorded") {
@@ -278,7 +278,7 @@ export async function preparePersonalLinks(
     // A created link counts only once Papermark confirms it opens this document.
     const read = await settle(() => deps.read(minted.value.ok ? minted.value.linkId : ""))
     if (!read.ok || read.value.state === "unknown") {
-      return { document, status: "unconfirmed", reason: "The new link was created, but Papermark could not confirm it yet." }
+      return { document, status: "unconfirmed", reason: "The new link was created, but Papermark could not confirm it yet.", ...(read.ok && read.value.state === "unknown" && read.value.retryAt ? { retryAt: read.value.retryAt } : {}) }
     }
     if (read.value.state === "gone") {
       return { document, status: "failed", reason: "The new link was created, but Papermark no longer reports it." }
@@ -300,6 +300,7 @@ export async function preparePersonalLinks(
       document,
       status: "failed",
       reason: `The stored link ${problem}, and its expiry could not be corrected: ${message}`,
+      ...(outcome.ok && !outcome.value.ok && outcome.value.retryAt ? { retryAt: outcome.value.retryAt } : {}),
     }
   }
 
@@ -394,7 +395,7 @@ export async function preparePersonalLinks(
     }
     const state = read.value
     if (state.state === "unknown") {
-      results.push({ document, status: "unconfirmed", reason: state.message })
+      results.push({ document, status: "unconfirmed", reason: state.message, ...(state.retryAt ? { retryAt: state.retryAt } : {}) })
       continue
     }
     if (state.state === "gone") {

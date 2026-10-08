@@ -135,7 +135,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
         {health ? (
           <>
             <p className="text-foreground">
-              {health.running ? "Running now" : health.outcome ? (OUTCOME_LABEL[health.outcome] ?? health.outcome) : health.state === "pending" ? "Pending" : health.state}
+              {health.running ? "Running now" : health.state === "pending" ? "Waiting — retry scheduled" : health.outcome ? (OUTCOME_LABEL[health.outcome] ?? health.outcome) : health.state}
             </p>
             {health.detail && <p className="text-xs text-red-700 mt-1">{health.detail}</p>}
             {health.problems.length > 0 && (
@@ -146,7 +146,7 @@ export default async function AccessPanel({ subscriberId, canRepair }: { subscri
             <p className="text-xs text-muted-foreground mt-2">
               Last verified {when(health.lastVerifiedAt)} · Requested {when(health.requestedAt)}
               {health.trigger ? ` by ${health.trigger.replace("_", " ")}` : ""}
-              {health.attempts > 0 ? ` · ${health.attempts} failed attempt${health.attempts === 1 ? "" : "s"}, next retry ${when(health.nextAttemptAt)}` : ""}
+              {health.attempts > 0 ? ` · ${health.attempts} attempt${health.attempts === 1 ? "" : "s"}, next retry ${when(health.nextAttemptAt)}` : ""}
             </p>
           </>
         ) : (

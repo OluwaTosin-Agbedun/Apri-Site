@@ -549,7 +549,7 @@ describe("isolation from paid access", () => {
     const service = read(SERVICE)
     const state = body(service, "readReviewLinkState")
     assert.match(state, /if \(result\.status === 404\) return \{ state: 'gone' \}/)
-    assert.match(state, /return \{ state: 'unknown', message: result\.message \}/)
+    assert.match(state, /return \{ state: 'unknown', message: result\.message(?:,| \})/)
     const revoke = body(service, "revokeWithdrawnReviewLink")
     assert.match(revoke, /method: 'DELETE'/)
     assert.equal((revoke.match(/papermarkRequest/g) ?? []).length, 1)

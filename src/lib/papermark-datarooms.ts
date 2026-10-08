@@ -91,7 +91,7 @@ export type LinkAnalytics = {
 
 export type ServiceResult<T> =
   | { ok: true; value: T }
-  | { ok: false; message: string; status: number | null }
+  | { ok: false; message: string; status: number | null; retryAt?: number }
 
 /**
  * Wraps a call so a caller always has a defined path.
@@ -116,6 +116,7 @@ async function attempt<T>(run: () => Promise<T>, context: string): Promise<Servi
       return {
         ok: false,
         status: error.failure?.status ?? null,
+        ...(error.retryAt ? { retryAt: error.retryAt } : {}),
         message: `${context}: ${error.message}`,
       }
     }
@@ -467,7 +468,7 @@ export async function readSubscriberDocumentLink(linkId: string): Promise<Paperm
     }
   }
   if (result.status === 404) return { state: 'gone' }
-  return { state: 'unknown', message: result.message }
+  return { state: 'unknown', message: result.message, ...(result.retryAt ? { retryAt: result.retryAt } : {}) }
 }
 
 // ---------------------------------------------------------------------------
@@ -796,7 +797,7 @@ export async function readReviewLinkState(linkId: string): Promise<ReviewLinkSta
     }
   }
   if (result.status === 404) return { state: 'gone' }
-  return { state: 'unknown', message: result.message }
+  return { state: 'unknown', message: result.message, ...(result.retryAt ? { retryAt: result.retryAt } : {}) }
 }
 
 /**

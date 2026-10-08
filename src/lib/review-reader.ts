@@ -253,7 +253,7 @@ export async function destroyReaderSession(): Promise<void> {
     const email = signedOutEmail
     // The reader's personal Papermark link closes with their last session.
     const { scheduleRoomWindowNarrowing } = await import("./review-reader-rooms")
-    scheduleRoomWindowNarrowing(email)
+    await scheduleRoomWindowNarrowing(email)
   }
 }
 

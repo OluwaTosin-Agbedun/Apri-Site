@@ -4,7 +4,7 @@ import { useActionState } from "react"
 import { prepareRoomsFor, checkAllRooms, prepareAllApprovedRooms } from "@/app/actions/review-reader-rooms"
 import { Busy } from "@/components/Spinner"
 
-type Room = { email: string; state: string; visible: number; verifiedAt: string | null; lastError: string | null; openUntil: string | null }
+type Room = { email: string; state: string; visible: number; verifiedAt: string | null; lastError: string | null; openUntil: string | null; jobState?: string; nextRetryAt?: string | null }
 
 const when = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("en-GB", { timeZone: "Africa/Lagos", dateStyle: "medium", timeStyle: "short" }) : "—"
@@ -72,7 +72,7 @@ export default function ReaderRoomsPanel({ schemaReady, windowReady, rooms }: { 
                     <tr key={r.email} className="border-t border-border align-top">
                       <td className="py-2 pr-3 break-all">{r.email}</td>
                       <td className="py-2 pr-3">
-                        {r.state === "ready" ? "Ready" : r.state === "closed" ? "Closed until repaired" : r.state === "updating" ? "Updating" : "Needs repair"}
+                        {r.jobState === "pending" ? "Waiting — retry scheduled" : r.jobState === "running" ? "Checking access" : r.state === "ready" ? "Ready" : r.state === "closed" ? "Closed until repaired" : r.state === "updating" ? "Updating" : "Needs attention"}
                       </td>
                       <td className="py-2 pr-3">{r.visible}</td>
                       <td className="py-2 pr-3">{r.openUntil && new Date(r.openUntil) > new Date() ? when(r.openUntil) : "Closed (not signed in)"}</td>

@@ -1,6 +1,8 @@
 "use server"
 
 import { after } from "next/server"
+import { papermarkWorkSchemaReady } from "@/lib/papermark-budget"
+import { queueReviewRooms, kickReviewRoomWorker } from "@/lib/review-room-jobs"
 import { revalidatePath } from "next/cache"
 import { requireOwner } from "@/lib/dal"
 import { getSql } from "@/lib/db"
@@ -32,6 +34,12 @@ export async function prepareRoomsFor(_prev: FormState, formData: FormData): Pro
   const approved: string[] = []
   const skipped: string[] = []
   for (const e of emails) ((await readerHasEditions(e)) ? approved : skipped).push(e)
+  if (await papermarkWorkSchemaReady()) {
+    await queueReviewRooms(approved, { create: true })
+    kickReviewRoomWorker()
+    revalidatePath("/admin/review-library")
+    return { ok: skipped.length === 0, message: `Saved ${approved.length} reader repair job(s). Temporary Papermark limits retry automatically; refresh to see the confirmed result.${skipped.length ? ` Not approved: ${skipped.join(", ")}` : ""}` }
+  }
   const results = await prepareReaderRooms(approved)
   revalidatePath("/admin/review-library")
   const lines = results.map((r) => `${r.email}: ${r.message}`)
@@ -44,6 +52,13 @@ export async function checkAllRooms(_prev: FormState): Promise<FormState> {
   await requireOwner()
   const blocked = await ready()
   if (blocked) return blocked
+  if (await papermarkWorkSchemaReady()) {
+    const rows = await getSql()`select email from review_reader_rooms`
+    await queueReviewRooms(rows.map((r) => r.email))
+    kickReviewRoomWorker()
+    revalidatePath("/admin/review-library")
+    return { ok: true, message: `Saved ${rows.length} checks. Already matching permissions will not be rewritten. Temporary limits retry automatically.` }
+  }
   after(async () => {
     try {
       await reconcileAllReaderRooms()
@@ -66,6 +81,12 @@ export async function prepareAllApprovedRooms(_prev: FormState): Promise<FormSta
   `) as { email: string }[]
   const emails = rows.map((r) => r.email)
   if (emails.length === 0) return { ok: true, message: "Every approved reader already has a ready room." }
+  if (await papermarkWorkSchemaReady()) {
+    await queueReviewRooms(emails, { create: true })
+    kickReviewRoomWorker()
+    revalidatePath("/admin/review-library")
+    return { ok: true, message: `Saved ${emails.length} preparation jobs. Each reader becomes Ready only after Papermark confirms their access.` }
+  }
   after(async () => {
     try {
       await prepareReaderRooms(emails)

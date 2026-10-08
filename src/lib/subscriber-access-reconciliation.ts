@@ -1,5 +1,6 @@
 import "server-only"
 import { randomUUID } from "node:crypto"
+import { papermarkWorkSchemaReady } from "./papermark-budget"
 import { getSql } from "./db"
 import {
   loadSubscriberAccess,
@@ -86,7 +87,7 @@ export type ReconcileCounts = {
   roomLinksRetired: number
 }
 
-export type ReconcileProblem = { title: string; reason: string }
+export type ReconcileProblem = { title: string; reason: string; retryAt?: number }
 
 export type ReconcileResult = {
   state: "complete" | "failed" | "busy" | "unavailable" | "not_applicable" | "superseded"
@@ -286,6 +287,7 @@ export type ReconcileOptions = {
   prospective?: boolean
   /** @deprecated Use `prospective`. */
   allowPending?: boolean
+  deadline?: number
 }
 
 export async function reconcileSubscriberAccess(subscriberId: string, options: ReconcileOptions = {}): Promise<ReconcileResult> {
@@ -303,6 +305,7 @@ export async function reconcileSubscriberAccess(subscriberId: string, options: R
     const run = await runOnce(sql, subscriberId, {
       trigger: options.trigger ?? "admin_repair",
       prospective: options.prospective === true || options.allowPending === true,
+      deadline: options.deadline,
     })
     if (run.state !== "superseded") return run
   }
@@ -312,7 +315,7 @@ export async function reconcileSubscriberAccess(subscriberId: string, options: R
 async function runOnce(
   sql: ReturnType<typeof getSql>,
   subscriberId: string,
-  options: { trigger: ReconcileTrigger; prospective: boolean },
+  options: { trigger: ReconcileTrigger; prospective: boolean; deadline?: number },
 ): Promise<ReconcileResult> {
   try {
     await ensureReconciliationRow(subscriberId)
@@ -397,20 +400,20 @@ async function runOnce(
         await markDocumentLinkRevoked(link.rowId)
         counts.revoked++
       } else {
-        problems.push({ title: link.title, reason: outcome.message })
+        problems.push({ title: link.title, reason: outcome.message, ...(outcome.retryAt ? { retryAt: outcome.retryAt } : {}) })
       }
     }
 
     // 2. Every allowed document: a verified personal link.
     const allowed = access.documents.filter((d) => d.decision.outcome === "allowed")
-    const report = allowed.length === 0 ? null : await prepareAllowed(sql, access, allowed, { subscriberId, generation, token })
+    const report = allowed.length === 0 ? null : await prepareAllowed(sql, access, allowed, { subscriberId, generation, token, deadline: options.deadline })
     if (report) {
       counts.created = report.created
       counts.repaired = report.repaired
       counts.verified = report.confirmed + report.created + report.repaired
       counts.notReady = report.failed + report.unconfirmed
       for (const r of report.results) {
-        if (r.status === "failed" || r.status === "unconfirmed") problems.push({ title: r.document.title, reason: r.reason })
+        if (r.status === "failed" || r.status === "unconfirmed") problems.push({ title: r.document.title, reason: r.reason, ...(r.retryAt ? { retryAt: r.retryAt } : {}) })
       }
       if (report.fenced) return await superseded(release)
     }
@@ -421,7 +424,7 @@ async function runOnce(
         if (!(await current())) return await superseded(release)
         const outcome = await withdrawConfirmed(room.papermark_link_id)
         if (!outcome.ok) {
-          problems.push({ title: "Unrestricted Data Room link", reason: outcome.message })
+          problems.push({ title: "Unrestricted Data Room link", reason: outcome.message, ...(outcome.retryAt ? { retryAt: outcome.retryAt } : {}) })
           continue
         }
         await sql`update papermark_dataroom_links set revoke_state = 'revoked', revoked_at = now(), updated_at = now() where id = ${room.id}::uuid`
@@ -462,15 +465,15 @@ async function superseded(release: () => Promise<void>): Promise<ReconcileResult
 }
 
 /** Withdraws a link in Papermark and confirms it no longer opens. */
-async function withdrawConfirmed(linkId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+async function withdrawConfirmed(linkId: string): Promise<{ ok: true } | { ok: false; message: string; retryAt?: number }> {
   const removed = await revokeDataRoomLink(linkId)
-  if (!removed.ok) return { ok: false, message: `Papermark did not withdraw the link (${removed.message}). It stays recorded; retry.` }
+  if (!removed.ok) return { ok: false, message: `Papermark did not withdraw the link (${removed.message}). It stays recorded; retry.`, ...(removed.retryAt ? { retryAt: removed.retryAt } : {}) }
   const check = await readSubscriberDocumentLink(linkId)
-  if (check.state !== "gone") return { ok: false, message: "Papermark could not confirm the link was withdrawn. It stays recorded; retry." }
+  if (check.state !== "gone") return { ok: false, message: "Papermark could not confirm the link was withdrawn. It stays recorded; retry.", ...(check.state === "unknown" && check.retryAt ? { retryAt: check.retryAt } : {}) }
   return { ok: true }
 }
 
-type Fence = { subscriberId: string; generation: number; token: string }
+type Fence = { subscriberId: string; generation: number; token: string; deadline?: number }
 
 async function prepareAllowed(
   sql: ReturnType<typeof getSql>,
@@ -502,6 +505,7 @@ async function prepareAllowed(
       documents,
       stored,
       create: async (document) => {
+        if (fence.deadline && Date.now() > fence.deadline) return { ok: false as const, message: "Worker time slice completed. Retry scheduled.", retryAt: Date.now() + 5000 }
         const created = await createDocumentLink({
           documentId: document.papermarkDocumentId,
           assignedName: sub.fullName,
@@ -509,7 +513,7 @@ async function prepareAllowed(
           expiresAt: termEnd,
           documentTitle: document.title,
         })
-        if (!created.ok) return { ok: false as const, message: created.message }
+        if (!created.ok) return { ok: false as const, message: created.message, ...(created.retryAt ? { retryAt: created.retryAt } : {}) }
         minted.set(created.value.linkId, created.value.settings)
         return { ok: true as const, linkId: created.value.linkId, url: created.value.url }
       },
@@ -553,7 +557,23 @@ async function prepareAllowed(
         return removed.ok ? { ok: true as const } : { ok: false as const, message: removed.message }
       },
       retire: (rowId) => markDocumentLinkRevoked(rowId),
-      read: (linkId) => readSubscriberDocumentLink(linkId),
+      read: async (linkId) => {
+        if (fence.deadline && Date.now() > fence.deadline) return { state: "unknown" as const, message: "Worker time slice completed. Retry scheduled.", retryAt: Date.now() + 5000 }
+        const resumable = await papermarkWorkSchemaReady()
+        if (resumable) {
+          const [cached] = await sql`select verification_result from papermark_subscriber_document_links
+            where subscriber_id = ${fence.subscriberId}::uuid and papermark_link_id = ${linkId} and revoke_state = 'live'
+              and verification_generation = ${fence.generation} and last_verified_at > now() - interval '15 minutes'`
+          if (cached?.verification_result) return cached.verification_result
+        }
+        const read = await readSubscriberDocumentLink(linkId)
+        if (resumable && read.state === "found") await sql`update papermark_subscriber_document_links
+          set verification_result = ${JSON.stringify(read)}::jsonb, verification_generation = ${fence.generation}, last_verified_at = now()
+          where subscriber_id = ${fence.subscriberId}::uuid and papermark_link_id = ${linkId} and revoke_state = 'live'
+            and exists (select 1 from subscriber_access_reconciliations r where r.subscriber_id = ${fence.subscriberId}::uuid
+              and r.generation = ${fence.generation} and r.lease_token = ${fence.token}::uuid and r.lease_expires_at > now())`
+        return read
+      },
       correctExpiry: async (link) => {
         const row = linkByRow.get(link.rowId)
         // The same identity and download setting the link was issued with.
@@ -564,9 +584,10 @@ async function prepareAllowed(
           expiresAt: termEnd,
           allowDownload: row?.allowDownload,
         })
-        if (!updated.ok) return { ok: false as const, message: updated.message }
+        if (!updated.ok) return { ok: false as const, message: updated.message, ...(updated.retryAt ? { retryAt: updated.retryAt } : {}) }
         const expiry = papermarkExpiresAt(termEnd)
         await setPersonalLinkExpiry(link.rowId, expiry.ok ? expiry.value : null)
+        if (await papermarkWorkSchemaReady()) await sql`update papermark_subscriber_document_links set verification_result = null, verification_generation = null, last_verified_at = null where id = ${link.rowId}::uuid`
         return { ok: true as const }
       },
     },
@@ -584,6 +605,9 @@ async function record(
   run: ReconcileResult,
   documents: readonly DocumentAccess[] = [],
 ): Promise<ReconcileResult> {
+  const delayed = run.problems.some((p) => p.retryAt)
+  const retryAt = Math.max(Date.now() + 5000, ...run.problems.map((p) => p.retryAt ?? 0))
+  if (delayed) run.message = "Waiting for Papermark. Retry scheduled; existing document links are retained."
   const ok = run.state === "complete" || run.state === "not_applicable"
   const attempts = ok ? 0 : target.attempts + 1
   const backoff = BACKOFF_MINUTES[Math.min(attempts - 1, BACKOFF_MINUTES.length - 1)] ?? 5
@@ -599,14 +623,14 @@ async function record(
   })
   const rows = (await sql`
     update subscriber_access_reconciliations
-    set state = ${run.state === "complete" ? "complete" : run.state === "not_applicable" ? "complete" : "failed"},
+    set state = ${delayed ? "pending" : run.state === "complete" ? "complete" : run.state === "not_applicable" ? "complete" : "failed"},
         outcome = ${run.outcome},
         detail = ${ok ? null : run.message},
         expected = ${run.counts.expected}, verified = ${run.counts.verified}, missing = ${run.counts.notReady},
         excluded = ${run.counts.excluded}, unresolved = ${run.counts.unresolved}, failed = ${run.problems.length},
         summary = ${summary}::jsonb,
         attempts = ${attempts},
-        next_attempt_at = ${ok ? null : `${backoff} minutes`}::interval + now(),
+        next_attempt_at = case when ${delayed} then ${new Date(retryAt).toISOString()}::timestamptz else ${ok ? null : `${backoff} minutes`}::interval + now() end,
         last_verified_at = case when ${run.outcome !== "failed"}::boolean then now() else last_verified_at end,
         completed_at = case when ${ok}::boolean then now() else null end,
         lease_token = null, lease_expires_at = null, updated_at = now()
@@ -742,4 +766,24 @@ export async function reconcileIfDue(subscriberId: string): Promise<void> {
   const exists = (await sql`select 1 from subscriber_access_reconciliations where subscriber_id = ${subscriberId}::uuid`) as unknown[]
   if (exists.length > 0 && rows.length === 0) return
   await reconcileSubscriberAccess(subscriberId, { trigger: "portal" })
+}
+
+/** Bounded retry of the existing paid-access queue. Never activates or sends mail. */
+export async function drainSubscriberAccessJobs(options: { budgetMs?: number; maxJobs?: number } = {}) {
+  const sql = getSql()
+  if (!(await accessHealthSchemaReady(sql))) return { processed: 0 }
+  const deadline = Date.now() + Math.min(options.budgetMs ?? 20_000, 40_000)
+  const due = await sql`select r.subscriber_id from subscriber_access_reconciliations r
+    join subscribers s on s.id = r.subscriber_id
+    where r.state in ('pending', 'failed') and s.status <> 'pending'
+      and (r.next_attempt_at is null or r.next_attempt_at <= now())
+      and (r.lease_token is null or r.lease_expires_at < now())
+    order by r.next_attempt_at nulls first, r.requested_at limit ${options.maxJobs ?? 1}`
+  let processed = 0
+  for (const r of due) {
+    if (Date.now() >= deadline) break
+    await reconcileSubscriberAccess(r.subscriber_id, { trigger: "batch", deadline })
+    processed++
+  }
+  return { processed }
 }

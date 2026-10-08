@@ -12,7 +12,7 @@ import { describe, it, before, after } from "node:test"
 import assert from "node:assert/strict"
 import { registerHooks } from "node:module"
 import { createServer } from "node:http"
-import { createHmac } from "node:crypto"
+import { createHmac, createHash } from "node:crypto"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { existsSync } from "node:fs"
 import { join, dirname } from "node:path"
@@ -390,6 +390,10 @@ describe("provider limits are reported, not hidden", () => {
   })
 
   it("a permission refusal is recorded for Diagnostics, and cleared once analytics answer again", async () => {
+    // The preceding test intentionally persisted a 90-second provider cooldown.
+    // Simulate its reset before testing a distinct 403 permission failure.
+    await sql`update papermark_api_budgets set cooldown_until = 'epoch', next_slot_at = 'epoch'
+      where bucket like ${`${createHash("sha256").update("test-token-not-a-secret").digest("hex")}%`}`
     await view("f1", { subscriberId: D.id, documentId: id("doc-P"), readerType: "subscriber", method: "dataroom-link", viewedAt: days(0.1), email: D.email })
     mode = "forbidden"
     const refused = await enrichViewPages({ limit: 500, startedAt: Date.now(), budgetMs: 10_000 })

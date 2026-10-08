@@ -143,7 +143,7 @@ API token is attached.
 |---|---|---|
 | Paid editions | One exact-document link per subscriber per edition | Their email as allow list, their name in the watermark, downloads per plan policy |
 | Review editions (per edition) | One document link per edition | That edition's recipients as allow list, email code, `{{email}}` watermark, screenshot protection, personalised downloads after verified upgrade |
-| Review rooms (per reader) | A group in the Review Data Room plus one group link | The reader is the only member; a permission row for every room document (view only where assigned, download never); email code; watermark; screenshot protection |
+| Review rooms (per reader) | A group in the Review Data Room plus one group link | The reader is the only member; a permission row for every room document (view and download only where assigned); email code; watermark; screenshot protection |
 
 **Engagement:** views come from the Papermark poll (daily) and the webhook. They are attributed
 per reader and edition, and appear in **Admin → Engagement**.
@@ -302,7 +302,8 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 | `PAPERMARK_WEBHOOK_SECRET` | Verifies Papermark webhooks (the webhook answers 503 without it) |
 | `PAPERMARK_OPEN_EDITIONS_FOLDER_ID`, `PAPERMARK_OPEN_FOLDER_ID` | Public Open Editions folders |
 | `PAPERMARK_SUBSCRIBERS_FOLDER_ID`, `PAPERMARK_BRIEFINGS_FOLDER_ID` | Client folder roots |
-| `PAPERMARK_ROOM_CALLS_PER_MINUTE` | Optional pacing for reader-room calls (default 50) |
+| `PAPERMARK_CALLS_PER_MINUTE` | Shared token budget for all calls; default and maximum 45/minute. Requires `20261012`. |
+| `PAPERMARK_ANALYTICS_CALLS_PER_MINUTE` | Additional analytics budget; default and maximum 10/minute. |
 | `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET` | Email sending and delivery events |
 | `RESEND_FROM_EMAIL`, `SUBSCRIBER_FROM_EMAIL`, `BRIEFING_FROM_EMAIL`, `BRIEFING_MANAGER_EMAIL` | Senders and the briefing manager |
 | `REVIEW_FROM_EMAIL` | Optional verified sender for review emails; otherwise they use the subscriber sender |
@@ -354,6 +355,7 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 | 29 | `20261009_review_reader_rooms.sql` | Personal Papermark rooms per reader |
 | 30 | `20261010_review_access_reliability.sql` | Owner-only review email outcomes and delivery events; room routing columns (confirmed edition set, per-reader lease) |
 | 31 | `20261011_review_reader_open_window.sql` | When each reader's personal Papermark link closes, and which room document is each edition: turns on direct, code-free Read |
+| 32 | `20261012_papermark_work_queue.sql` | Shared Papermark pacing, saved reader repair jobs, owned leases and resumable paid verification |
 
 A read-only check on 2 October 2026 found every migration through `20261010` applied in
 production. `20261011` is new: until it is applied, the library sends readers to each edition's
@@ -407,6 +409,19 @@ pnpm check:secrets                # staged changes; --all for every tracked file
 | `/api/cron/dataroom-sync` | Daily 04:00 UTC | Syncs Data Room documents |
 | `/api/cron/engagement-digest` | Mondays 07:00 UTC | Weekly engagement digest |
 
+**Saved access jobs:** `/api/cron/papermark-work` resumes bounded reader and subscriber
+repairs and accepts `CRON_SECRET` only in the Authorization header. Admin repairs save work
+before responding; the Review Library refreshes every 15 seconds while waiting. Existing
+verified access survives an unchanged maintenance check that hits a temporary limit.
+
+On Vercel Hobby, `.github/workflows/papermark-worker.yml` in the **source repository**
+provides an hourly unattended retry, plus manual **Run workflow**. After deploying the
+route, configure its repository `CRON_SECRET` secret from the existing Vercel value.
+It uses GitHub Actions minutes. No per-minute Vercel cron is added, so Hobby deployment
+remains supported. Daily Data Room sync is also a retry opportunity. Scheduled Actions
+can be delayed; the saved jobs and leases remain recoverable. See
+[`docs/papermark-repair-stability.md`](docs/papermark-repair-stability.md) for exact steps.
+
 **Scripts** (`scripts/`):
 
 | Script | Use |
@@ -423,6 +438,15 @@ pnpm check:secrets                # staged changes; --all for every tracked file
 ## Current status and what still needs a live check
 
 Last updated **8 October 2026**.
+
+**Papermark repair stability:** apply `20261012_papermark_work_queue.sql` before deploying
+this change. All API helpers share pacing across instances after that migration. Temporary
+429/network/5xx delays use saved retries rather than false repair failures; jobs are
+coalesced per reader, fenced by generation and owned lease, and interrupted paid batches
+reuse verified reads within the same input generation for up to 15 minutes. New Admin
+changes invalidate that generation. Approved review downloads, 24-hour reader sessions,
+subscriber sessions, entitlement rules and onboarding email gates remain in force.
+Development checks use invented data and a mock Papermark, not the live provider.
 
 **Fixed (2 October):** every review email failed on the live site. The /review
 confirmation, the Admin access email and the reader sign-in email all required `APP_URL`,
@@ -482,6 +506,7 @@ coverage uses the isolated database and a mock provider.
 
 - [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.md): the sign-in incident, root cause,
   fix and live acceptance test.
+- [`docs/papermark-repair-stability.md`](docs/papermark-repair-stability.md): durable repairs, shared pacing, Hobby worker setup and recovery checks.
 - [`docs/review-reader-library.md`](docs/review-reader-library.md): the one-code Review Library,
   what hosted Papermark permits and why APRI performs the check, the personal links, migrations
   and the live acceptance checks.

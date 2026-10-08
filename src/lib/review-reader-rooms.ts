@@ -1,9 +1,12 @@
 import "server-only"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { after } from "next/server"
 import { getSql } from "./db"
-import { papermarkRequest, PapermarkError, isPapermarkConfigured } from "./papermark"
+import { papermarkRequest, PapermarkError, isPapermarkConfigured, papermarkRetryAt } from "./papermark"
 import { getReviewLibraryForEmail } from "./publications"
+import { papermarkWorkSchemaReady } from "./papermark-budget"
+import { queueReviewRooms, deferReviewRoom, readerRoomJob, listRoomJobs, kickReviewRoomWorker } from "./review-room-jobs"
+import { roomLease, guardRoomWork, RoomWorkDeferred } from "./review-room-lease"
 import {
   permissionPlan,
   comparePermissions,
@@ -42,6 +45,7 @@ export type RoomResult = {
   message: string
   visible: number
   hidden: number
+  retryAt?: number
 }
 
 type RoomRow = {
@@ -54,6 +58,7 @@ type RoomRow = {
   verified_visible: string | null
   verified_at: string | null
   last_error: string | null
+  uncertain_creation?: string | null
   verified_editions?: string | null
   lease_until?: string | null
   link_open_until?: string | Date | null
@@ -66,14 +71,12 @@ type Page<T> = { data?: T[]; next_cursor?: string | null } | T[]
 // Papermark calls, paced under the documented 60 requests a minute.
 // ---------------------------------------------------------------------------
 
-const recent: number[] = []
 async function paced<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
-  const now = Date.now()
-  while (recent.length && now - recent[0]! > 60_000) recent.shift()
-  const limit = Number(process.env.PAPERMARK_ROOM_CALLS_PER_MINUTE) || 50
-  if (recent.length >= limit) await new Promise((r) => setTimeout(r, 60_000 - (now - recent[0]!) + 50))
-  recent.push(Date.now())
-  return papermarkRequest<T>(path, options)
+  await guardRoomWork()
+  const response = await papermarkRequest<T>(path, options)
+  // Mutations with returned IDs are recorded by the caller before any next
+  // call. Every subsequent write/call is fenced against stale work.
+  return response
 }
 
 async function listAll<T>(path: string): Promise<T[]> {
@@ -157,11 +160,13 @@ export async function openWindowReady(): Promise<boolean> {
 
 async function saveWindow(email: string, until: string | null, documents?: Record<string, string>) {
   if (!(await openWindowReady())) return
+  await guardRoomWork()
+  const owner = await papermarkWorkSchemaReady() ? roomLease.getStore()?.token ?? null : null
   const sql = getSql()
   if (documents) {
-    await sql`update review_reader_rooms set link_open_until = ${until}::timestamptz, room_documents = ${JSON.stringify(documents)}::jsonb where email = ${email}`
+    await sql`update review_reader_rooms set link_open_until = ${until}::timestamptz, room_documents = ${JSON.stringify(documents)}::jsonb where email = ${email} and (${owner}::text is null or to_jsonb(review_reader_rooms)->>'lease_owner' = ${owner})`
   } else {
-    await sql`update review_reader_rooms set link_open_until = ${until}::timestamptz where email = ${email}`
+    await sql`update review_reader_rooms set link_open_until = ${until}::timestamptz where email = ${email} and (${owner}::text is null or to_jsonb(review_reader_rooms)->>'lease_owner' = ${owner})`
   }
 }
 
@@ -176,19 +181,21 @@ export function roomPolicyKey(editionIds: readonly string[]): string {
 }
 
 /** One reconcile per reader at a time: a short lease, taken atomically. */
-async function takeLease(email: string): Promise<boolean> {
-  if (!(await routingColumnsReady())) return true
-  const rows = (await getSql()`
-    update review_reader_rooms set lease_until = now() + interval '3 minutes'
-    where email = ${email} and (lease_until is null or lease_until < now())
-    returning email
-  `) as { email: string }[]
-  return rows.length > 0
+async function takeLease(email: string): Promise<string | null> {
+  const token = randomUUID()
+  if (!(await routingColumnsReady())) return token
+  const rows = await (await papermarkWorkSchemaReady()
+    ? getSql()`update review_reader_rooms set lease_until = now() + interval '3 minutes', lease_owner = ${token}::uuid
+        where email = ${email} and (lease_until is null or lease_until < now()) returning email`
+    : getSql()`update review_reader_rooms set lease_until = now() + interval '3 minutes'
+        where email = ${email} and (lease_until is null or lease_until < now()) returning email`)
+  return rows.length ? token : null
 }
-async function dropLease(email: string): Promise<void> {
+async function dropLease(email: string, token: string): Promise<void> {
   if (!(await routingColumnsReady())) return
   try {
-    await getSql()`update review_reader_rooms set lease_until = null where email = ${email}`
+    if (await papermarkWorkSchemaReady()) await getSql()`update review_reader_rooms set lease_until = null, lease_owner = null where email = ${email} and lease_owner = ${token}::uuid`
+    else await getSql()`update review_reader_rooms set lease_until = null where email = ${email}`
   } catch {}
 }
 
@@ -220,6 +227,8 @@ async function event(email: string, type: string, detail?: string) {
 }
 
 async function save(email: string, patch: Partial<RoomRow>) {
+  await guardRoomWork()
+  const owner = await papermarkWorkSchemaReady() ? roomLease.getStore()?.token ?? null : null
   const sql = getSql()
   await sql`
     update review_reader_rooms set
@@ -231,8 +240,34 @@ async function save(email: string, patch: Partial<RoomRow>) {
       verified_at = case when ${patch.verified_at === undefined} then verified_at else ${patch.verified_at ?? null}::timestamptz end,
       last_error = case when ${patch.last_error === undefined} then last_error else ${patch.last_error ?? null} end,
       updated_at = now()
-    where email = ${email}
+    where email = ${email} and (${owner}::text is null or to_jsonb(review_reader_rooms)->>'lease_owner' = ${owner})
   `
+}
+
+/** Persist intent before POST so a crash cannot cause an untracked duplicate. */
+async function beginRoomCreation(email: string, kind: "group" | "link") {
+  if (!(await papermarkWorkSchemaReady())) return
+  await guardRoomWork()
+  const owner = roomLease.getStore()?.token ?? null
+  const rows = await getSql()`update review_reader_rooms set uncertain_creation = ${`Awaiting ${kind} creation result`}
+    where email = ${email} and lease_owner = ${owner}::uuid returning email`
+  if (!rows.length) throw new RoomWorkDeferred(Date.now() + 5000)
+}
+async function recordCreatedRoomObject(email: string, kind: "group" | "link", id: string, url?: string) {
+  if (!(await papermarkWorkSchemaReady())) {
+    await save(email, kind === "group" ? { papermark_group_id: id } : { papermark_link_id: id, link_url: url ?? null })
+    return
+  }
+  // Record the returned ID even when a newer input generation arrived during
+  // POST; it remains unverified. Its current lease owner must still match.
+  const owner = roomLease.getStore()?.token ?? null
+  const rows = await getSql()`update review_reader_rooms set
+    papermark_group_id = case when ${kind} = 'group' then ${id} else papermark_group_id end,
+    papermark_link_id = case when ${kind} = 'link' then ${id} else papermark_link_id end,
+    link_url = case when ${kind} = 'link' then ${url ?? null} else link_url end,
+    uncertain_creation = null
+    where email = ${email} and lease_owner = ${owner}::uuid returning email`
+  if (!rows.length) throw new RoomWorkDeferred(Date.now() + 5000)
 }
 
 /**
@@ -246,27 +281,36 @@ async function closeLink(row: RoomRow, reason: string): Promise<RoomResult> {
     await save(row.email, { state: "closed", last_error: reason })
     return { email: row.email, state: "closed", message: reason, visible: 0, hidden: 0 }
   }
+  let retryAt: number | null = null
   try {
-    await paced(`/v1/links/${enc(row.papermark_link_id)}`, { method: "PATCH", body: { expires_at: closedAt() } })
-    const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
+    await paced(`/v1/links/${enc(row.papermark_link_id!)}`, { method: "PATCH", body: { expires_at: closedAt() } })
+    const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id!)}`)
     if (back.expires_at && new Date(back.expires_at) <= new Date()) {
       await save(row.email, { state: "closed", last_error: reason })
       await saveWindow(row.email, null)
       await event(row.email, "link_closed", reason)
       return { email: row.email, state: "closed", message: `Link closed until repaired: ${reason}`, visible: 0, hidden: 0 }
     }
-  } catch {}
+  } catch (error) { retryAt = error instanceof RoomWorkDeferred ? error.retryAt : papermarkRetryAt(error) }
   try {
-    await paced(`/v1/links/${enc(row.papermark_link_id)}`, { method: "DELETE" })
+    await paced(`/v1/links/${enc(row.papermark_link_id!)}`, { method: "DELETE" })
+    let gone = false
+    try { await paced(`/v1/links/${enc(row.papermark_link_id!)}`) } catch (error) {
+      gone = error instanceof PapermarkError && error.failure?.status === 404
+      if (!gone) throw error
+    }
+    if (!gone) throw new PapermarkError("Papermark still reports the link after deletion.")
     await save(row.email, { state: "closed", papermark_link_id: null, link_url: null, last_error: reason })
     await saveWindow(row.email, null)
     await event(row.email, "link_closed", `deleted: ${reason}`)
     return { email: row.email, state: "closed", message: `Link removed until repaired: ${reason}`, visible: 0, hidden: 0 }
-  } catch {
+  } catch (error) {
+    retryAt = (error instanceof RoomWorkDeferred ? error.retryAt : papermarkRetryAt(error)) ?? retryAt
     const message = `${reason} The reader's link could NOT be closed: remove link ${row.papermark_link_id} in Papermark now.`
     await save(row.email, { state: "failed", last_error: message })
     await event(row.email, "link_close_failed", message)
-    return { email: row.email, state: "failed", message, visible: 0, hidden: 0 }
+    if (retryAt) await deferReviewRoom(row.email, retryAt, message)
+    return { email: row.email, state: "failed", message, visible: 0, hidden: 0, ...(retryAt ? { retryAt } : {}) }
   }
 }
 
@@ -276,7 +320,7 @@ async function closeLink(row: RoomRow, reason: string): Promise<RoomResult> {
  * reader has none (Admin's "Prepare"); otherwise a reader without a room is
  * left alone.
  */
-export async function reconcileReaderRoom(rawEmail: string, options: { create?: boolean; docs?: RoomDocument[] } = {}): Promise<RoomResult> {
+export async function reconcileReaderRoom(rawEmail: string, options: { create?: boolean; docs?: RoomDocument[]; job?: { generation: number; token: string }; deadline?: number } = {}): Promise<RoomResult> {
   const email = rawEmail.trim().toLowerCase()
   const sql = getSql()
   // A reader about to get a room has a row (and so a lease) first.
@@ -290,13 +334,12 @@ export async function reconcileReaderRoom(rawEmail: string, options: { create?: 
   const [exists] = (await readerRoomsSchemaReady())
     ? ((await sql`select 1 from review_reader_rooms where email = ${email}`) as unknown[])
     : []
-  if (exists && !(await takeLease(email))) {
-    return { email, state: "updating", message: "Another update for this reader is already running; it will finish shortly.", visible: 0, hidden: 0 }
-  }
+  const token = exists ? await takeLease(email) : randomUUID()
+  if (!token) return { email, state: "updating", message: "Another update for this reader is already running; it will finish shortly.", visible: 0, hidden: 0, retryAt: Date.now() + 5000 }
   try {
-    return await reconcileLeased(email, options)
+    return await roomLease.run({ email, token, job: options.job, deadline: options.deadline }, () => reconcileLeased(email, options))
   } finally {
-    if (exists) await dropLease(email)
+    if (exists) await dropLease(email, token)
   }
 }
 
@@ -312,12 +355,15 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
   if (!roomId) return row ? closeLink(row, "The Review Data Room could not be identified (published editions are in none, or more than one, room).") : none("The Review Data Room could not be identified.")
   if (row && row.papermark_dataroom_id !== roomId) return closeLink(row, "The Review Data Room changed; this room must be rebuilt.")
 
+  const baseline = row ? { ...row } : null
+  let intendedEditions: string[] | null = null
   let intendedVisible: string[] | null = null
   try {
     // What the reader should see: the published editions assigned to them,
     // by the same rule as the APRI library. Everything else in the room is
     // hidden -- withdrawn, unassigned and newly added documents alike.
     const editions = await getReviewLibraryForEmail(email)
+    intendedEditions = editions.map((e) => e.id)
     const docs = options.docs ?? (await roomDocuments(roomId))
     const byDocument = new Map(docs.map((d) => [d.document_id, d.id]))
     const visible = editions.map((e) => byDocument.get(e.papermarkDocumentId)).filter((id): id is string => Boolean(id))
@@ -330,17 +376,26 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
       await sql`insert into review_reader_rooms (email, papermark_dataroom_id, state) values (${email}, ${roomId}, 'updating') on conflict (email) do nothing`
       ;[row] = (await sql`select * from review_reader_rooms where email = ${email}`) as RoomRow[]
     }
-    await save(email, { state: "updating" })
+    if (notInRoom.length > 0) {
+      const message = `Assigned PDF missing from the Review Data Room: ${notInRoom.join("; ").slice(0, 300)}. Correct the room contents before repairing again.`
+      await save(email, { state: "failed", last_error: message })
+      return { email, state: "failed", message, visible: 0, hidden }
+    }
+    // An unchanged verified room stays usable during a maintenance check.
+    if (!(baseline?.state === "ready" && baseline.verified_editions === roomPolicyKey(intendedEditions))) await save(email, { state: "updating" })
+    if (row?.uncertain_creation) return { email, state: "failed", message: "A previous creation timed out without returning its ID. Inspect Papermark before creating another object.", visible: 0, hidden }
 
     // 1. The group: this reader's only, admitting no domain and not everyone.
     let groupId = row!.papermark_group_id
     if (!groupId) {
+      await beginRoomCreation(email, "group")
       const created = await paced<{ id: string }>(`/v1/datarooms/${enc(roomId)}/groups`, {
         method: "POST",
         body: { name: groupName(email), allow_all: false, domains: [] },
       })
+      if (!created.id) throw new PapermarkError("Papermark created a group without returning its ID.", undefined, { mutationUnknown: true })
       groupId = created.id
-      await save(email, { papermark_group_id: groupId })
+      await recordCreatedRoomObject(email, "group", groupId)
       await event(email, "group_created")
     }
     const group = await paced<{ id: string; allow_all: boolean; domains: string[]; dataroom_id: string }>(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}`)
@@ -356,17 +411,32 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     if (!members.some((m) => m.email.trim().toLowerCase() === email)) {
       await paced(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/members`, { method: "POST", body: { emails: [email] } })
     }
-    const confirmedMembers = await listAll<{ email: string }>(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/members`)
+    const membershipChanged = members.length !== 1 || members[0]?.email.trim().toLowerCase() !== email
+    const confirmedMembers = membershipChanged ? await listAll<{ email: string }>(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/members`) : members
     if (confirmedMembers.length !== 1 || confirmedMembers[0]!.email.trim().toLowerCase() !== email) {
       return closeLink({ ...row!, papermark_group_id: groupId }, "Papermark did not confirm that this reader is the group's only member.")
     }
 
     // 3. A row for every room document, then read back.
     const plan = permissionPlan(docs.map((d) => d.id), visible)
-    for (let i = 0; i < plan.length; i += 1000) {
-      await paced(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/permissions`, { method: "PUT", body: { permissions: plan.slice(i, i + 1000) } })
+    let actual = await listAll<ReadPermission>(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/permissions`)
+    if (actual.some((p) => p.item_type !== "dataroom_document" && (p.can_view || p.can_download))) {
+      return closeLink(row!, "Papermark reports a broad folder permission outside the assigned editions. Remove that grant before repairing.")
     }
-    const actual = await listAll<ReadPermission>(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/permissions`)
+    const old = new Map(actual.map((p) => [p.item_id, p]))
+    const changes = plan.filter((p) => {
+      const previous = old.get(p.item_id)
+      return !previous || previous.can_view !== p.can_view || previous.can_download !== p.can_download
+    })
+    // Explicitly clear stale/folder grants as well as withdrawn documents.
+    const planned = new Set(plan.map((p) => p.item_id))
+    for (const p of actual) if (!planned.has(p.item_id) && (p.can_view || p.can_download)) {
+      changes.push({ item_id: p.item_id, item_type: "dataroom_document", can_view: false, can_download: false })
+    }
+    for (let i = 0; i < changes.length; i += 1000) {
+      await paced(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/permissions`, { method: "PUT", body: { permissions: changes.slice(i, i + 1000) } })
+    }
+    if (changes.length) actual = await listAll<ReadPermission>(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/permissions`)
     const check = comparePermissions(actual, visible)
     if (check.overExposed.length > 0) {
       await event(email, "permissions_unconfirmed", `over-exposed ${check.overExposed.length}, unexpected downloads ${check.unexpectedDownloads.length}`)
@@ -400,7 +470,13 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     let linkId = row!.papermark_link_id
     let url = row!.link_url
     if (linkId) {
-      let link = await paced<ReadLink>(`/v1/links/${enc(linkId)}`)
+      let link: ReadLink
+      try { link = await paced<ReadLink>(`/v1/links/${enc(linkId)}`) } catch (error) {
+        if (!(error instanceof PapermarkError && error.failure?.status === 404)) throw error
+        await save(email, { papermark_link_id: null, link_url: null, state: "updating", last_error: "Papermark confirmed the old link is gone. A replacement is queued." })
+        await deferReviewRoom(email, Date.now() + 5000, "Replacing a confirmed missing link.")
+        return { email, state: "updating", message: "The old link is gone. A replacement is queued.", visible: 0, hidden, retryAt: Date.now() + 5000 }
+      }
       const problem = roomLinkProblem(link, expected, new Date(), { allowClosed: true, ignoreGate: codeFree, allowViewOnly: true })
       if (problem) return closeLink({ ...row!, papermark_group_id: groupId }, problem)
       if (link.allow_download !== true) {
@@ -432,6 +508,7 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
       }
       url = link.url ?? url
     } else {
+      await beginRoomCreation(email, "link")
       const created = await paced<ReadLink>("/v1/links", {
         method: "POST",
         body: roomLinkSettings({
@@ -442,7 +519,8 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
           openUntil: codeFree ? (openUntil ?? closedAt()) : null,
         }),
       })
-      if (!created.id) throw new PapermarkError("Papermark created a link with no id.")
+      if (!created.id) throw new PapermarkError("Papermark created a link with no id.", undefined, { mutationUnknown: true })
+      await recordCreatedRoomObject(email, "link", created.id, created.url ?? undefined)
       const back = await paced<ReadLink>(`/v1/links/${enc(created.id)}`)
       const problem =
         roomLinkProblem(back, expected, new Date(), { allowClosed: codeFree }) ??
@@ -454,13 +532,16 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
           await save(email, { state: "failed", last_error: `${problem} The new link ${created.id} could not be deleted: remove it in Papermark.` })
           return { email, state: "failed", message: `${problem} Remove link ${created.id} in Papermark.`, visible: 0, hidden }
         }
-        await save(email, { state: "failed", last_error: `${problem} The new link was deleted.` })
+        await save(email, { state: "failed", papermark_link_id: null, link_url: null, last_error: `${problem} The new link was deleted.` })
         return { email, state: "failed", message: `${problem} The new link was deleted.`, visible: 0, hidden }
       }
       linkId = created.id
       url = back.url!
       await event(email, "link_created")
     }
+    const latestEditions = await getReviewLibraryForEmail(email)
+    if (roomPolicyKey(latestEditions.map((e) => e.id)) !== roomPolicyKey(intendedEditions)) throw new RoomWorkDeferred(Date.now() + 5000)
+    await guardRoomWork()
     await event(email, "link_confirmed")
     await save(email, {
       papermark_link_id: linkId,
@@ -472,29 +553,44 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     })
     const shownEditions = editions.filter((e) => byDocument.has(e.papermarkDocumentId))
     if (await routingColumnsReady()) {
-      await sql`update review_reader_rooms set verified_editions = ${roomPolicyKey(shownEditions.map((e) => e.id))} where email = ${email}`
+      await guardRoomWork()
+      const owner = await papermarkWorkSchemaReady() ? roomLease.getStore()?.token ?? null : null
+      await sql`update review_reader_rooms set verified_editions = ${roomPolicyKey(shownEditions.map((e) => e.id))} where email = ${email}
+        and (${owner}::text is null or to_jsonb(review_reader_rooms)->>'lease_owner' = ${owner})`
     }
     if (codeFree) {
       await saveWindow(email, openUntil, Object.fromEntries(shownEditions.map((e) => [e.id, byDocument.get(e.papermarkDocumentId)!])))
     }
     return { email, state: "ready", message: `Ready: ${visible.length} edition${visible.length === 1 ? "" : "s"} readable and downloadable, ${hidden} hidden.`, visible: visible.length, hidden }
   } catch (error) {
-    const message = error instanceof PapermarkError ? error.message : "Papermark could not be reached."
-    // A failure part-way may have left the reader's previous permissions in
-    // place. If they could now see something they should not, close the link.
+    const retryAt = error instanceof RoomWorkDeferred ? error.retryAt : papermarkRetryAt(error)
+    const message = error instanceof Error ? error.message : "Papermark could not be reached."
     const [current] = (await sql`select * from review_reader_rooms where email = ${email}`) as RoomRow[]
-    if (current?.papermark_link_id && current.state !== "closed") {
-      const previously = (current.verified_visible ?? "").split(",").filter(Boolean)
-      // A removal was intended (or, if the room could not even be listed, may
-      // have been): it is not confirmed, so the link closes until repaired.
-      const removal = intendedVisible
-        ? previously.some((id) => !intendedVisible!.includes(id))
-        : previously.length > (await getReviewLibraryForEmail(email).catch(() => [])).length
-      if (removal) return closeLink(current, `${message} A removal could not be confirmed.`)
+    const latest = await getReviewLibraryForEmail(email)
+    const expected = roomPolicyKey(latest.map((e) => e.id))
+    const previousIds = (baseline?.verified_editions ?? "").replace(/^review-downloads:v1:/, "").split(",").filter(Boolean)
+    const removal = intendedVisible
+      ? (baseline?.verified_visible ?? "").split(",").filter(Boolean).some((id) => !intendedVisible!.includes(id))
+      : previousIds.some((id) => !latest.some((e) => e.id === id))
+    if (current?.uncertain_creation && error instanceof PapermarkError && !error.mutationUnknown && await papermarkWorkSchemaReady()) {
+      const owner = roomLease.getStore()?.token ?? null
+      await sql`update review_reader_rooms set uncertain_creation = null where email = ${email} and lease_owner = ${owner}::uuid`
     }
-    if (current) await save(email, { state: current.state === "ready" ? "ready" : "failed", last_error: message })
+    if (retryAt) await deferReviewRoom(email, retryAt, message)
+    // A superseded/expired worker must never clear or overwrite a newer lease.
+    if (error instanceof RoomWorkDeferred) return { email, state: "updating", message, visible: 0, hidden: 0, retryAt: retryAt ?? undefined }
+    if (error instanceof PapermarkError && error.mutationUnknown && current && await papermarkWorkSchemaReady()) {
+      const owner = roomLease.getStore()?.token ?? null
+      await sql`update review_reader_rooms set uncertain_creation = 'Inspect the last Papermark POST before retrying', state = 'failed', last_error = 'Creation outcome unknown; inspect Papermark before retrying.'
+        where email = ${email} and lease_owner = ${owner}::uuid`
+      return { email, state: "failed", message: "Creation outcome unknown; inspect Papermark before retrying.", visible: 0, hidden: 0 }
+    }
+    if (current?.papermark_link_id && removal && current.state !== "closed") return closeLink(current, `${message} A removal could not be confirmed.`)
+    const retained = Boolean(retryAt && baseline?.state === "ready" && baseline.verified_editions === expected && current?.state !== "closed")
+    if (current) await save(email, { state: retained ? "ready" : retryAt ? "updating" : "failed", last_error: message })
     await event(email, "failed", message)
-    return { email, state: current?.state === "ready" ? "ready" : "failed", message, visible: 0, hidden: 0 }
+    return { email, state: retained ? "ready" : retryAt ? "updating" : "failed", message, visible: retained ? (baseline?.verified_visible ?? "").split(",").filter(Boolean).length : 0, hidden: 0, ...(retryAt ? { retryAt } : {}) }
+
   }
 }
 
@@ -544,8 +640,13 @@ async function reconcileMany(emails: string[], create = false): Promise<RoomResu
   let docs: RoomDocument[] | undefined
   try {
     docs = roomId ? await roomDocuments(roomId) : undefined
-  } catch {
-    docs = undefined
+  } catch (error) {
+    const retryAt = papermarkRetryAt(error)
+    if (retryAt) {
+      for (const email of emails) await deferReviewRoom(email, retryAt, "Papermark room listing delayed. Retry scheduled.")
+      return emails.map((email) => ({ email, state: "updating" as const, message: "Papermark is busy. Retry scheduled.", visible: 0, hidden: 0, retryAt }))
+    }
+    throw error
   }
   const out: RoomResult[] = []
   for (const email of emails) {
@@ -571,7 +672,7 @@ export async function readyRoomLink(email: string): Promise<{ url: string; verif
   return row ? { url: row.link_url, verifiedAt: row.verified_at } : null
 }
 
-export type RoomStatus = { email: string; state: RoomState; visible: number; verifiedAt: string | null; lastError: string | null }
+export type RoomStatus = { email: string; state: RoomState; visible: number; verifiedAt: string | null; lastError: string | null; jobState?: string; nextRetryAt?: string | null }
 
 /** For Admin: every room and what was last confirmed. No link URL. */
 export async function listReaderRooms(): Promise<RoomStatus[]> {
@@ -579,9 +680,12 @@ export async function listReaderRooms(): Promise<RoomStatus[]> {
   const rows = (await getSql()`select email, state, verified_visible, verified_at, last_error from review_reader_rooms order by email`) as {
     email: string; state: RoomState; verified_visible: string | null; verified_at: string | Date | null; last_error: string | null
   }[]
+  const jobs = new Map((await listRoomJobs()).map((j) => [j.email, j]))
   return rows.map((r) => ({
     email: r.email,
     state: r.state,
+    jobState: jobs.get(r.email)?.state,
+    nextRetryAt: jobs.get(r.email) && ["pending", "running"].includes(jobs.get(r.email)!.state) ? new Date(jobs.get(r.email)!.next_attempt_at).toISOString() : null,
     visible: (r.verified_visible ?? "").split(",").filter(Boolean).length,
     verifiedAt: r.verified_at ? new Date(r.verified_at).toISOString() : null,
     lastError: r.last_error,
@@ -594,25 +698,29 @@ export async function listReaderRooms(): Promise<RoomStatus[]> {
  * the response, so Admin never waits on Papermark; only readers who already
  * have a room are touched.
  */
-export function scheduleRoomReconcile(target: { editionId: string } | { prospectId: string } | "all"): void {
-  try {
-    after(async () => {
-      try {
-        if (!(await readerRoomsSchemaReady())) return
-        const { reviewEntryMode } = await import("./review-reader")
-        const create = (await reviewEntryMode()) === "library" && (await openWindowReady())
-        if (target === "all") await reconcileAllReaderRooms()
-        else if ("editionId" in target) await reconcileReadersForEdition(target.editionId, { create })
-        else {
-          const [p] = (await getSql()`select lower(btrim(email)) as email from review_prospects where id = ${target.prospectId}::uuid`) as { email: string }[]
-          if (p) await (create ? prepareReaderRooms([p.email]) : reconcileReaders([p.email]))
-        }
-      } catch {
-        // Rooms left updating or failed are shown in Admin and retried by "Check all rooms".
-      }
-    })
-  } catch {
-    // Outside a request (tests, scripts): nothing to schedule.
+export async function scheduleRoomReconcile(target: { editionId: string } | { prospectId: string } | "all"): Promise<void> {
+  if (!(await readerRoomsSchemaReady())) return
+  const { reviewEntryMode } = await import("./review-reader")
+  const create = (await reviewEntryMode()) === "library" && (await openWindowReady())
+  const sql = getSql()
+  let emails: string[] = []
+  if (target === "all") {
+    const existing = await sql`select email from review_reader_rooms`
+    const assigned = create ? await sql`select distinct r.email from review_edition_recipients r join review_publication_editions e on e.id = r.edition_id where r.revoked_at is null and e.publication_state = 'published'` : []
+    emails = [...existing, ...assigned].map((r) => r.email)
+  } else if ("editionId" in target) {
+    const [edition] = await sql`select recipient_mode from review_publication_editions where id = ${target.editionId}::uuid`
+    if (edition?.recipient_mode === "shared_legacy") return scheduleRoomReconcile("all")
+    emails = (await sql`select distinct x.email from review_edition_recipients x where x.edition_id = ${target.editionId}::uuid and
+      (${create} or exists (select 1 from review_reader_rooms r where r.email = x.email))`).map((r) => r.email)
+  } else {
+    emails = (await sql`select lower(btrim(email)) as email from review_prospects where id = ${target.prospectId}::uuid`).map((r) => r.email)
+  }
+  if (await papermarkWorkSchemaReady()) {
+    await queueReviewRooms(emails, { create, changed: true, priority: 0 })
+    kickReviewRoomWorker()
+  } else {
+    try { after(async () => { if (create) await prepareReaderRooms(emails); else await reconcileReaders(emails) }) } catch {}
   }
 }
 
@@ -658,6 +766,14 @@ export async function roomEntryFor(rawEmail: string, options: { allowCreate: boo
   }
   if (row?.lease_until && new Date(row.lease_until) > new Date()) return { kind: "preparing" }
   if (!row && !options.allowCreate) return { kind: "unavailable", reason: "no_room" }
+  const pending = await readerRoomJob(email)
+  if (pending?.state === "attention") return { kind: "unavailable", reason: "needs_repair" }
+  if (pending && ["pending", "running"].includes(pending.state)) { kickReviewRoomWorker(email); return { kind: "preparing" } }
+  if (await papermarkWorkSchemaReady()) {
+    await queueReviewRooms([email], { create: options.allowCreate })
+    kickReviewRoomWorker(email)
+    return { kind: "preparing" }
+  }
 
   const result = await reconcileReaderRoom(email, { create: options.allowCreate })
   ;({ row, columns } = await current())
@@ -751,24 +867,26 @@ async function windowRow(email: string) {
  * other restriction on the link is checked first; anything wrong closes it.
  */
 async function openRoomWindow(email: string, until: string): Promise<"open" | "busy" | "failed"> {
-  if (!(await takeLease(email))) return "busy"
+  const token = await takeLease(email)
+  if (!token) return "busy"
   try {
+    return await roomLease.run({ email, token }, async () => {
     const row = await windowRow(email)
     if (!row || row.state !== "ready" || !row.papermark_link_id || !row.papermark_group_id) return "failed"
     const expected = { roomId: row.papermark_dataroom_id, groupId: row.papermark_group_id, email, codeFree: true }
     const full = (await getSql()`select * from review_reader_rooms where email = ${email}`) as RoomRow[]
     try {
-      const before = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
+      const before = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id!)}`)
       const problem = roomLinkProblem(before, expected, new Date(), { allowClosed: true, ignoreGate: true })
       if (problem) {
         await closeLink(full[0]!, problem)
         return "failed"
       }
-      await paced(`/v1/links/${enc(row.papermark_link_id)}`, {
+      await paced(`/v1/links/${enc(row.papermark_link_id!)}`, {
         method: "PATCH",
         body: { email_protected: true, email_authenticated: false, expires_at: until },
       })
-      const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
+      const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id!)}`)
       const after = roomLinkProblem(back, expected) ?? (closesAt(back, until) ? null : "Papermark did not confirm when the reader's link closes.")
       if (after) {
         await closeLink(full[0]!, after)
@@ -779,11 +897,16 @@ async function openRoomWindow(email: string, until: string): Promise<"open" | "b
       await event(email, "link_opened", `until ${until}`)
       return "open"
     } catch (error) {
-      await save(email, { last_error: error instanceof PapermarkError ? error.message : "Papermark could not be reached." })
+      const retryAt = error instanceof RoomWorkDeferred ? error.retryAt : papermarkRetryAt(error)
+      if (error instanceof RoomWorkDeferred) { await deferReviewRoom(email, error.retryAt, error.message); return "busy" }
+      const message = error instanceof Error ? error.message : "Papermark could not be reached."
+      await save(email, { last_error: message })
+      if (retryAt) { await deferReviewRoom(email, retryAt, message); kickReviewRoomWorker(email); return "busy" }
       return "failed"
     }
+    })
   } finally {
-    await dropLease(email)
+    await dropLease(email, token)
   }
 }
 
@@ -803,12 +926,14 @@ export async function narrowRoomWindow(rawEmail: string): Promise<void> {
   const current = new Date(row.link_open_until).getTime()
   if (current <= Date.now()) return
   if (until && current <= new Date(until).getTime() + 60_000) return
-  if (!(await takeLease(email))) return
+  const token = await takeLease(email)
+  if (!token) { await queueReviewRooms([email], { changed: true, priority: 0 }); return }
   try {
+    return await roomLease.run({ email, token }, async () => {
     try {
       const target = until ?? closedAt()
-      await paced(`/v1/links/${enc(row.papermark_link_id)}`, { method: "PATCH", body: { expires_at: target } })
-      const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id)}`)
+      await paced(`/v1/links/${enc(row.papermark_link_id!)}`, { method: "PATCH", body: { expires_at: target } })
+      const back = await paced<ReadLink>(`/v1/links/${enc(row.papermark_link_id!)}`)
       const ok = until ? closesAt(back, until) : Boolean(back.expires_at && new Date(back.expires_at) <= new Date())
       if (ok) {
         await saveWindow(email, until)
@@ -818,20 +943,14 @@ export async function narrowRoomWindow(rawEmail: string): Promise<void> {
     } catch {}
     const [full] = (await getSql()`select * from review_reader_rooms where email = ${email}`) as RoomRow[]
     if (full) await closeLink(full, "The reader signed out and Papermark did not confirm their link closed.")
+    })
   } finally {
-    await dropLease(email)
+    await dropLease(email, token)
   }
 }
 
 /** Runs narrowRoomWindow after the response, so signing out never waits on Papermark. */
-export function scheduleRoomWindowNarrowing(email: string): void {
-  try {
-    after(async () => {
-      try {
-        await narrowRoomWindow(email)
-      } catch {}
-    })
-  } catch {
-    // Outside a request (a script): nothing to schedule against.
-  }
+export async function scheduleRoomWindowNarrowing(email: string): Promise<void> {
+  if (await papermarkWorkSchemaReady()) { await queueReviewRooms([email], { changed: true, priority: 0 }); kickReviewRoomWorker(); return }
+  try { after(async () => { await narrowRoomWindow(email).catch(() => {}) }) } catch {}
 }

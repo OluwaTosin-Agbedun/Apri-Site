@@ -1,5 +1,6 @@
 import 'server-only'
 import { WATERMARKING_ENABLED } from './delivery'
+import { waitPapermarkBudget, observePapermarkResponse, papermarkResetAt, PapermarkBudgetWait } from './papermark-budget'
 import {
   DOCUMENTS_FOLDER_PARAM,
   FOLDERS_PARENT_PARAM,
@@ -121,11 +122,48 @@ function requireToken(): string {
  */
 export class PapermarkError extends Error {
   readonly failure?: PapermarkFailure
+  readonly retryAt?: number
+  readonly mutationUnknown: boolean
 
-  constructor(message: string, failure?: PapermarkFailure) {
+  constructor(message: string, failure?: PapermarkFailure, options: { retryAt?: number; mutationUnknown?: boolean } = {}) {
     super(message)
     this.failure = failure
+    this.retryAt = options.retryAt
+    this.mutationUnknown = options.mutationUnknown === true
   }
+}
+
+/** Classified retries survive helper wrappers without leaking provider bodies. */
+export function papermarkRetryAt(error: unknown): number | null {
+  return error instanceof PapermarkError && error.retryAt ? error.retryAt : null
+}
+const responseRetry = new WeakMap<Response, number>()
+
+/** The only fetch and bearer attachment for the entire Papermark integration. */
+async function providerFetch(path: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
+  const token = requireToken()
+  try {
+    await waitPapermarkBudget(token, path, path.startsWith('/v1/analytics/') ? 0 : 2200)
+  } catch (error) {
+    if (error instanceof PapermarkBudgetWait) throw new PapermarkError(error.message, describePapermarkFailure(429, null), { retryAt: error.retryAt })
+    throw new PapermarkError('Papermark pacing storage is temporarily unavailable. Retry scheduled.', undefined, { retryAt: Date.now() + 30_000 })
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      cache: 'no-store', signal: controller.signal,
+    })
+    const until = await observePapermarkResponse(token, path, response).catch(() => response.status === 429 ? papermarkResetAt(response.headers) : null)
+    if (until) responseRetry.set(response, until)
+    return response
+  } catch (error) {
+    if (error instanceof PapermarkError) throw error
+    throw new PapermarkError(error instanceof Error && error.name === 'AbortError' ? 'Papermark did not answer in time. Retry scheduled.' : 'Could not reach Papermark. Retry scheduled.', undefined,
+      { retryAt: Date.now() + 30_000, mutationUnknown: init.method === 'POST' })
+  } finally { clearTimeout(timer) }
 }
 
 /** Reads an error body without letting a parse failure hide the real status. */
@@ -152,36 +190,14 @@ export async function papermarkRequest<T>(
   path: string,
   options: { method?: string; body?: unknown; timeoutMs?: number } = {},
 ): Promise<T> {
-  const token = requireToken()
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 20_000)
-
-  let response: Response
-  try {
-    response = await fetch(`${BASE}${path}`, {
-      method: options.method ?? 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-  } catch (error) {
-    throw new PapermarkError(
-      error instanceof Error && error.name === 'AbortError'
-        ? 'Papermark did not answer in time. Try again shortly.'
-        : 'Could not reach Papermark. Check network access.',
-    )
-  } finally {
-    clearTimeout(timer)
-  }
+  const response = await providerFetch(path, {
+    method: options.method ?? 'GET',
+    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+  }, options.timeoutMs ?? 20_000)
 
   if (!response.ok) {
     const failure = describePapermarkFailure(response.status, await readErrorBody(response))
-    throw new PapermarkError(failure.message, failure)
+    throw new PapermarkError(failure.message, failure, { retryAt: response.status === 429 ? responseRetry.get(response) ?? Date.now() + 60_000 : response.status >= 500 ? Date.now() + 30_000 : undefined, mutationUnknown: response.status >= 500 && (options.method ?? "GET") === "POST" })
   }
 
   if (response.status === 204) return undefined as T
@@ -213,28 +229,16 @@ export type AnalyticsRead<T> =
 export async function papermarkAnalyticsRead<T>(path: string, timeoutMs = 15_000): Promise<AnalyticsRead<T>> {
   const token = apiToken()
   if (!token) return { ok: false, kind: 'not_permitted', message: 'No Papermark API token is configured.' }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
   let response: Response
   try {
-    response = await fetch(`${BASE}${path}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      cache: 'no-store',
-      signal: controller.signal,
-    })
+    response = await providerFetch(path, {}, timeoutMs)
   } catch (error) {
-    return {
-      ok: false,
-      kind: 'failed',
-      message: error instanceof Error && error.name === 'AbortError' ? 'Papermark did not answer in time.' : 'Could not reach Papermark.',
-    }
-  } finally {
-    clearTimeout(timer)
+    if (error instanceof PapermarkError && error.retryAt && error.failure?.status === 429) return { ok: false, kind: 'rate_limited', retryAfterMs: Math.max(0, error.retryAt - Date.now()), message: error.message }
+    return { ok: false, kind: 'failed', message: 'Could not reach Papermark.' }
   }
 
   if (response.status === 429) {
-    const reset = Number(response.headers.get('x-ratelimit-reset'))
-    const retryAfterMs = Number.isFinite(reset) && reset > 0 ? Math.max(0, reset * 1000 - Date.now()) : null
+    const retryAfterMs = Math.max(0, (responseRetry.get(response) ?? Date.now() + 60_000) - Date.now())
     return { ok: false, kind: 'rate_limited', retryAfterMs, message: 'Papermark rate limit reached.' }
   }
   if (!response.ok) {
@@ -303,36 +307,7 @@ export async function papermarkFetch<T>(
 }
 
 async function call<T>(path: string): Promise<T> {
-  const token = requireToken()
-
-  let response: Response
-  try {
-    response = await fetch(`${BASE}${path}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      },
-      // Never cache: a sync must see current state.
-      cache: 'no-store',
-    })
-  } catch {
-    throw new PapermarkError('Could not reach Papermark. Check network access.')
-  }
-
-  if (!response.ok) {
-    // The body is parsed rather than discarded. Replacing it with the status
-    // code is what left "Papermark returned 422" as the only clue while the
-    // real answer -- a query parameter under the wrong name -- was sitting in
-    // the response the whole time.
-    const failure = describePapermarkFailure(response.status, await readErrorBody(response))
-    throw new PapermarkError(failure.message, failure)
-  }
-
-  try {
-    return (await response.json()) as T
-  } catch {
-    throw new PapermarkError('Papermark returned a response that was not JSON.')
-  }
+  return papermarkRequest<T>(path)
 }
 
 /** Unwraps either a bare array or the spec's `{ data, next_cursor }` envelope. */
@@ -580,16 +555,7 @@ export async function getLinkDetail(linkId: string): Promise<LinkDetailResult> {
   if (!isPapermarkConfigured()) return { ok: false, reason: 'not-configured' }
 
   try {
-    const response = await fetch(
-      `${BASE}/v1/links/${encodeURIComponent(linkId)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${apiToken()}`,
-          Accept: 'application/json',
-        },
-        cache: 'no-store',
-      }
-    )
+    const response = await providerFetch(`/v1/links/${encodeURIComponent(linkId)}`)
 
     if (response.status === 404) return { ok: false, reason: 'missing' }
     if (!response.ok) return { ok: false, reason: 'failed' }
@@ -639,17 +605,7 @@ export async function revokeLink(papermarkLinkId: string): Promise<RevokeResult>
   }
 
   try {
-    const response = await fetch(
-      `${BASE}/v1/links/${encodeURIComponent(papermarkLinkId)}`,
-      {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${apiToken()}`,
-          Accept: 'application/json',
-        },
-        cache: 'no-store',
-      }
-    )
+    const response = await providerFetch(`/v1/links/${encodeURIComponent(papermarkLinkId)}`, { method: 'DELETE' })
 
     // A link already gone is the outcome we wanted.
     if (response.ok || response.status === 404) return { ok: true }
@@ -772,19 +728,12 @@ export async function mintSubscriberLink(args: {
     }
   }
 
-  const token = apiToken()!
-
   try {
     // POST /v1/links, with the target document in the body -- per the spec
     // there is no per-document links path. Every field name below is the one
     // the OpenAPI document declares.
-    const response = await fetch(`${BASE}/v1/links`, {
+    const response = await providerFetch('/v1/links', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
       body: JSON.stringify({
         document_id: args.papermarkDocumentId,
         name: `APRI — ${args.subscriberName || args.subscriberEmail}`,

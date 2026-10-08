@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { existsSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { createServer } from "node:http"
+import { createHash } from "node:crypto"
 import { sql, makeTag, cleanup } from "./helpers.mjs"
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url))
@@ -92,7 +93,7 @@ const papermark = createServer(async (req, res) => {
 })
 await new Promise((ok) => papermark.listen(0, "127.0.0.1", ok))
 process.env.PAPERMARK_API_BASE = `http://127.0.0.1:${papermark.address().port}`
-process.env.PAPERMARK_API_TOKEN = "test-token-not-a-secret"
+process.env.PAPERMARK_API_TOKEN = "test-lifecycle-token-not-secret"
 process.env.DATABASE_URL = process.env.APRI_TEST_DATABASE_URL
 
 const recon = await import("../src/lib/subscriber-access-reconciliation.ts")
@@ -514,5 +515,42 @@ describe("the recovery preview and rollout report", () => {
     assert.ok(!JSON.stringify(readiness).includes("pl_"))
     assert.equal(report.monthNamedInTitle("PLM July 2026 Board Pack.pdf"), 7)
     assert.equal(report.monthNamedInTitle("Market outlook.pdf"), null)
+  })
+})
+
+
+describe("durable paid repair progress", () => {
+  it("an interrupted same-generation retry reuses verified links; a new Admin generation reads them again", async () => {
+    const s = await seat("resume", { tier: TIER2 })
+    await recon.queueSubscriberAccessReconciliation(s.id, "admin_repair")
+    assert.equal((await recon.reconcileSubscriberAccess(s.id)).state, "complete")
+    const start = calls.length
+    assert.equal((await recon.reconcileSubscriberAccess(s.id, { trigger: "batch" })).state, "complete")
+    assert.equal(calls.slice(start).filter((c) => c.method === "GET").length, 0)
+    await recon.queueSubscriberAccessReconciliation(s.id, "admin_change")
+    const changedStart = calls.length
+    assert.equal((await recon.reconcileSubscriberAccess(s.id)).state, "complete")
+    assert.ok(calls.slice(changedStart).filter((c) => c.method === "GET").length >= 2)
+  })
+  it("a provider 429 records Waiting, retains existing links and does not mint replacements", async () => {
+    const s = await seat("limited", { tier: TIER2 })
+    await reconcile(s.id)
+    await recon.queueSubscriberAccessReconciliation(s.id, "admin_repair")
+    const existing = await liveLinks(s.id), start = calls.length
+    faults.readStatus = 429
+    try {
+      const r = await recon.reconcileSubscriberAccess(s.id)
+      assert.equal(r.state, "failed", "unconfirmed work cannot satisfy activation")
+      const [stored] = await sql`select state, detail, next_attempt_at from subscriber_access_reconciliations where subscriber_id = ${s.id}::uuid`
+      assert.equal(stored.state, "pending")
+      assert.match(stored.detail, /Waiting for Papermark/)
+      assert.ok(new Date(stored.next_attempt_at) > new Date())
+      assert.deepEqual((await liveLinks(s.id)).map((l) => l.papermark_link_id), existing.map((l) => l.papermark_link_id))
+      assert.equal(calls.slice(start).some((c) => c.method === "POST" || c.method === "DELETE"), false)
+    } finally {
+      faults.readStatus = null
+      await sql`update papermark_api_budgets set cooldown_until = 'epoch', next_slot_at = 'epoch'
+        where bucket like ${`${createHash("sha256").update("test-lifecycle-token-not-secret").digest("hex")}%`}`
+    }
   })
 })

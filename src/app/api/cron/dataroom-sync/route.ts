@@ -14,6 +14,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 })
   }
 
+  // Saved access work survives a failed or interrupted daily sync.
+  const { drainReviewRoomJobs } = await import("@/lib/review-room-jobs")
+  await drainReviewRoomJobs({ maxJobs: 1, budgetMs: 10_000 }).catch(() => {})
+
   let paidResult: Record<string, unknown> = {}
   let paidOk = true
   try {

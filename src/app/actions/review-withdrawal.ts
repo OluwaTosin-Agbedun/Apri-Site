@@ -288,7 +288,7 @@ export async function withdrawReviewEdition(
   const refused = (message: string): WithdrawalOutcome => ({ ok: false, status: "refused", message, accessPaths: [] })
   if (!UUID.test(editionId ?? "")) return refused("Unknown edition. Nothing was changed.")
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ editionId })
+  await scheduleRoomReconcile({ editionId })
   if (typeof previewKey !== "string" || previewKey.length > 300) return refused("Preview the withdrawal again. Nothing was changed.")
   const sql = getSql()
   if (!(await editionWithdrawalReady(sql, { fresh: true }))) return refused(WITHDRAWAL_MIGRATION_PENDING_MESSAGE)
@@ -388,7 +388,7 @@ export async function reofferWithdrawnEdition(editionId: string): Promise<OfferR
   const admin = await requireOwner()
   if (!UUID.test(editionId ?? "")) return { ok: false, message: "Unknown edition." }
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ editionId })
+  await scheduleRoomReconcile({ editionId })
   const sql = getSql()
   if (!(await editionWithdrawalReady(sql, { fresh: true }))) {
     return { ok: false, message: WITHDRAWAL_MIGRATION_PENDING_MESSAGE }

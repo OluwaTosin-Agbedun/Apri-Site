@@ -1,3 +1,4 @@
+import { kickReviewRoomWorker } from "@/lib/review-room-jobs"
 import EditionOrder from "./edition-order"
 import EntryModeForm from "./entry-mode-form"
 import { reviewEntryMode, reviewReaderSchemaReady } from "@/lib/review-reader"
@@ -23,10 +24,12 @@ import { recentReviewEmailAttempts, attemptStatus, maskEmail } from "@/lib/revie
 import { reviewReadiness } from "@/lib/review-readiness"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 60
 export const metadata = { title: "Review Library · APRI" }
 
 export default async function ReviewLibraryPage() {
   const admin = await requireOwner()
+  kickReviewRoomWorker()
   const sql = getSql()
 
   // Everything on this page reads per-edition access, so until its migration

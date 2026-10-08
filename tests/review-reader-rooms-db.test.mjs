@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { existsSync, readFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { createServer } from "node:http"
-import { randomBytes } from "node:crypto"
+import { randomBytes, createHash } from "node:crypto"
 import { sql, makeTag, makeSeat, cleanup } from "./helpers.mjs"
 import { createSchemaDatabase, applyMigration } from "./support/test-database.mjs"
 
@@ -48,7 +48,7 @@ registerHooks({
 // ---------------------------------------------------------------------------
 const ROOM = "room_review_test"
 const store = { docs: [], groups: new Map(), links: new Map(), calls: [] }
-const faults = { ignoreHide: false, failPermissionsPut: false, failPatch: false, failDelete: false, reportDownloadable: false, ignoreDownloadEnable: false, ignoreLinkDownloadEnable: false, rateLimitPermissions: false }
+const faults = { ignoreHide: false, failPermissionsPut: false, failPatch: false, failDelete: false, reportDownloadable: false, ignoreDownloadEnable: false, ignoreLinkDownloadEnable: false, rateLimitPermissions: false, failGroupGet: false, failCreatedLinkGet: false, unknownGroupCreation: false }
 let seq = 0
 const id = (p) => `${p}_${++seq}`
 const papermark = createServer(async (req, res) => {
@@ -65,9 +65,12 @@ const papermark = createServer(async (req, res) => {
   if (req.method === "POST" && path === `/v1/datarooms/${ROOM}/groups`) {
     const g = { id: id("grp"), object: "dataroom_group", name: body.name, allow_all: body.allow_all === true, domains: body.domains ?? [], dataroom_id: ROOM, members: [], perms: new Map() }
     store.groups.set(g.id, g)
+    if (faults.unknownGroupCreation) return fail(503)
     return send(201, { ...g, members: undefined, perms: undefined })
   }
   if ((m = path.match(new RegExp(`^/v1/datarooms/${ROOM}/groups/([^/]+)$`))) && req.method === "GET") {
+    if (store.pauseGroup) { const pause = store.pauseGroup; store.pauseGroup = null; pause.started(); await pause.wait }
+    if (faults.failGroupGet) return fail(503)
     const g = store.groups.get(m[1])
     return g ? send(200, { id: g.id, allow_all: g.allow_all, domains: g.domains, dataroom_id: g.dataroom_id }) : send(404, {})
   }
@@ -109,6 +112,7 @@ const papermark = createServer(async (req, res) => {
   if ((m = path.match(/^\/v1\/links\/([^/]+)$/))) {
     const l = store.links.get(m[1])
     if (!l) return send(404, {})
+    if (req.method === "GET" && faults.failCreatedLinkGet) return fail(429)
     if (req.method === "GET") return send(200, l)
     if (req.method === "PATCH") {
       if (faults.failPatch) return fail(500)
@@ -153,6 +157,8 @@ process.env.DATABASE_URL = process.env.APRI_TEST_DATABASE_URL
 process.env.SESSION_SECRET = randomBytes(32).toString("hex")
 
 const rooms = await import("../src/lib/review-reader-rooms.ts")
+const jobs = await import("../src/lib/review-room-jobs.ts")
+const budget = await import("../src/lib/papermark-budget.ts")
 const policy = await import("../src/lib/reader-room-policy.ts")
 const reader = await import("../src/lib/review-reader.ts")
 const subscriberToken = await import("../src/lib/subscriber-session-token.ts")
@@ -201,17 +207,40 @@ after(async () => {
   papermark.close()
   await sql`delete from review_reader_sessions where email like ${`${tag}%`}`
   await sql`delete from review_reader_room_events where email like ${`${tag}%`}`
+  await sql`delete from review_reader_room_jobs where email like ${`${tag}%`}`
   await sql`delete from review_reader_rooms where email like ${`${tag}%`}`
   await sql`delete from review_edition_recipients where email like ${`${tag}%`}`
   await sql`delete from review_publication_editions where title like ${`${tag}%`}`
   await cleanup(tag)
 })
-beforeEach(() => { for (const key of Object.keys(faults)) faults[key] = false })
+beforeEach(async () => {
+  for (const key of Object.keys(faults)) faults[key] = false
+  await sql`update papermark_api_budgets set cooldown_until = 'epoch', next_slot_at = 'epoch' where bucket like ${`${createHash("sha256").update("mock-token-not-real").digest("hex")}%`}`
+})
+// Model the production sequence: request queues work, a bounded worker runs,
+// then the reader retries. No test bypasses the permission/link verifier.
+async function enter(email, options) {
+  let r = await rooms.roomEntryFor(email, options)
+  if (r.kind === "preparing") {
+    await jobs.drainReviewRoomJobs({ email, maxJobs: 1 })
+    r = await rooms.roomEntryFor(email, options)
+  }
+  return r
+}
+async function readDocument(email, edition, until) {
+  await enter(email, { allowCreate: true })
+  return rooms.readerDocumentFor(email, edition, until)
+}
+async function recover(email) {
+  await sql`update papermark_api_budgets set cooldown_until = 'epoch', next_slot_at = 'epoch' where bucket like ${`${createHash("sha256").update("mock-token-not-real").digest("hex")}%`}`
+  await rooms.reconcileReaderRoom(email, { create: true })
+}
+
 
 describe("the rooms migration", () => {
   it("is additive and re-runs cleanly", async () => {
     const FILE = "20261009_review_reader_rooms.sql"
-    const db = await createSchemaDatabase({ skipMigrations: [FILE] })
+    const db = await createSchemaDatabase({ skipMigrations: [FILE, "20261012_papermark_work_queue.sql"] })
     await applyMigration(db, FILE)
     await applyMigration(db, FILE)
     const { rows } = await db.query(`select to_regclass('public.review_reader_rooms') is not null and to_regclass('public.review_reader_room_events') is not null as ok`)
@@ -531,20 +560,20 @@ describe("opening access re-checks approval and the room's editions every time",
   })
 
   it("an unapproved address gets no room and no link", async () => {
-    assert.deepEqual(await rooms.roomEntryFor(NOBODY, { allowCreate: true }), { kind: "not_approved" })
+    assert.deepEqual(await enter(NOBODY, { allowCreate: true }), { kind: "not_approved" })
     assert.equal(await room(NOBODY), undefined, "nothing is created for it")
   })
 
   it("an approved reader is sent only to a room showing exactly their current editions", async () => {
-    const first = await rooms.roomEntryFor(E, { allowCreate: true })
+    const first = await enter(E, { allowCreate: true })
     assert.equal(first.kind, "ready")
     assert.deepEqual(viewerSees((await room(E)).papermark_link_id, E), [DOC("x1")])
     await grant("x2", E)
-    const second = await rooms.roomEntryFor(E, { allowCreate: true })
+    const second = await enter(E, { allowCreate: true })
     assert.equal(second.kind, "ready")
     assert.deepEqual(viewerSees((await room(E)).papermark_link_id, E), [DOC("x1"), DOC("x2")].sort())
     await sql`update review_edition_recipients set revoked_at = now() where edition_id = ${ed.x1}::uuid and email = ${E} and revoked_at is null`
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
     assert.deepEqual(viewerSees((await room(E)).papermark_link_id, E), [DOC("x2")], "a removal takes effect before the next open")
   })
 
@@ -554,13 +583,14 @@ describe("opening access re-checks approval and the room's editions every time",
     link.allow_download = false
     for (const permission of store.groups.get(r.papermark_group_id).perms.values()) permission.can_download = false
     await sql`update review_reader_rooms set verified_editions = ${rooms.editionSetKey([ed.x2])}, state = 'ready' where email = ${E}`
+    await jobs.queueReviewRooms([E], { create: true, changed: true })
     return { id: link.id, url: link.url, until: link.expires_at }
   }
 
   it("existing view-only rooms upgrade once in place without changing identity, expiry or the reader's code", async () => {
     const before = await makeViewOnly()
     const calls = store.calls.length
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
     const r = await room(E)
     const link = store.links.get(r.papermark_link_id)
     assert.equal(link.id, before.id)
@@ -576,25 +606,26 @@ describe("opening access re-checks approval and the room's editions every time",
     assert.ok(store.calls.length > calls)
     assert.ok(!store.calls.slice(calls).includes("POST /v1/links"), "no duplicate link")
     const readyCalls = store.calls.length
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
     assert.equal(store.calls.length, readyCalls, "return visits do not repeat the upgrade")
   })
 
   it("unconfirmed document download permissions never receive the new policy proof", async () => {
     await makeViewOnly()
     faults.ignoreDownloadEnable = true
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "unavailable")
+    assert.equal((await enter(E, { allowCreate: true })).kind, "unavailable")
     const r = await room(E)
     assert.notEqual(r.state, "ready")
     assert.notEqual(r.verified_editions, rooms.roomPolicyKey([ed.x2]))
     faults.ignoreDownloadEnable = false
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    await recover(E)
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
   })
 
   it("a rate-limited upgrade retains the existing link and never claims downloads are ready", async () => {
     const old = await makeViewOnly()
     faults.rateLimitPermissions = true
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "unavailable")
+    assert.equal((await enter(E, { allowCreate: true })).kind, "preparing")
     const r = await room(E)
     assert.notEqual(r.state, "ready")
     assert.equal(r.papermark_link_id, old.id)
@@ -602,7 +633,8 @@ describe("opening access re-checks approval and the room's editions every time",
     assert.equal(store.links.get(old.id).allow_download, false)
     assert.notEqual(r.verified_editions, rooms.roomPolicyKey([ed.x2]))
     faults.rateLimitPermissions = false
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    await recover(E)
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
   })
 
   it("a link upgrade Papermark does not apply is not accepted as ready", async () => {
@@ -613,12 +645,13 @@ describe("opening access re-checks approval and the room's editions every time",
     assert.match(result.message, /Downloads are not enabled/)
     assert.equal(viewerDownloads((await room(E)).papermark_link_id, E), null)
     faults.ignoreLinkDownloadEnable = false
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    await recover(E)
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
   })
 
   it("a reader removed from every edition is not sent to their old room", async () => {
     await sql`update review_edition_recipients set revoked_at = now() where email = ${E} and revoked_at is null`
-    assert.deepEqual(await rooms.roomEntryFor(E, { allowCreate: true }), { kind: "not_approved" })
+    assert.deepEqual(await enter(E, { allowCreate: true }), { kind: "not_approved" })
   })
 
   it("only one reconcile per reader runs at a time", async () => {
@@ -626,7 +659,7 @@ describe("opening access re-checks approval and the room's editions every time",
     await sql`update review_reader_rooms set lease_until = now() + interval '1 minute' where email = ${E}`
     const r = await rooms.reconcileReaderRoom(E)
     assert.equal(r.state, "updating")
-    assert.deepEqual(await rooms.roomEntryFor(E, { allowCreate: true }), { kind: "preparing" })
+    assert.deepEqual(await enter(E, { allowCreate: true }), { kind: "preparing" })
     await sql`update review_reader_rooms set lease_until = null where email = ${E}`
   })
 
@@ -638,21 +671,22 @@ describe("opening access re-checks approval and the room's editions every time",
     const status = (await rooms.listReaderRooms()).find((x) => x.email === E)
     assert.notEqual(status.state, "ready")
     faults.failPermissionsPut = false
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready", "Repair brings it back")
+    await recover(E)
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready", "Repair brings it back")
   })
 
   it("without the verification columns no room is handed out, not even one marked ready", async () => {
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
     await sql`alter table review_reader_rooms rename column verified_editions to verified_editions_hidden`
     rooms.resetReaderRoomsSchemaCache()
     try {
       assert.equal((await room(E)).state, "ready", "the row still says ready")
-      assert.deepEqual(await rooms.roomEntryFor(E, { allowCreate: true }), { kind: "unavailable", reason: "rooms_not_installed" })
+      assert.deepEqual(await enter(E, { allowCreate: true }), { kind: "unavailable", reason: "rooms_not_installed" })
     } finally {
       await sql`alter table review_reader_rooms rename column verified_editions_hidden to verified_editions`
       rooms.resetReaderRoomsSchemaCache()
     }
-    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    assert.equal((await enter(E, { allowCreate: true })).kind, "ready")
   })
 
   it("a change to an edition still judged by the shared list reconciles every room", async () => {
@@ -683,7 +717,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
   it("Read opens that one PDF inside the reader's own link, open only until their APRI session ends", async () => {
     const until = await reader.readerAccessUntil(R)
     assert.ok(until, "the reader holds a session")
-    const d1 = await rooms.readerDocumentFor(R, ed.r1, until)
+    const d1 = await readDocument(R, ed.r1, until)
     assert.equal(d1.kind, "open")
     const r = await room(R)
     assert.equal(d1.url, `${r.link_url}/d/dd_r1`, "Papermark's per-document route inside the reader's room link")
@@ -701,8 +735,8 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
   it("a second PDF, and a return visit, need no new code, no new link and no Papermark call", async () => {
     const until = await reader.readerAccessUntil(R)
     const before = store.calls.length
-    const d2 = await rooms.readerDocumentFor(R, ed.r2, until)
-    const again = await rooms.readerDocumentFor(R, ed.r1, until)
+    const d2 = await readDocument(R, ed.r2, until)
+    const again = await readDocument(R, ed.r1, until)
     assert.equal(d2.kind, "open")
     assert.match(d2.url, /\/d\/dd_r2$/)
     assert.equal(again.kind, "open")
@@ -729,27 +763,27 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
 
   it("two readers stay isolated: neither link admits the other, and neither can open the other's edition", async () => {
     const sUntil = await reader.readerAccessUntil(S)
-    assert.equal((await rooms.readerDocumentFor(S, ed.r3, sUntil)).kind, "open")
+    assert.equal((await readDocument(S, ed.r3, sUntil)).kind, "open")
     const rLink = await linkOf(R)
     const sLink = await linkOf(S)
     assert.notEqual(rLink.id, sLink.id)
     assert.equal(viewerSees(rLink.id, S), null)
     assert.equal(viewerSees(sLink.id, R), null)
     assert.deepEqual(viewerSees(sLink.id, S), [DOC("r3")])
-    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r3, await reader.readerAccessUntil(R)), { kind: "not_assigned" })
-    assert.deepEqual(await rooms.readerDocumentFor(R, ed.withdrawnA, await reader.readerAccessUntil(R)), { kind: "not_assigned" }, "a withdrawn edition")
+    assert.deepEqual(await readDocument(R, ed.r3, await reader.readerAccessUntil(R)), { kind: "not_assigned" })
+    assert.deepEqual(await readDocument(R, ed.withdrawnA, await reader.readerAccessUntil(R)), { kind: "not_assigned" }, "a withdrawn edition")
     assert.equal(store.groups.get((await room(R)).papermark_group_id).perms.get("dd_stray").can_view, false, "an unassigned PDF in the room")
   })
 
   it("a newly assigned edition appears at once; a removed one is refused at once and hidden in Papermark", async () => {
     const until = await reader.readerAccessUntil(R)
     await grant("r4", R)
-    const d4 = await rooms.readerDocumentFor(R, ed.r4, until)
+    const d4 = await readDocument(R, ed.r4, until)
     assert.equal(d4.kind, "open")
     assert.deepEqual(viewerSees((await linkOf(R)).id, R), [DOC("r1"), DOC("r2"), DOC("r4")].sort())
     await sql`update review_edition_recipients set revoked_at = now() where edition_id = ${ed.r2}::uuid and email = ${R} and revoked_at is null`
-    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r2, until), { kind: "not_assigned" })
-    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open")
+    assert.deepEqual(await readDocument(R, ed.r2, until), { kind: "not_assigned" })
+    assert.equal((await readDocument(R, ed.r1, until)).kind, "open")
     assert.deepEqual(viewerSees((await linkOf(R)).id, R), [DOC("r1"), DOC("r4")].sort(), "hidden in Papermark before the next open")
     assert.deepEqual(viewerDownloads((await linkOf(R)).id, R), [DOC("r1"), DOC("r4")].sort(), "removed edition also cannot be downloaded")
   })
@@ -767,7 +801,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     const older = await signIn(R, 2)
     const newer = await signIn(R)
     const until = await reader.readerAccessUntil(R)
-    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open")
+    assert.equal((await readDocument(R, ed.r1, until)).kind, "open")
     assert.ok(isOpen(await linkOf(R)), "reopened for the new session")
     await sql`update review_reader_sessions set revoked_at = now(), revoke_reason = 'signed_out' where id = ${older}::uuid`
     await rooms.narrowRoomWindow(R)
@@ -785,22 +819,23 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     const until = await reader.readerAccessUntil(R)
     await sql`update review_reader_rooms set link_open_until = now() - interval '1 minute', lease_until = now() + interval '1 minute' where email = ${R}`
     const before = JSON.stringify(await linkOf(R))
-    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r1, until), { kind: "preparing" })
+    assert.deepEqual(await readDocument(R, ed.r1, until), { kind: "preparing" })
     assert.equal(JSON.stringify(await linkOf(R)), before)
     await sql`update review_reader_rooms set lease_until = null where email = ${R}`
-    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open", "the next Read finishes it")
+    assert.equal((await readDocument(R, ed.r1, until)).kind, "open", "the next Read finishes it")
   })
 
-  it("if Papermark fails while opening, the reader gets a repair notice and the link is not opened", async () => {
+  it("if Papermark temporarily fails while opening, retry is scheduled and the link is not opened", async () => {
     const until = await reader.readerAccessUntil(R)
     const link = await linkOf(R)
     link.expires_at = policy.closedAt()
     await sql`update review_reader_rooms set link_open_until = null where email = ${R}`
     faults.failPatch = true
-    assert.deepEqual(await rooms.readerDocumentFor(R, ed.r1, until), { kind: "unavailable", reason: "needs_repair" })
+    assert.deepEqual(await readDocument(R, ed.r1, until), { kind: "preparing" })
     assert.equal(isOpen(await linkOf(R)), false)
     faults.failPatch = false
-    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open")
+    await recover(R)
+    assert.equal((await readDocument(R, ed.r1, until)).kind, "open")
   })
 
   it("a link someone widened in Papermark is closed, never opened", async () => {
@@ -809,7 +844,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     link.allow_list = [R, `${tag}_intruder@example.invalid`]
     link.expires_at = policy.closedAt()
     await sql`update review_reader_rooms set link_open_until = null where email = ${R}`
-    assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "unavailable")
+    assert.equal((await readDocument(R, ed.r1, until)).kind, "unavailable")
     assert.equal((await room(R)).state, "closed")
     assert.equal(isOpen(await linkOf(R)), false)
     link.allow_list = [R]
@@ -821,11 +856,152 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     rooms.resetReaderRoomsSchemaCache()
     try {
       const before = store.calls.length
-      assert.deepEqual(await rooms.readerDocumentFor(R, ed.r1, new Date(Date.now() + 3_600_000).toISOString()), { kind: "legacy" })
+      assert.deepEqual(await readDocument(R, ed.r1, new Date(Date.now() + 3_600_000).toISOString()), { kind: "legacy" })
       assert.equal(store.calls.length, before)
     } finally {
       await sql`alter table review_reader_rooms rename column link_open_until_hidden to link_open_until`
       rooms.resetReaderRoomsSchemaCache()
     }
+  })
+})
+
+
+describe("durable repairs and temporary Papermark failures", () => {
+  const D = `${tag}_durable@example.invalid`
+  before(async () => { await grant("three", D); await signIn(D) })
+  it("a queued repair survives the original request and duplicate clicks reuse its generation", async () => {
+    await jobs.queueReviewRooms([D], { create: true })
+    const first = await jobs.readerRoomJob(D)
+    await Promise.all([jobs.queueReviewRooms([D], { create: true }), jobs.queueReviewRooms([D], { create: true })])
+    assert.equal(Number((await jobs.readerRoomJob(D)).generation), Number(first.generation))
+    assert.equal(await room(D), undefined)
+    const result = await jobs.drainReviewRoomJobs({ email: D, maxJobs: 1 })
+    assert.equal(result.ready, 1)
+    assert.equal((await room(D)).state, "ready")
+    assert.equal((await jobs.readerRoomJob(D)).state, "complete")
+  })
+  it("an unchanged repair issues no link, rewrites no permissions, and preserves its URL", async () => {
+    const before = await room(D), start = store.calls.length
+    assert.equal((await rooms.reconcileReaderRoom(D)).state, "ready")
+    const calls = store.calls.slice(start)
+    assert.equal(calls.some((c) => /^(POST|PUT|PATCH|DELETE) /.test(c)), false)
+    assert.equal((await room(D)).papermark_link_id, before.papermark_link_id)
+    assert.equal((await room(D)).link_url, before.link_url)
+  })
+  it("a temporary maintenance failure retains a matching verified room and schedules its retry", async () => {
+    const before = await room(D)
+    faults.failGroupGet = true
+    const r = await rooms.reconcileReaderRoom(D)
+    assert.equal(r.state, "ready")
+    assert.ok(r.retryAt > Date.now())
+    assert.equal((await room(D)).state, "ready")
+    assert.equal((await room(D)).verified_editions, before.verified_editions)
+    assert.equal((await rooms.roomEntryFor(D, { allowCreate: true })).kind, "ready")
+    assert.equal((await jobs.readerRoomJob(D)).state, "pending")
+  })
+  it("an expired worker lease is reclaimed and the saved job completes", async () => {
+    await sql`update review_reader_rooms set lease_owner = ${"00000000-0000-4000-8000-000000000011"}::uuid, lease_until = now() - interval '1 second' where email = ${D}`
+    assert.equal((await rooms.reconcileReaderRoom(D)).state, "ready")
+    const job = await jobs.readerRoomJob(D)
+    await sql`update review_reader_room_jobs set state = 'running', lease_token = ${"00000000-0000-4000-8000-000000000012"}::uuid, lease_until = now() - interval '1 second', next_attempt_at = now() where email = ${D}`
+    assert.equal((await jobs.drainReviewRoomJobs({ email: D, maxJobs: 1 })).ready, 1)
+    assert.equal((await jobs.readerRoomJob(D)).state, "complete")
+    assert.ok(job)
+  })
+  it("a stale worker cannot release or overwrite a newer room lease", async () => {
+    let unblock, started
+    const wait = new Promise((resolve) => { unblock = resolve })
+    const reached = new Promise((resolve) => { started = resolve })
+    store.pauseGroup = { wait, started }
+    const checking = rooms.reconcileReaderRoom(D)
+    await reached
+    const newOwner = "00000000-0000-4000-8000-000000000099"
+    await sql`update review_reader_rooms set lease_owner = ${newOwner}::uuid, lease_until = now() + interval '2 minutes' where email = ${D}`
+    unblock()
+    assert.equal((await checking).state, "updating")
+    assert.equal((await room(D)).lease_owner, newOwner)
+    assert.equal((await room(D)).state, "ready")
+    await sql`update review_reader_rooms set lease_owner = null, lease_until = null where email = ${D}`
+  })
+  it("a generation change fences in-flight work and leaves the newer job pending", { timeout: 15000 }, async () => {
+    await jobs.queueReviewRooms([D], { create: true, changed: true })
+    let unblock, started
+    const wait = new Promise((resolve) => { unblock = resolve })
+    const reached = new Promise((resolve) => { started = resolve })
+    store.pauseGroup = { wait, started }
+    const working = jobs.drainReviewRoomJobs({ email: D, maxJobs: 1 })
+    await reached
+    const oldGeneration = Number((await jobs.readerRoomJob(D)).generation)
+    await jobs.queueReviewRooms([D], { changed: true, priority: 0 })
+    unblock()
+    await working
+    const after = await jobs.readerRoomJob(D)
+    assert.equal(Number(after.generation), oldGeneration + 1)
+    assert.equal(after.state, "pending")
+    assert.notEqual(Number(after.completed_generation), Number(after.generation))
+  })
+  it("a returned link ID survives failed verification, preventing a duplicate POST on retry", async () => {
+    const N = `${tag}_readback@example.invalid`
+    await grant("three", N); await signIn(N)
+    const start = store.calls.length
+    faults.failCreatedLinkGet = true
+    const initial = await rooms.reconcileReaderRoom(N, { create: true })
+    assert.notEqual(initial.state, "ready")
+    const known = await room(N)
+    assert.ok(known.papermark_link_id)
+    assert.equal(known.uncertain_creation, null, "the known ID was stored atomically with clearing the creation intent")
+    assert.equal(known.verified_editions, null)
+    faults.failCreatedLinkGet = false
+    await recover(N)
+    assert.equal((await room(N)).state, "ready")
+    assert.equal((await room(N)).papermark_link_id, known.papermark_link_id)
+    assert.equal(store.calls.slice(start).filter((c) => c === "POST /v1/links").length, 1)
+  })
+  it("an uncertain creation remains tracked for inspection and is never duplicated on retry", async () => {
+    const U = `${tag}_uncertain@example.invalid`
+    await grant("three", U); await signIn(U)
+    const start = store.calls.length
+    faults.unknownGroupCreation = true
+    const initial = await rooms.reconcileReaderRoom(U, { create: true })
+    assert.equal(initial.state, "failed")
+    assert.match(initial.message, /Creation outcome unknown/)
+    assert.ok((await room(U)).uncertain_creation)
+    assert.equal((await room(U)).papermark_group_id, null)
+    faults.unknownGroupCreation = false
+    const again = await rooms.reconcileReaderRoom(U, { create: true })
+    assert.equal(again.state, "failed")
+    assert.match(again.message, /Inspect Papermark/)
+    assert.equal(store.calls.slice(start).filter((c) => c === `POST /v1/datarooms/${ROOM}/groups`).length, 1)
+  })
+  it("an assigned PDF absent from the room is never reported as Ready, and repeated reads do not repair-loop", async () => {
+    const M = `${tag}_missing@example.invalid`
+    await edition("missingPDF"); await grant("missingPDF", M); await signIn(M)
+    store.docs = store.docs.filter((d) => d.document_id !== DOC("missingPDF"))
+    await jobs.queueReviewRooms([M], { create: true })
+    await jobs.drainReviewRoomJobs({ email: M, maxJobs: 1 })
+    assert.equal((await room(M)).state, "failed")
+    assert.equal((await jobs.readerRoomJob(M)).state, "attention")
+    const start = store.calls.length
+    assert.equal((await rooms.roomEntryFor(M, { allowCreate: true })).kind, "unavailable")
+    assert.equal((await rooms.roomEntryFor(M, { allowCreate: true })).kind, "unavailable")
+    assert.equal(store.calls.length, start)
+  })
+})
+
+describe("the unattended worker boundary", () => {
+  it("rejects missing, incorrect and URL-only secrets before doing any provider work", async () => {
+    const { GET } = await import("../src/app/api/cron/papermark-work/route.ts")
+    const old = process.env.CRON_SECRET
+    process.env.CRON_SECRET = "invented-worker-test-value"
+    const start = store.calls.length
+    try {
+      for (const request of [
+        new Request("https://example.invalid/api/cron/papermark-work"),
+        new Request("https://example.invalid/api/cron/papermark-work?secret=invented-worker-test-value"),
+        new Request("https://example.invalid/api/cron/papermark-work", { headers: { Authorization: "Bearer wrong-value" } }),
+        new Request("https://example.invalid/api/cron/papermark-work", { headers: { Authorization: "invented-worker-test-value" } }),
+      ]) assert.equal((await GET(request)).status, 401)
+      assert.equal(store.calls.length, start)
+    } finally { if (old === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = old }
   })
 })

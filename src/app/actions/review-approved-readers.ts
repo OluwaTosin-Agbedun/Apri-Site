@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { requireOwner } from "@/lib/dal"
+import { readerRoomJob } from "@/lib/review-room-jobs"
 import { getSql } from "@/lib/db"
 import { normaliseReaderEmail } from "@/lib/review-reader"
 import { getReviewLibraryForEmail } from "@/lib/publications"
@@ -33,7 +34,7 @@ export type ReaderLookup = {
   message?: string
   email?: string
   editions?: ReaderEditionRow[]
-  room?: { state: string; visible: number; verifiedAt: string | null; lastError: string | null } | null
+  room?: { state: string; visible: number; verifiedAt: string | null; lastError: string | null; jobState?: string; nextRetryAt?: string | null } | null
   emails?: { kind: string; at: string; status: string }[]
 }
 
@@ -61,6 +62,8 @@ async function lookup(email: string): Promise<ReaderLookup> {
   } catch {
     room = null
   }
+  const job = await readerRoomJob(email)
+  if (room && job) { room.jobState = job.state; room.nextRetryAt = ["pending", "running"].includes(job.state) ? new Date(job.next_attempt_at).toISOString() : null }
   const attempts = await recentReviewEmailAttempts(5, email)
   return {
     ok: true,

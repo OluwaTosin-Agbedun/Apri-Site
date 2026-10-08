@@ -105,10 +105,10 @@ export default function ApprovedReadersPanel() {
           </div>
           <div className="mt-4 text-xs text-foreground/80 space-y-1">
             <p>
-              Personal room: {view.room ? `${ROOM_LABEL[view.room.state] ?? view.room.state}, ${view.room.visible} edition(s), confirmed ${when(view.room.verifiedAt)}` : "none yet"}
+              Personal room: {view.room ? `${view.room.jobState === "pending" ? "Waiting — retry scheduled" : view.room.jobState === "running" ? "Checking access" : ROOM_LABEL[view.room.state] ?? view.room.state}, ${view.room.visible} edition(s), confirmed ${when(view.room.verifiedAt)}` : "none yet"}
               {view.room?.lastError ? ` — ${view.room.lastError}` : ""}
             </p>
-            {view.room && view.room.state !== "ready" && (
+            {view.room && view.room.state !== "ready" && !["pending", "running"].includes(view.room.jobState ?? "") && (
               <form action={repair}>
                 <input type="hidden" name="emails" value={view.email} />
                 <button className="btn-secondary text-xs mt-1" disabled={repairing} aria-busy={repairing}>

@@ -96,7 +96,7 @@ export async function saveEditionRecipients(
   const admin = await requireOwner()
   if (!UUID.test(editionId)) return { ok: false, message: "Unknown edition." }
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ editionId })
+  await scheduleRoomReconcile({ editionId })
   const posted = sanitisePostedAddresses(emails)
   if (!posted) return { ok: false, message: "That recipient list could not be read. Nothing was saved." }
 
@@ -288,7 +288,7 @@ export async function applyEditionRecipients(
   await requireOwner()
   if (!UUID.test(editionId)) return { ok: false, matches: false, message: "Unknown edition." }
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ editionId })
+  await scheduleRoomReconcile({ editionId })
   if (!HASH.test(previewedHash ?? "")) {
     return { ok: false, matches: false, message: "Preview this edition before applying." }
   }
@@ -409,7 +409,7 @@ export async function adoptEditionAccess(editionId: string): Promise<AdoptionRes
   const admin = await requireOwner()
   if (!UUID.test(editionId)) return { ok: false, adopted: 0, message: "Unknown edition." }
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ editionId })
+  await scheduleRoomReconcile({ editionId })
 
   const sql = getSql()
   if (!(await editionRecipientsReady(sql, { fresh: true }))) {
@@ -658,7 +658,7 @@ export async function grantProspectEditions(
   const admin = await requireOwner()
   if (!UUID.test(prospectId)) return { message: "Unknown review request." }
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ prospectId })
+  await scheduleRoomReconcile({ prospectId })
 
   const posted = formData.getAll("editionId").map(String)
   if (posted.length > MAX_POSTED_EDITIONS) {

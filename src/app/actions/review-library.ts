@@ -608,7 +608,7 @@ export async function saveApprovedRecipients(
 ): Promise<FormState> {
   await requireOwner()
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile("all")
+  await scheduleRoomReconcile("all")
 
   const raw = String(
     formData.get("recipients") ??
@@ -1610,7 +1610,7 @@ export async function publishEditionAsLatest(editionId: string): Promise<FormSta
   const admin = await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ editionId })
+  await scheduleRoomReconcile({ editionId })
   const sql = getSql()
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }
@@ -1637,7 +1637,7 @@ export async function publishHistoricalEdition(editionId: string): Promise<FormS
   await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
   // Readers with a personal room are brought into line after the response.
-  scheduleRoomReconcile({ editionId })
+  await scheduleRoomReconcile({ editionId })
   const sql = getSql()
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }

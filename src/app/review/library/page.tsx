@@ -1,4 +1,6 @@
 import type { Metadata } from "next"
+import AccessJobRefresh from "@/components/AccessJobRefresh"
+import { readerRoomJob, kickReviewRoomWorker } from "@/lib/review-room-jobs"
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { currentReviewReader, recordReaderEvent } from "@/lib/review-reader"
@@ -9,6 +11,7 @@ import SiteHeader from "@/components/SiteHeader"
 import SubmitButton from "@/components/SubmitButton"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 60
 export const metadata: Metadata = {
   title: "Review Library | APRI",
   robots: { index: false, follow: false },
@@ -48,6 +51,9 @@ export default async function Library({
   const chosen = UUID.test(params.edition ?? "") ? params.edition! : null
   const reader = await currentReviewReader()
   if (!reader) redirect(chosen ? `/review/library/sign-in?edition=${chosen}` : "/review/library/sign-in")
+  const job = await readerRoomJob(reader.email)
+  const waiting = Boolean(job && ["pending", "running"].includes(job.state))
+  if (waiting) kickReviewRoomWorker(reader.email)
   const editions = await getReviewLibraryForEmail(reader.email)
   const direct = Boolean(reader.sid) && (await openWindowReady())
   const notice = params.unavailable
@@ -62,6 +68,7 @@ export default async function Library({
   await recordReaderEvent(reader.email, "library_opened")
   return (
     <div className="min-h-screen">
+      <AccessJobRefresh active={waiting} />
       <SiteHeader />
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-14 sm:py-20">
         <header className="mb-10 sm:mb-12">
