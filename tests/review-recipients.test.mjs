@@ -848,9 +848,9 @@ describe('restrictions enforce protected settings', () => {
     assert.match(s.watermark_config.text, /APRI Complimentary Review Copy/)
   })
 
-  it('the download setting is disabled', () => {
+  it('the download setting is enabled', () => {
     const s = reviewLinkSettings({ documentId: 'd', slotKey: 'MIN', allowList: ['a@x.com'] })
-    assert.equal(s.allow_download, false)
+    assert.equal(s.allow_download, true)
   })
 
   it('the document target is unchanged and no dataroom_id appears', () => {

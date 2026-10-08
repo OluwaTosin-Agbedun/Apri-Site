@@ -209,7 +209,7 @@ test("Papermark review policy enforces every required August protection", () => 
   for (const requirement of [
     /email_protected !== true/,
     /email_authenticated !== true/,
-    /allow_download !== false/,
+    /allow_download !== true/,
     /enable_watermark !== true/,
     /enable_screenshot_protection !== true/,
     /approved-recipient allow list/,

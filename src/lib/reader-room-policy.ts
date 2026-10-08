@@ -7,8 +7,8 @@
  *    (no domains, never "allow all");
  *  - an explicit permission row for EVERY document in the Review Data Room:
  *    view for the published editions assigned to that reader, nothing for
- *    every other document -- withdrawn, unassigned or newly added -- and
- *    download never;
+ *    every other document -- withdrawn, unassigned or newly added. Downloads
+ *    are allowed only for the same assigned, published editions;
  *  - one group link for that email only, created only once those permissions
  *    have been read back and match exactly.
  *
@@ -22,17 +22,17 @@ export type RoomPermissionEntry = {
   item_id: string
   item_type: "dataroom_document"
   can_view: boolean
-  can_download: false
+  can_download: boolean
 }
 
-/** Every document in the room gets a row: view only where assigned, download nowhere. */
+/** Every document gets an explicit row: view and download only where assigned. */
 export function permissionPlan(roomDocumentIds: readonly string[], visibleIds: readonly string[]): RoomPermissionEntry[] {
   const visible = new Set(visibleIds)
   return [...new Set(roomDocumentIds)].sort().map((id) => ({
     item_id: id,
     item_type: "dataroom_document" as const,
     can_view: visible.has(id),
-    can_download: false as const,
+    can_download: visible.has(id),
   }))
 }
 
@@ -41,19 +41,24 @@ export type ReadPermission = { item_id: string; item_type: string; can_view: boo
 /**
  * Compares what Papermark reports with what was intended. `overExposed` lists
  * documents the reader can see or download but should not -- a removal that
- * did not take effect. `missing` lists assigned documents not yet visible.
+ * did not take effect. `missing` lists assigned documents not yet visible;
+ * `missingDownloads` lists assigned documents whose download is still off.
  */
 export function comparePermissions(
   actual: readonly ReadPermission[],
   visibleIds: readonly string[],
-): { exact: boolean; overExposed: string[]; missing: string[]; downloadable: string[] } {
+): { exact: boolean; overExposed: string[]; missing: string[]; unexpectedDownloads: string[]; missingDownloads: string[] } {
   const visible = new Set(visibleIds)
   const docs = actual.filter((p) => p.item_type === "dataroom_document")
-  const shown = new Set(docs.filter((p) => p.can_view || p.can_download).map((p) => p.item_id))
-  const overExposed = [...shown].filter((id) => !visible.has(id)).sort()
+  const shown = new Set(docs.filter((p) => p.can_view).map((p) => p.item_id))
+  const downloadable = new Set(docs.filter((p) => p.can_download).map((p) => p.item_id))
+  // A folder grant could expose documents outside the exact edition list.
+  const broadGrants = actual.filter((p) => p.item_type !== "dataroom_document" && (p.can_view || p.can_download)).map((p) => `${p.item_type}:${p.item_id}`)
+  const overExposed = [...new Set([...shown, ...downloadable])].filter((id) => !visible.has(id)).concat(broadGrants).sort()
   const missing = [...visible].filter((id) => !shown.has(id)).sort()
-  const downloadable = docs.filter((p) => p.can_download).map((p) => p.item_id).sort()
-  return { exact: overExposed.length === 0 && missing.length === 0 && downloadable.length === 0, overExposed, missing, downloadable }
+  const unexpectedDownloads = [...downloadable].filter((id) => !visible.has(id)).sort()
+  const missingDownloads = [...visible].filter((id) => !downloadable.has(id)).sort()
+  return { exact: overExposed.length === 0 && missing.length === 0 && missingDownloads.length === 0, overExposed, missing, unexpectedDownloads, missingDownloads }
 }
 
 /** A stable fingerprint of a visible set, to record what was verified. */
@@ -69,7 +74,7 @@ export type RoomLinkSettings = {
   expires_at: string | null
   email_protected: true
   email_authenticated: boolean
-  allow_download: false
+  allow_download: true
   allow_list: string[]
   deny_list: string[]
   enable_watermark: true
@@ -82,7 +87,7 @@ export type RoomLinkSettings = {
 
 /**
  * The one link for a reader's group: only their email, watermark, screenshot
- * protection, no downloads.
+ * protection, and personalised downloads of assigned editions.
  *
  * `openUntil` set: the APRI-verified library. APRI has already checked the
  * reader's email with its own one-time code, so Papermark asks for the email
@@ -100,7 +105,7 @@ export function roomLinkSettings(args: { roomId: string; groupId: string; email:
     expires_at: codeFree ? args.openUntil! : null,
     email_protected: true,
     email_authenticated: !codeFree,
-    allow_download: false,
+    allow_download: true,
     // The group's single member already forms the allow list; it is repeated
     // on the link as a second, independent restriction.
     allow_list: [args.email],
@@ -145,14 +150,16 @@ export function roomLinkProblem(
   link: ReadLink,
   expected: { roomId: string; groupId: string; email: string; codeFree?: boolean },
   now = new Date(),
-  options: { allowClosed?: boolean; ignoreGate?: boolean } = {},
+  options: { allowClosed?: boolean; ignoreGate?: boolean; allowViewOnly?: boolean } = {},
 ): string | null {
   if (link.audience_type !== "group" || link.group_id !== expected.groupId) return "The link is not limited to this reader's group."
   if (link.dataroom_id !== expected.roomId || link.document_id) return "The link does not target the Review Data Room."
   const allow = (link.allow_list ?? []).map((e) => e.trim().toLowerCase())
   if (allow.length !== 1 || allow[0] !== expected.email) return "The link's allow list is not exactly this reader."
   if (link.email_protected !== true) return "Email protection is not on."
-  if (link.allow_download !== false) return "Downloads are not disabled."
+  // Only the pre-upgrade read may accept an existing view-only link. The
+  // post-PATCH read must confirm downloads on before the new policy is saved.
+  if (link.allow_download !== true && !(options.allowViewOnly && link.allow_download === false)) return "Downloads are not enabled."
   if (link.enable_watermark !== true) return "The personalised watermark is off."
   const wm = link.watermark_config
   if (wm?.text !== PROSPECT_WATERMARK_TEXT || wm.opacity !== 0.15 || wm.font_size !== 18) return "The watermark does not match the approved Complimentary Review watermark."

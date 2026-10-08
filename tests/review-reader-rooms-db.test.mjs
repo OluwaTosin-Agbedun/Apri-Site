@@ -48,7 +48,7 @@ registerHooks({
 // ---------------------------------------------------------------------------
 const ROOM = "room_review_test"
 const store = { docs: [], groups: new Map(), links: new Map(), calls: [] }
-const faults = { ignoreHide: false, failPermissionsPut: false, failPatch: false, failDelete: false, reportDownloadable: false }
+const faults = { ignoreHide: false, failPermissionsPut: false, failPatch: false, failDelete: false, reportDownloadable: false, ignoreDownloadEnable: false, ignoreLinkDownloadEnable: false, rateLimitPermissions: false }
 let seq = 0
 const id = (p) => `${p}_${++seq}`
 const papermark = createServer(async (req, res) => {
@@ -89,15 +89,16 @@ const papermark = createServer(async (req, res) => {
     const g = store.groups.get(m[1])
     if (!g) return send(404, {})
     if (req.method === "PUT") {
+      if (faults.rateLimitPermissions) return fail(429)
       if (faults.failPermissionsPut) return fail(500)
       // Delta semantics, as Papermark documents: entries sent are upserted.
       for (const p of body.permissions) {
         if (faults.ignoreHide && p.can_view === false && g.perms.get(p.item_id)?.can_view) continue
-        g.perms.set(p.item_id, { item_id: p.item_id, item_type: p.item_type, can_view: p.can_view, can_download: p.can_download })
+        g.perms.set(p.item_id, { item_id: p.item_id, item_type: p.item_type, can_view: p.can_view, can_download: faults.ignoreDownloadEnable ? false : p.can_download })
       }
       return send(200, { data: [...g.perms.values()] })
     }
-    const rows = [...g.perms.values()].map((r) => (faults.reportDownloadable && r.can_view ? { ...r, can_download: true } : r))
+    const rows = [...g.perms.values()].map((r) => (faults.reportDownloadable && !r.can_view ? { ...r, can_download: true } : r))
     return send(200, { data: rows, next_cursor: null })
   }
   if (req.method === "POST" && path === "/v1/links") {
@@ -111,6 +112,7 @@ const papermark = createServer(async (req, res) => {
     if (req.method === "GET") return send(200, l)
     if (req.method === "PATCH") {
       if (faults.failPatch) return fail(500)
+      if (faults.ignoreLinkDownloadEnable) delete body.allow_download
       Object.assign(l, body)
       return send(200, l)
     }
@@ -134,6 +136,15 @@ function viewerSees(linkId, email) {
   return store.docs.filter((d) => g.perms.get(d.id)?.can_view).map((d) => d.document_id).sort()
 }
 
+/** The viewer also requires the link AND exact document download permission. */
+function viewerDownloads(linkId, email) {
+  const visible = viewerSees(linkId, email)
+  const link = store.links.get(linkId)
+  if (!visible || link.allow_download !== true || !link.allow_list.includes(email)) return null
+  const group = store.groups.get(link.group_id)
+  return store.docs.filter((d) => visible.includes(d.document_id) && group.perms.get(d.id)?.can_download).map((d) => d.document_id).sort()
+}
+
 await new Promise((ok) => papermark.listen(0, "127.0.0.1", ok))
 process.env.PAPERMARK_API_BASE = `http://127.0.0.1:${papermark.address().port}`
 process.env.PAPERMARK_API_TOKEN = "mock-token-not-real"
@@ -145,6 +156,8 @@ const rooms = await import("../src/lib/review-reader-rooms.ts")
 const policy = await import("../src/lib/reader-room-policy.ts")
 const reader = await import("../src/lib/review-reader.ts")
 const subscriberToken = await import("../src/lib/subscriber-session-token.ts")
+const reviewLinks = await import("../src/lib/papermark-datarooms.ts")
+const contract = await import("../src/lib/papermark-dataroom-contract.ts")
 
 const tag = makeTag("rooms")
 const A = `${tag}_ada@example.invalid`
@@ -193,7 +206,7 @@ after(async () => {
   await sql`delete from review_publication_editions where title like ${`${tag}%`}`
   await cleanup(tag)
 })
-beforeEach(() => Object.assign(faults, { ignoreHide: false, failPermissionsPut: false, failPatch: false, failDelete: false, reportDownloadable: false }))
+beforeEach(() => { for (const key of Object.keys(faults)) faults[key] = false })
 
 describe("the rooms migration", () => {
   it("is additive and re-runs cleanly", async () => {
@@ -207,11 +220,92 @@ describe("the rooms migration", () => {
   })
 })
 
+describe("edition-link download upgrades", () => {
+  const fixture = (overrides = {}) => {
+    const linkId = id("edition_link")
+    const link = { ...contract.reviewLinkSettings({ documentId: "test_pdf", slotKey: "MIN", allowList: [A] }), id: linkId, url: `https://docs.example.invalid/view/${linkId}`, allow_download: false, ...overrides }
+    store.links.set(linkId, link)
+    return link
+  }
+  const enable = (link, extra = {}) => reviewLinks.enableReviewDocumentDownloads({ linkId: link.id, documentId: "test_pdf", allowList: [A], ...extra })
+
+  it("enables downloads in place while preserving the exact document, recipients, watermark and URL", async () => {
+    const link = fixture()
+    const before = structuredClone(link)
+    const result = await enable(link)
+    assert.equal(result.ok, true)
+    assert.equal(result.value.url, before.url)
+    assert.deepEqual(link, { ...before, allow_download: true })
+  })
+  it("does not trust a successful PATCH unless the GET confirms downloads", async () => {
+    const link = fixture()
+    faults.ignoreLinkDownloadEnable = true
+    const result = await enable(link)
+    assert.equal(result.ok, false)
+    assert.match(result.message, /not enabled/)
+    assert.equal(link.allow_download, false)
+  })
+  it("refuses wrong-document, wrong-recipient, missing-protection and expired links before changing anything", async () => {
+    for (const changed of [
+      { document_id: "different_pdf" }, { dataroom_id: ROOM }, { allow_list: [B] },
+      { email_authenticated: false }, { email_protected: false }, { enable_watermark: false },
+      { enable_screenshot_protection: false }, { expires_at: policy.closedAt() },
+    ]) {
+      const link = fixture(changed)
+      const calls = store.calls.length
+      const result = await enable(link)
+      assert.equal(result.ok, false, JSON.stringify(changed))
+      assert.equal(link.allow_download, false)
+      assert.ok(!store.calls.slice(calls).some((c) => c.startsWith("PATCH")), "no mutation on refusal")
+    }
+  })
+  it("an empty approved list makes no Papermark request", async () => {
+    const link = fixture()
+    const calls = store.calls.length
+    assert.equal((await enable(link, { allowList: [] })).ok, false)
+    assert.equal(store.calls.length, calls)
+  })
+  it("repeating an enabled upgrade reads back but never recreates or patches the link", async () => {
+    const link = fixture({ allow_download: true })
+    const calls = store.calls.length
+    assert.equal((await enable(link)).ok, true)
+    assert.ok(store.calls.slice(calls).every((c) => c.startsWith("GET")))
+  })
+  it("legacy view-only verification keeps removal and withdrawal working during rollout", async () => {
+    const link = fixture()
+    const args = { linkId: link.id, expectedDocumentId: "test_pdf", expectedAllowList: [A] }
+    assert.equal((await reviewLinks.verifyReviewDocumentLink(args)).ok, true)
+    assert.equal((await reviewLinks.verifyReviewDocumentLink({ ...args, requireDownloads: true })).ok, false)
+    assert.equal((await enable(link)).ok, true)
+    assert.equal((await reviewLinks.verifyReviewDocumentLink({ ...args, requireDownloads: true })).ok, true)
+  })
+})
+
 describe("the room rules", () => {
-  it("every room document gets a row, viewing only where assigned, download never", () => {
+  it("download permission alone is not proof that an assigned edition is viewable", () => {
+    const result = policy.comparePermissions([{ item_id: "a", item_type: "dataroom_document", can_view: false, can_download: true }], ["a"])
+    assert.equal(result.exact, false)
+    assert.deepEqual(result.missing, ["a"])
+  })
+  it("a missing download permission is not accepted as a complete policy", () => {
+    const result = policy.comparePermissions([{ item_id: "a", item_type: "dataroom_document", can_view: true, can_download: false }], ["a"])
+    assert.equal(result.exact, false)
+    assert.deepEqual(result.missingDownloads, ["a"])
+  })
+  it("an unassigned download or a broad folder grant is caught even with no view permission", () => {
+    const result = policy.comparePermissions([
+      { item_id: "a", item_type: "dataroom_document", can_view: true, can_download: true },
+      { item_id: "secret", item_type: "dataroom_document", can_view: false, can_download: true },
+      { item_id: "folder", item_type: "dataroom_folder", can_view: true, can_download: true },
+    ], ["a"])
+    assert.equal(result.exact, false)
+    assert.deepEqual(result.unexpectedDownloads, ["secret"])
+    assert.deepEqual(result.overExposed, ["dataroom_folder:folder", "secret"])
+  })
+  it("every room document gets a row, view and download only where assigned", () => {
     assert.deepEqual(policy.permissionPlan(["c", "a", "b"], ["b"]), [
       { item_id: "a", item_type: "dataroom_document", can_view: false, can_download: false },
-      { item_id: "b", item_type: "dataroom_document", can_view: true, can_download: false },
+      { item_id: "b", item_type: "dataroom_document", can_view: true, can_download: true },
       { item_id: "c", item_type: "dataroom_document", can_view: false, can_download: false },
     ])
   })
@@ -220,11 +314,13 @@ describe("the room rules", () => {
     assert.deepEqual(r.overExposed, ["a"])
     assert.equal(r.exact, false)
   })
-  it("a room link must be the reader's group only, email-verified, watermarked, protected and view-only", () => {
+  it("a room link must be the reader's group only, email-verified, watermarked, protected and download-enabled", () => {
     const expected = { roomId: "r", groupId: "g", email: "x@example.invalid" }
     const good = { ...policy.roomLinkSettings({ roomId: "r", groupId: "g", email: "x@example.invalid" }), url: "https://docs.example.invalid/view/1" }
     assert.equal(policy.roomLinkProblem(good, expected), null)
-    assert.match(policy.roomLinkProblem({ ...good, allow_download: true }, expected), /Downloads/)
+    assert.match(policy.roomLinkProblem({ ...good, allow_download: false }, expected), /Downloads/)
+    assert.match(policy.roomLinkProblem({ ...good, allow_download: undefined }, expected), /Downloads/)
+    assert.equal(policy.roomLinkProblem({ ...good, allow_download: false }, expected, new Date(), { allowViewOnly: true }), null, "only the pre-upgrade check accepts a known view-only link")
     assert.match(policy.roomLinkProblem({ ...good, audience_type: "general" }, expected), /group/)
     assert.match(policy.roomLinkProblem({ ...good, email_authenticated: false }, expected), /Verified-email/)
     assert.match(policy.roomLinkProblem({ ...good, allow_list: ["x@example.invalid", "y@example.invalid"] }, expected), /allow list/)
@@ -242,7 +338,7 @@ describe("the room rules", () => {
     assert.match(policy.roomLinkProblem({ ...good, expires_at: null }, expected), /no closing time/, "never open-ended")
     assert.match(policy.roomLinkProblem({ ...good, email_protected: false }, expected), /Email protection/)
     assert.match(policy.roomLinkProblem({ ...good, email_authenticated: true }, expected), /its own code/)
-    assert.match(policy.roomLinkProblem({ ...good, allow_download: true }, expected), /Downloads/)
+    assert.match(policy.roomLinkProblem({ ...good, allow_download: false }, expected), /Downloads/)
     assert.match(policy.roomLinkProblem({ ...good, enable_watermark: false }, expected), /watermark/)
     assert.match(policy.roomLinkProblem({ ...good, allow_list: ["y@example.invalid"] }, expected), /allow list/)
     assert.equal(policy.closesAt({ expires_at: until }, until), true)
@@ -272,7 +368,12 @@ describe("two readers, different editions, one room each", () => {
     assert.equal(groupA.allow_all, false)
     assert.equal(groupA.perms.get("dd_withdrawnA").can_view, false, "a withdrawn edition assigned to A is still hidden")
     assert.equal(groupA.perms.get("dd_stray").can_view, false)
-    assert.ok([...groupA.perms.values()].every((p) => p.can_download === false))
+    assert.deepEqual(viewerDownloads(a.papermark_link_id, A), [DOC("one"), DOC("two")].sort())
+    assert.deepEqual(viewerDownloads(b.papermark_link_id, B), [DOC("three")])
+    assert.equal(viewerDownloads(a.papermark_link_id, B), null)
+    assert.equal(viewerDownloads(b.papermark_link_id, A), null)
+    assert.equal(groupA.perms.get("dd_withdrawnA").can_download, false)
+    assert.equal(groupA.perms.get("dd_stray").can_download, false)
   })
 
   it("the link is created only after the permissions are read back, with every protection on", async () => {
@@ -287,7 +388,7 @@ describe("two readers, different editions, one room each", () => {
     assert.equal(link.email_authenticated, false, "APRI checked the email with its code: Papermark asks for no second code")
     assert.ok(link.expires_at && new Date(link.expires_at) > new Date(), "open while the reader is signed in")
     assert.ok(new Date(link.expires_at) <= new Date(Date.now() + 24 * 3_600_000 + 60_000), "and closes when their 24-hour session ends")
-    assert.equal(link.allow_download, false)
+    assert.equal(link.allow_download, true)
     assert.equal(link.enable_screenshot_protection, true)
     assert.equal(link.enable_watermark, true)
     assert.match(link.watermark_config.text, /\{\{email\}\}/)
@@ -355,7 +456,7 @@ describe("never reporting a removal Papermark did not confirm", () => {
     assert.deepEqual(viewerSees((await room(A)).papermark_link_id, A), [DOC("one")])
   })
 
-  it("if Papermark reports downloads on, the link is closed", async () => {
+  it("if Papermark reports an unassigned document as downloadable, the link is closed", async () => {
     faults.reportDownloadable = true
     const [r] = await rooms.reconcileReaders([B])
     assert.equal(r.state, "closed")
@@ -447,6 +548,74 @@ describe("opening access re-checks approval and the room's editions every time",
     assert.deepEqual(viewerSees((await room(E)).papermark_link_id, E), [DOC("x2")], "a removal takes effect before the next open")
   })
 
+  const makeViewOnly = async () => {
+    const r = await room(E)
+    const link = store.links.get(r.papermark_link_id)
+    link.allow_download = false
+    for (const permission of store.groups.get(r.papermark_group_id).perms.values()) permission.can_download = false
+    await sql`update review_reader_rooms set verified_editions = ${rooms.editionSetKey([ed.x2])}, state = 'ready' where email = ${E}`
+    return { id: link.id, url: link.url, until: link.expires_at }
+  }
+
+  it("existing view-only rooms upgrade once in place without changing identity, expiry or the reader's code", async () => {
+    const before = await makeViewOnly()
+    const calls = store.calls.length
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    const r = await room(E)
+    const link = store.links.get(r.papermark_link_id)
+    assert.equal(link.id, before.id)
+    assert.equal(link.url, before.url)
+    assert.equal(link.expires_at, before.until)
+    assert.equal(link.email_authenticated, false)
+    assert.deepEqual(link.allow_list, [E])
+    assert.equal(link.enable_watermark, true)
+    assert.equal(link.enable_screenshot_protection, true)
+    assert.equal(link.allow_download, true)
+    assert.deepEqual(viewerDownloads(link.id, E), [DOC("x2")])
+    assert.equal(r.verified_editions, rooms.roomPolicyKey([ed.x2]))
+    assert.ok(store.calls.length > calls)
+    assert.ok(!store.calls.slice(calls).includes("POST /v1/links"), "no duplicate link")
+    const readyCalls = store.calls.length
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+    assert.equal(store.calls.length, readyCalls, "return visits do not repeat the upgrade")
+  })
+
+  it("unconfirmed document download permissions never receive the new policy proof", async () => {
+    await makeViewOnly()
+    faults.ignoreDownloadEnable = true
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "unavailable")
+    const r = await room(E)
+    assert.notEqual(r.state, "ready")
+    assert.notEqual(r.verified_editions, rooms.roomPolicyKey([ed.x2]))
+    faults.ignoreDownloadEnable = false
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+  })
+
+  it("a rate-limited upgrade retains the existing link and never claims downloads are ready", async () => {
+    const old = await makeViewOnly()
+    faults.rateLimitPermissions = true
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "unavailable")
+    const r = await room(E)
+    assert.notEqual(r.state, "ready")
+    assert.equal(r.papermark_link_id, old.id)
+    assert.equal(store.links.get(old.id).url, old.url)
+    assert.equal(store.links.get(old.id).allow_download, false)
+    assert.notEqual(r.verified_editions, rooms.roomPolicyKey([ed.x2]))
+    faults.rateLimitPermissions = false
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+  })
+
+  it("a link upgrade Papermark does not apply is not accepted as ready", async () => {
+    await makeViewOnly()
+    faults.ignoreLinkDownloadEnable = true
+    const result = await rooms.reconcileReaderRoom(E)
+    assert.equal(result.state, "closed")
+    assert.match(result.message, /Downloads are not enabled/)
+    assert.equal(viewerDownloads((await room(E)).papermark_link_id, E), null)
+    faults.ignoreLinkDownloadEnable = false
+    assert.equal((await rooms.roomEntryFor(E, { allowCreate: true })).kind, "ready")
+  })
+
   it("a reader removed from every edition is not sent to their old room", async () => {
     await sql`update review_edition_recipients set revoked_at = now() where email = ${E} and revoked_at is null`
     assert.deepEqual(await rooms.roomEntryFor(E, { allowCreate: true }), { kind: "not_approved" })
@@ -522,7 +691,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     assert.equal(link.email_authenticated, false, "no second (Papermark) code")
     assert.equal(link.email_protected, true)
     assert.deepEqual(link.allow_list, [R])
-    assert.equal(link.allow_download, false)
+    assert.equal(link.allow_download, true)
     assert.equal(link.enable_watermark, true)
     assert.equal(link.enable_screenshot_protection, true)
     assert.ok(policy.closesAt(link, until), "closes exactly when the APRI session ends")
@@ -582,6 +751,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     assert.deepEqual(await rooms.readerDocumentFor(R, ed.r2, until), { kind: "not_assigned" })
     assert.equal((await rooms.readerDocumentFor(R, ed.r1, until)).kind, "open")
     assert.deepEqual(viewerSees((await linkOf(R)).id, R), [DOC("r1"), DOC("r4")].sort(), "hidden in Papermark before the next open")
+    assert.deepEqual(viewerDownloads((await linkOf(R)).id, R), [DOC("r1"), DOC("r4")].sort(), "removed edition also cannot be downloaded")
   })
 
   it("signing out closes the reader's link; a new sign-in reopens it; another browser's session keeps it open", async () => {
@@ -590,6 +760,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     await rooms.narrowRoomWindow(R)
     assert.equal(isOpen(await linkOf(R)), false, "closed in Papermark")
     assert.equal(viewerSees((await linkOf(R)).id, R), null)
+    assert.equal(viewerDownloads((await linkOf(R)).id, R), null, "expired/sign-out sessions cannot download")
     assert.equal((await room(R)).state, "ready", "closed for lack of a session, not broken")
     assert.equal((await room(R)).link_open_until, null)
 

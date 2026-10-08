@@ -1506,10 +1506,18 @@ export async function prepareEditionSecureLink(editionId: string): Promise<FormS
     recipients,
   })
   if (decision.kind === "already_linked") {
+    const { paidAccessCheck } = await import("@/lib/review-withdrawal-dal")
+    if (await paidAccessCheck(sql, edition.secureLinkId!) !== "not_paid") {
+      return { message: "This link could be recorded as paid access. No download setting was changed; review its ownership first." }
+    }
+    const expected = await expectedRecipientsForEdition(sql, edition)
+    const { enableReviewDocumentDownloads } = await import("@/lib/papermark-datarooms")
+    const enabled = await enableReviewDocumentDownloads({ linkId: edition.secureLinkId!, documentId: edition.papermarkDocumentId, allowList: expected })
+    if (!enabled.ok) return { message: enabled.message }
+    refresh()
     return {
       ok: true,
-      message:
-        "This edition already has an exact-document link. Preview and apply its recipients, then verify it before publishing.",
+      message: "Downloads verified for this edition's approved readers. Its link and recipients are unchanged. Personal reader rooms also verify downloads on their next open or repair.",
     }
   }
   if (decision.kind === "refuse") return { message: decision.message }
@@ -1530,6 +1538,7 @@ export async function prepareEditionSecureLink(editionId: string): Promise<FormS
     linkId: created.value.linkId,
     expectedDocumentId: edition.papermarkDocumentId,
     expectedAllowList: decision.emails,
+    requireDownloads: true,
   })
   if (!verified.ok) {
     const cleanup = await revokeReviewDocumentLink(created.value.linkId)

@@ -81,11 +81,12 @@ test("manager destination is fixed and PII is not sent to analytics", () => {
   const all = read("src/app/actions/review-funnel.ts")
   assert.doesNotMatch(all, /@vercel\/analytics|track\(/)
 })
-test("Complimentary Review policy is view-only, personalised and applied one edition at a time", () => {
+test("Complimentary Review downloads are personalised and applied one edition at a time", () => {
   const contract = read("src/lib/papermark-dataroom-contract.ts")
   const service = read("src/lib/papermark-datarooms.ts")
   const access = read("src/app/actions/review-edition-access.ts")
-  assert.match(contract, /allow_download: false/)
+  const reviewSettings = contract.slice(contract.indexOf("export function reviewLinkSettings"), contract.indexOf("export function isDocumentTargetedLink"))
+  assert.match(reviewSettings, /allow_download: true/)
   assert.match(contract, /email_protected: true/)
   assert.match(contract, /email_authenticated: true/)
   assert.match(contract, /enable_watermark: true/)

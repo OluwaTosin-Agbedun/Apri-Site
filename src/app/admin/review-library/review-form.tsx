@@ -491,7 +491,7 @@ function EditionCard({
         </button>
             <button
           className={secondary}
-          disabled={busy || !e.series || exact || !canPrepareLink}
+          disabled={busy || !e.series || (!exact && !canPrepareLink) || (e.publicationState !== "draft" && e.publicationState !== "published")}
           title={
             !exact && !canPrepareLink
               ? "Choose and save at least one recipient for this edition first."
@@ -499,7 +499,7 @@ function EditionCard({
           }
           onClick={() => run(e.id, () => prepareEditionSecureLink(e.id))}
             >
-          {exact ? "Exact link verified" : "Prepare & verify secure link"}
+          {exact ? "Enable / verify downloads" : "Prepare & verify secure link"}
             </button>
         {/* Drafts only: a withdrawn edition is offered again through its own
             panel, which needs new recipients and a new verified link first. */}

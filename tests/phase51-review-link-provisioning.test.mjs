@@ -172,8 +172,8 @@ describe('link security settings', () => {
     assert.equal(s.enable_screenshot_protection, true)
   })
 
-  it('downloads are disabled for Complimentary Review links', () => {
-    assert.equal(s.allow_download, false)
+  it('downloads are enabled for approved Complimentary Review links', () => {
+    assert.equal(s.allow_download, true)
   })
 
   it('watermark text is exactly the approved wording', () => {
@@ -697,11 +697,13 @@ describe('admin UI', () => {
     assert.match(form, /const canPrepareLink =\s*e\.access\.mode === "edition" &&\s*e\.access\.recipients\.length > 0 &&\s*!e\.secureLinkId &&\s*\(e\.publicationState === "draft" \|\| e\.publicationState === "published"\)/)
   })
 
-  it('an edition with an exact link shows it as verified and offers no second link', () => {
-    // Replaces "Verify/update secure review link", whose action this release
-    // retired: a second link is never minted over an existing one.
-    assert.match(form, /\{exact \? "Exact link verified" : "Prepare & verify secure link"\}/)
-    assert.match(form, /disabled=\{busy \|\| !e\.series \|\| exact \|\| !canPrepareLink\}/)
+  it('an exact link offers an in-place download verification, never a second link', () => {
+    assert.match(form, /\{exact \? "Enable \/ verify downloads" : "Prepare & verify secure link"\}/)
+    const prepare = fnBody(read(ACTIONS), 'prepareEditionSecureLink')
+    const existing = prepare.slice(prepare.indexOf('if (decision.kind === "already_linked")'), prepare.indexOf('if (decision.kind === "refuse")'))
+    assert.match(existing, /enableReviewDocumentDownloads/)
+    assert.match(existing, /paidAccessCheck/)
+    assert.doesNotMatch(existing, /createReviewDocumentLink|revokeReviewDocumentLink/)
   })
 
   it('a draft can be published only once its exact link is verified', () => {
@@ -738,8 +740,9 @@ describe('admin UI', () => {
     assert.doesNotMatch(form, /Emergency fallback|manualMode|updateSlotSecureLink/)
   })
 
-  it('the prepare button is disabled until the edition has recipients and no link', () => {
-    assert.match(form, /disabled=\{busy \|\| !e\.series \|\| exact \|\| !canPrepareLink\}/)
+  it('creation requires recipients, while existing draft or published links can be upgraded', () => {
+    assert.match(form, /\(!exact && !canPrepareLink\)/)
+    assert.match(form, /e\.publicationState !== "draft" && e\.publicationState !== "published"/)
     assert.match(form, /Choose and save at least one recipient for this edition first\./)
   })
 

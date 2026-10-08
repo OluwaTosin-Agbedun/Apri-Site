@@ -20,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  *
  * Then the reader goes straight to that one PDF inside their personal
  * Papermark link: only their address, no second code, watermark, screenshot
- * protection, no downloads, and open only until their APRI session ends.
+ * protection, downloads of that assigned edition, and open only until their APRI session ends.
  * Before 20261011 is applied it is the edition's own link instead (Papermark
  * asks for its code per edition).
  */

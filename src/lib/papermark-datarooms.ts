@@ -482,12 +482,13 @@ export type ReviewLink = {
 }
 
 const REVIEW_POLICY_MANUAL_STEP =
-  'One-time Papermark step: open this existing Complimentary Review link, disable downloads, enable verified-email authentication and screenshot protection, apply the approved-recipient allow list, and set the exact APRI Complimentary Review watermark at opacity 0.15 and font size 18; then run Preview and Apply again.'
+  'One-time Papermark step: open this existing Complimentary Review link, enable downloads, verified-email authentication and screenshot protection, apply the approved-recipient allow list, and set the exact APRI Complimentary Review watermark at opacity 0.15 and font size 18; then run Preview and Apply again.'
 
 function reviewPolicyProblem(
   link: DataRoomLink,
   expectedDocumentId: string,
   expectedAllowList: readonly string[],
+  options: { allowViewOnly?: boolean } = {},
 ): string | null {
   const target = isDocumentTargetedLink(link, expectedDocumentId)
   if (!target.ok) return target.reason
@@ -496,7 +497,7 @@ function reviewPolicyProblem(
   if (expected.size === 0 || actual.size !== expected.size || [...expected].some((email) => !actual.has(email))) return 'The approved-recipient allow list is missing or does not match.'
   if (link.email_protected !== true) return 'Verified-email protection is disabled.'
   if (link.email_authenticated !== true) return 'Email authentication is disabled.'
-  if (link.allow_download !== false) return 'Downloads are not disabled.'
+  if (link.allow_download !== true && !(options.allowViewOnly && link.allow_download === false)) return 'Downloads are not enabled.'
   if (link.enable_watermark !== true) return 'The personalised watermark is disabled.'
   if (link.enable_screenshot_protection !== true) return 'Screenshot protection is disabled.'
   const watermark = link.watermark_config
@@ -611,6 +612,7 @@ export async function verifyReviewDocumentLink(args: {
   linkId: string
   expectedDocumentId: string
   expectedAllowList?: readonly string[]
+  requireDownloads?: boolean
 }): Promise<ServiceResult<{ url: string; documentId: string }>> {
   const linkId = args.linkId.trim()
   if (!linkId) {
@@ -625,7 +627,7 @@ export async function verifyReviewDocumentLink(args: {
     const target = isDocumentTargetedLink(link, args.expectedDocumentId)
     if (!target.ok) throw new PapermarkError(target.reason)
     if (args.expectedAllowList) {
-      const problem = reviewPolicyProblem(link, args.expectedDocumentId, args.expectedAllowList)
+      const problem = reviewPolicyProblem(link, args.expectedDocumentId, args.expectedAllowList, { allowViewOnly: !args.requireDownloads })
       if (problem) throw new PapermarkError(`${problem} ${REVIEW_POLICY_MANUAL_STEP}`)
     }
 
@@ -675,6 +677,12 @@ export async function updateReviewDocumentLink(args: {
   })
 
   return attempt(async () => {
+    // Never change protections on a link that targets a different document.
+    // Repair may restore a changed protection or recipient list; verify the
+    // target before mutation, then every intended restriction afterwards.
+    const before = await papermarkRequest<DataRoomLink>(`/v1/links/${encodeURIComponent(linkId)}`)
+    const beforeTarget = isDocumentTargetedLink(before, args.documentId)
+    if (!beforeTarget.ok) throw new PapermarkError(`${beforeTarget.reason} No settings were changed.`)
     await papermarkRequest<DataRoomLink>(
       `/v1/links/${encodeURIComponent(linkId)}`,
       {
@@ -702,6 +710,29 @@ export async function updateReviewDocumentLink(args: {
 
     return { url }
   }, 'Updating the Complimentary Review link')
+}
+
+/** Enable downloads in place without changing recipients or other settings. */
+export async function enableReviewDocumentDownloads(args: {
+  linkId: string
+  documentId: string
+  allowList: readonly string[]
+}): Promise<ServiceResult<{ url: string }>> {
+  if (!args.linkId.trim() || args.allowList.length === 0) return { ok: false, status: null, message: 'Choose and verify this edition\'s recipients first.' }
+  return attempt(async () => {
+    const path = `/v1/links/${encodeURIComponent(args.linkId.trim())}`
+    const before = await papermarkRequest<DataRoomLink>(path)
+    const problem = reviewPolicyProblem(before, args.documentId, args.allowList, { allowViewOnly: true })
+    if (problem) throw new PapermarkError(`${problem} No settings were changed. Preview and apply this edition's recipients and protections first.`)
+    if (before.expires_at && new Date(before.expires_at) <= new Date()) throw new PapermarkError('The existing link is expired. No download setting was changed.')
+    if (!before.url?.startsWith('https://')) throw new PapermarkError('The existing link has no usable https address.')
+    if (before.allow_download !== true) await papermarkRequest<DataRoomLink>(path, { method: 'PATCH', body: { allow_download: true } })
+    const back = await papermarkRequest<DataRoomLink>(path)
+    const after = reviewPolicyProblem(back, args.documentId, args.allowList)
+    if (after) throw new PapermarkError(`${after} Download activation is not confirmed.`)
+    if (back.url !== before.url) throw new PapermarkError('Papermark changed the link address; download activation needs manual review.')
+    return { url: before.url }
+  }, 'Enabling Complimentary Review downloads')
 }
 
 /**
@@ -905,7 +936,9 @@ export async function getReviewLinkSettings(
 
   return attempt(async () => {
     const link = await papermarkRequest<DataRoomLink>(`/v1/links/${encodeURIComponent(id)}`)
-    const policyProblem = reviewPolicyProblem(link, link.document_id ?? '', link.allow_list ?? [])
+    // Existing view-only editions remain valid while their owner upgrades
+    // downloads. Recipient adoption/removal must keep working during rollout.
+    const policyProblem = reviewPolicyProblem(link, link.document_id ?? '', link.allow_list ?? [], { allowViewOnly: true })
     return {
       allowList: link.allow_list ?? [],
       emailProtected: link.email_protected === true,

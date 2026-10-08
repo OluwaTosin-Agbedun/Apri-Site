@@ -1176,10 +1176,10 @@ describe('safeguards', () => {
     assert.match(fn, /email_authenticated: true/)
   })
 
-  it('Complimentary Review downloads are disabled without changing subscriber policy', () => {
+  it('Complimentary Review downloads are enabled without changing subscriber policy', () => {
     const src = read('src/lib/papermark-dataroom-contract.ts')
     const fn = src.slice(src.indexOf('export function reviewLinkSettings'), src.indexOf('export function isDocumentTargetedLink'))
-    assert.match(fn, /allow_download: false/)
+    assert.match(fn, /allow_download: true/)
     assert.match(src, /allow_download: args\.allowDownload !== false/)
   })
 

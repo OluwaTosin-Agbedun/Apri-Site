@@ -20,7 +20,7 @@ import {
 /**
  * Personal Papermark Data Room access for approved Complimentary Review
  * readers: one viewer group per reader (only their approved email), explicit
- * view permission for each published edition assigned to them, no download,
+ * view and download permission for each published edition assigned to them,
  * and one email-authenticated group link created only after the permissions
  * have been read back and match. Papermark then performs the reader's email
  * check once for all of their editions, for its own session of 23 hours on
@@ -168,6 +168,11 @@ async function saveWindow(email: string, until: string | null, documents?: Recor
 /** The set of review editions a room shows, as stored and compared. */
 export function editionSetKey(editionIds: readonly string[]): string {
   return [...new Set(editionIds)].sort().join(",")
+}
+
+/** Old view-only proofs cannot be reused as proof of download permissions. */
+export function roomPolicyKey(editionIds: readonly string[]): string {
+  return `review-downloads:v1:${editionSetKey(editionIds)}`
 }
 
 /** One reconcile per reader at a time: a short lease, taken atomically. */
@@ -363,14 +368,19 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     }
     const actual = await listAll<ReadPermission>(`/v1/datarooms/${enc(roomId)}/groups/${enc(groupId)}/permissions`)
     const check = comparePermissions(actual, visible)
-    if (check.overExposed.length > 0 || check.downloadable.length > 0) {
-      await event(email, "permissions_unconfirmed", `over-exposed ${check.overExposed.length}, downloadable ${check.downloadable.length}`)
-      return closeLink({ ...row!, papermark_group_id: groupId }, "Papermark did not confirm that unassigned or withdrawn editions are hidden and downloads are off.")
+    if (check.overExposed.length > 0) {
+      await event(email, "permissions_unconfirmed", `over-exposed ${check.overExposed.length}, unexpected downloads ${check.unexpectedDownloads.length}`)
+      return closeLink({ ...row!, papermark_group_id: groupId }, "Papermark did not confirm that unassigned or withdrawn editions cannot be viewed or downloaded.")
     }
     if (check.missing.length > 0) {
       await event(email, "permissions_unconfirmed", `missing ${check.missing.length}`)
       await save(email, { state: "failed", last_error: "Papermark did not confirm every assigned edition as visible. Nothing extra is exposed; try again." })
       return { email, state: "failed", message: "Some assigned editions are not visible yet; nothing extra is exposed. Try again.", visible: visible.length - check.missing.length, hidden }
+    }
+    if (check.missingDownloads.length > 0) {
+      await event(email, "permissions_unconfirmed", `missing downloads ${check.missingDownloads.length}`)
+      await save(email, { state: "failed", last_error: "Papermark did not confirm downloads for every assigned edition. Please retry the repair." })
+      return { email, state: "failed", message: "Download permissions are not confirmed yet. Please retry the repair.", visible: visible.length, hidden }
     }
     await event(email, "permissions_confirmed", `${visible.length} visible, ${hidden} hidden`)
 
@@ -391,8 +401,17 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     let url = row!.link_url
     if (linkId) {
       let link = await paced<ReadLink>(`/v1/links/${enc(linkId)}`)
-      const problem = roomLinkProblem(link, expected, new Date(), { allowClosed: true, ignoreGate: codeFree })
+      const problem = roomLinkProblem(link, expected, new Date(), { allowClosed: true, ignoreGate: codeFree, allowViewOnly: true })
       if (problem) return closeLink({ ...row!, papermark_group_id: groupId }, problem)
+      if (link.allow_download !== true) {
+        // Upgrade in place only after exact permissions, membership and the
+        // other protections were confirmed. Preserve the URL and session.
+        await paced(`/v1/links/${enc(linkId)}`, { method: "PATCH", body: { allow_download: true } })
+        link = await paced<ReadLink>(`/v1/links/${enc(linkId)}`)
+        const upgraded = roomLinkProblem(link, expected, new Date(), { allowClosed: true, ignoreGate: codeFree })
+        if (upgraded) return closeLink({ ...row!, papermark_group_id: groupId }, upgraded)
+        await event(email, "downloads_enabled", `${visible.length} assigned editions`)
+      }
       if (codeFree) {
         if (!(link.email_authenticated === false && windowConfirmed(link))) {
           await paced(`/v1/links/${enc(linkId)}`, {
@@ -453,12 +472,12 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     })
     const shownEditions = editions.filter((e) => byDocument.has(e.papermarkDocumentId))
     if (await routingColumnsReady()) {
-      await sql`update review_reader_rooms set verified_editions = ${editionSetKey(shownEditions.map((e) => e.id))} where email = ${email}`
+      await sql`update review_reader_rooms set verified_editions = ${roomPolicyKey(shownEditions.map((e) => e.id))} where email = ${email}`
     }
     if (codeFree) {
       await saveWindow(email, openUntil, Object.fromEntries(shownEditions.map((e) => [e.id, byDocument.get(e.papermarkDocumentId)!])))
     }
-    return { email, state: "ready", message: `Ready: ${visible.length} edition${visible.length === 1 ? "" : "s"} visible, ${hidden} hidden, downloads off.`, visible: visible.length, hidden }
+    return { email, state: "ready", message: `Ready: ${visible.length} edition${visible.length === 1 ? "" : "s"} readable and downloadable, ${hidden} hidden.`, visible: visible.length, hidden }
   } catch (error) {
     const message = error instanceof PapermarkError ? error.message : "Papermark could not be reached."
     // A failure part-way may have left the reader's previous permissions in
@@ -626,7 +645,7 @@ export async function roomEntryFor(rawEmail: string, options: { allowCreate: boo
     }[]
     return { row, columns }
   }
-  const expected = editionSetKey(editions.map((e) => e.id))
+  const expected = roomPolicyKey(editions.map((e) => e.id))
   // Ready only with proof: the room's last read-back must equal the editions
   // assigned now. Without the verification columns there is no such proof, so
   // no room is ever "ready" -- a stale room cannot be reached that way.

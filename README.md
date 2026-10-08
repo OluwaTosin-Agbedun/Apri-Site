@@ -107,8 +107,13 @@ political-economy intelligence on Nigeria.
    [`docs/review-reader-library.md`](docs/review-reader-library.md). `/review/read` now only
    redirects to the library.
 
-4. **Downloads.** Complimentary Review downloads are **disabled**. A proposal to allow them is
-   on hold.
+4. **Downloads.** Approved readers may download their assigned published editions from
+   Papermark's secure viewer. Saved PDFs carry the personal confidential watermark. Personal
+   reader rooms verify document and link download permissions on their first open after this
+   update (or an Admin repair), retaining the same link. For an existing edition's original
+   link, use **Enable / verify downloads** on its Admin edition card. A failed verification is
+   never reported as ready. Downloads remain confidential and may not be redistributed; a
+   copy already saved cannot be taken back by withdrawing an edition.
 
 ---
 
@@ -137,7 +142,7 @@ API token is attached.
 | Use | Papermark object | Restrictions |
 |---|---|---|
 | Paid editions | One exact-document link per subscriber per edition | Their email as allow list, their name in the watermark, downloads per plan policy |
-| Review editions (per edition) | One document link per edition | That edition's recipients as allow list, email code, `{{email}}` watermark, screenshot protection, downloads off |
+| Review editions (per edition) | One document link per edition | That edition's recipients as allow list, email code, `{{email}}` watermark, screenshot protection, personalised downloads after verified upgrade |
 | Review rooms (per reader) | A group in the Review Data Room plus one group link | The reader is the only member; a permission row for every room document (view only where assigned, download never); email code; watermark; screenshot protection |
 
 **Engagement:** views come from the Papermark poll (daily) and the webhook. They are attributed
@@ -417,7 +422,7 @@ pnpm check:secrets                # staged changes; --all for every tracked file
 
 ## Current status and what still needs a live check
 
-Last updated **2 October 2026**.
+Last updated **8 October 2026**.
 
 **Fixed (2 October):** every review email failed on the live site. The /review
 confirmation, the Admin access email and the reader sign-in email all required `APP_URL`,
@@ -460,7 +465,16 @@ and a different browser.
 - **Code delivery to a real inbox.** APRI now sends the reader's one code. Each send is
   recorded (accepted, refused or unknown), and delivery is shown only from Resend events.
 
-**On hold:** Complimentary Review downloads.
+**Complimentary Review download rollout:** no new migration, environment variable or bulk
+Papermark job is added. Existing one-code sign-in, 24-hour session, reader assignments,
+withdrawal, and paid subscriber settings are unchanged. Personal rooms upgrade in place on
+first open; pre-repair a few readers at a time if needed. Rate-limited upgrades remain
+unconfirmed and can be retried; the existing process-local pacing is not a shared job queue.
+Original edition links can be upgraded individually with **Enable / verify downloads**.
+Use Papermark's own Download control: APRI does not expose or proxy an unwatermarked source
+PDF, and a Read click is not recorded as a completed download. Live watermarked file
+generation and delivery still require a controlled Papermark download check; automated
+coverage uses the isolated database and a mock provider.
 
 ---
 

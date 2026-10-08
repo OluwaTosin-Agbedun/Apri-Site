@@ -119,7 +119,7 @@ export default async function Library({
                     rel="noopener noreferrer"
                     className="btn-primary justify-center w-full sm:w-auto"
                   >
-                    Read
+                    Read &amp; download
                   </a>
                 </li>
               )
@@ -129,8 +129,8 @@ export default async function Library({
 
         <p className="text-xs text-muted-foreground mt-6 max-w-2xl leading-relaxed">
           {direct
-            ? "Each publication opens in APRI's secure viewer, hosted by Papermark. The first time you open one on this browser each day, the viewer asks you to confirm your email address; no further code is needed. Downloads are disabled and pages carry your personal watermark."
-            : "Each publication opens in APRI's secure viewer, hosted by Papermark, which asks for a code the first time you open each publication on this browser each day. Downloads are disabled and pages carry your personal watermark."}
+            ? "Each publication opens in APRI's secure viewer, hosted by Papermark. The first time you open one on this browser each day, the viewer asks you to confirm your email address; no further code is needed. Use Download in the viewer to save your personally watermarked copy. Copies remain confidential and must not be redistributed."
+            : "Each publication opens in APRI's secure viewer, hosted by Papermark, which asks for a code the first time you open each publication on this browser each day. Use Download in the viewer once APRI has enabled it for that edition. Copies carry your personal watermark and must not be redistributed."}
         </p>
 
         <section className="mt-16 sm:mt-20 grid md:grid-cols-2 gap-6">

@@ -31,7 +31,7 @@ export default function ReaderRoomsPanel({ schemaReady, windowReady, rooms }: { 
       <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">Personal reader access (Papermark)</h3>
       <p className="text-xs text-muted-foreground leading-relaxed mb-4 max-w-3xl">
         Behind the Review Library, each approved reader has their own Papermark group holding only their email, with view
-        permission for exactly the published editions assigned to them and downloads off, and one personal link. APRI
+        and download permission for exactly the published editions assigned to them, and one personal link. APRI
         checks the reader&rsquo;s email with its own one-time code, so that link asks for no second code; it is open only
         while the reader is signed in to the library (24 hours from their code) and closes when they sign out. Every
         change is read back from Papermark before it counts.

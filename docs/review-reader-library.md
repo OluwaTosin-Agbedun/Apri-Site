@@ -57,12 +57,14 @@ code.
 - **One viewer group per reader**, whose only member is their address. It never admits a whole
   domain or everyone.
 - **A permission row for every document** in the Review Data Room. View is allowed only for the
-  published editions assigned to that reader. Download is never allowed. Withdrawn, draft,
-  unassigned and newly synced PDFs have no view row, and Papermark refuses them.
+  published editions assigned to that reader. Download is allowed for exactly that same set.
+  Withdrawn, draft, unassigned and newly synced PDFs have explicit view and download denials,
+  and Papermark refuses them. A broad folder grant is also refused during verification.
 - **One group link** with these settings:
   - `email_protected` on, `email_authenticated` off;
   - an allow list of exactly that address;
-  - the personalised confidential watermark, screenshot protection, and downloads off.
+  - the personalised confidential watermark, screenshot protection, and downloads on only
+    after the exact per-document permissions are confirmed.
 - **The link's expiry is the end of the reader's latest APRI session.** It is set when they
   first press Read in a session (three Papermark calls, once per session, read back). It is closed
   (expiry in the past) when their last session ends or they sign out. A link with no closing
@@ -145,7 +147,34 @@ Use controlled test inboxes only, on the deployed site:
 4. **Isolation.** A second test reader with different editions sees only their own.
 5. **Removal and withdrawal.** Remove one edition from a reader and withdraw another: both are
    refused.
-6. **Downloads.** Downloads stay disabled, and the watermark shows the reader's address on
-   every page, which confirms that each PDF is served as page images.
+6. **Downloads.** Use Download in the secure viewer. Check the saved PDF has the reader's
+   confidential watermark on each page. Another reader's, withdrawn and unassigned PDFs
+   must not be downloadable, including through a copied document URL.
 7. **Sign-out.** Sign out, then open the personal link directly: Papermark refuses it as
    expired.
+
+## Download rollout (8 October 2026)
+
+No additional migration is required. Existing `verified_editions` values acquire a policy
+version only after permissions and the link have been read back. An old view-only proof
+therefore triggers one reconcile on the next Read, not a request for every return visit.
+The same personal link, group, watermark, approved email and session expiry are retained.
+Admin can repair readers ahead of time in small batches with the existing controls.
+
+For original per-edition links and the repair fallback, use **Enable / verify downloads**
+on the edition card. This owner-only operation checks the exact document and current
+recipient list first, changes only `allow_download`, and reads it back. It refuses a link
+recorded as paid access, withdrawn/ignored editions, an empty or mismatched recipient list,
+and missing protection. Repeating it does not recreate a link. Legacy view-only links remain
+valid for recipient changes, publishing checks and withdrawal while upgrades are pending.
+
+The library's **Read & download** button opens the exact assigned PDF; Download is inside
+Papermark's viewer. There is no supported cross-origin download proxy using APRI's API token
+and no raw PDF route is introduced. Papermark handles personalised PDF generation. The
+existing analytics collector records provider-confirmed download events; simply opening the
+viewer counts as no download.
+
+An API failure or rate limit never writes a successful download proof. A security mismatch
+or unconfirmed removal still closes the personal link. Saved copies cannot be recalled.
+This change retains existing pacing; it does not implement the separately planned shared
+queue for all API callers. Run live checks above with a controlled reader before rollout.
