@@ -85,6 +85,24 @@ political-economy intelligence on Nigeria.
     because of a library problem. Missing links read as "being prepared".
 - **Notices:** suspended, ended, not-yet-started and term-missing states each have their own
   notice.
+- **Search.** Both subscriber library paths can search the editions the subscriber is already
+  permitted to see.
+  - **Filters:** keywords, MIN/AIU/PLM, and an inclusive issue-date range using either or both
+    dates. The filters combine.
+  - **Feedback:** matching counts, **Clear filters**, a no-results message, and plain messages
+    for an impossible or reversed date range.
+  - **Coverage:** titles and existing descriptions, not PDF contents. Subject, sector and
+    geography tags and structured summaries are separate work.
+  - **Dates:** filters use editorial issue dates, never upload or sync timestamps. An undated
+    edition is listed when no date is set, and excluded once a date range is applied.
+  - **Latest:** the single Latest card stays above the archive and is never filtered.
+  - **Privacy and access:** filtering runs in the browser over the list the server already
+    rendered (`src/lib/library-search.ts`, `src/components/LibrarySearch.tsx`). It makes no
+    Papermark or database calls, and keeps search terms out of URLs, browser storage and
+    analytics. Only display fields (title, description, type, issue date) are passed for
+    searching, never links or Papermark ids. Opening a document still checks current access on
+    the server.
+  - No migration or new setting is needed.
 
 ### Complimentary Review (prospects and approved readers)
 
@@ -379,6 +397,11 @@ pnpm check:secrets                # staged changes; --all for every tracked file
   reach a real database, Papermark or Resend.
 - **Papermark in tests.** Behaviour is tested against local mock servers, which is not live
   verification.
+- **Subscriber search:**
+  - `tests/library-search.test.mjs` covers the filter rules;
+  - `library-search-db.test.mjs` uses the real access loaders: January versus May terms,
+    individual Allow/Block, another plan's editions and both library paths;
+  - `library-search-form.test.mjs` covers the rendered controls and where search terms may go.
 - **CI** (`.github/workflows/ci.yml`) runs the secret scan, type check, tests and build on every
   push to `main` and on pull requests.
 
@@ -437,7 +460,13 @@ can be delayed; the saved jobs and leases remain recoverable. See
 
 ## Current status and what still needs a live check
 
-Last updated **8 October 2026**.
+Last updated **14 November 2026**.
+
+**Subscriber archive search:** keyword, publication-type and inclusive issue-date filters
+are available in both subscriber library paths. Papermark delivery, the Latest card,
+subscription periods and individual exceptions are retained. This is the first functional
+scope increment; branding, Zoho integration and the domain cutover are deferred. Local
+verification uses invented records, not production subscribers.
 
 **Papermark repair stability:** apply `20261012_papermark_work_queue.sql` before deploying
 this change. All API helpers share pacing across instances after that migration. Temporary

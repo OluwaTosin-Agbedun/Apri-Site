@@ -13,6 +13,8 @@ import { seriesLabel, tierDisplayName } from "@/lib/entitlements"
 import { subscriberSignOut } from "@/app/actions/subscriber-auth"
 import SiteFooter from "@/components/SiteFooter"
 import PortalHeader from "@/components/PortalHeader"
+import LibrarySearch, { LibrarySearchResult, LibrarySearchSeries, LibrarySearchCount } from "@/components/LibrarySearch"
+import { dataRoomSearchEntry, legacySearchEntry } from "@/lib/library-search"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import { subscriberLibraryEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
@@ -148,18 +150,22 @@ async function DataRoomPortal({
           {latest ? <DataRoomGrid documents={[latest]} featured /> : <EmptyLibrary awaitingDetails={awaitingDetails > 0} />}
         </PortalSection>
 
-        <LibraryNavigation counts={Object.fromEntries(PORTAL_SERIES.map((series) => [series, libraries[series].length])) as Record<PortalSeries, number>} />
+        <LibrarySearch entries={editions.map(dataRoomSearchEntry)}>
+        <LibraryNavigation />
 
         {PORTAL_SERIES.map((series) => (
-          <section key={series} id={`library-${series.toLowerCase()}`} className="mb-16 scroll-mt-24">
+          <LibrarySearchSeries key={series} series={series}>
+          <section id={`library-${series.toLowerCase()}`} className="mb-16 scroll-mt-24">
             <div className="flex items-end justify-between gap-4 border-b border-border pb-4 mb-6">
               <div><p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-accent mb-2">{series}</p>
                 <h2 className="font-serif text-xl sm:text-2xl text-foreground">{seriesLabel(series)}</h2></div>
-              <span className="text-xs text-muted-foreground">{libraries[series].length} {libraries[series].length === 1 ? "edition" : "editions"}</span>
+              <span className="text-xs text-muted-foreground"><LibrarySearchCount series={series} /></span>
             </div>
             {libraries[series].length ? <DataRoomGrid documents={libraries[series]} /> : <p className="text-sm text-muted-foreground py-5">No editions are currently available to you in this library.</p>}
           </section>
+          </LibrarySearchSeries>
         ))}
+        </LibrarySearch>
 
         <PortalFooter />
       </main>
@@ -220,25 +226,29 @@ async function LegacyPortal({
         </PortalSection>
 
         {portalLibrary.length > 0 && (
+          <LibrarySearch entries={portalLibrary.map(legacySearchEntry)}>
           <PortalSection title="Published editions">
-            <LibraryNavigation counts={Object.fromEntries(PORTAL_SERIES.map((series) => [series, grouped[series].length])) as Record<PortalSeries, number>} />
+            <LibraryNavigation />
             <div className="space-y-12">
               {PORTAL_SERIES.map((series) => (
-                <section key={series} id={`library-${series.toLowerCase()}`} className="scroll-mt-24">
+                <LibrarySearchSeries key={series} series={series}>
+                <section id={`library-${series.toLowerCase()}`} className="scroll-mt-24">
                   <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
                     {seriesLabel(series)}
                   </h3>
                   <ul className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {grouped[series].map((item) => (
-                      <li key={item.id}>
+                      <LibrarySearchResult key={item.id} id={item.id}>
                         <PublicationRow item={item} />
-                      </li>
+                      </LibrarySearchResult>
                     ))}
                   </ul>
                 </section>
+                </LibrarySearchSeries>
               ))}
             </div>
           </PortalSection>
+          </LibrarySearch>
         )}
 
         <PortalFooter />
@@ -303,10 +313,14 @@ function PortalFooter() {
 function DataRoomGrid({ documents, featured = false }: { documents: DataRoomDocument[]; featured?: boolean }) {
   return (
     <ul className="grid grid-cols-1 gap-4">
-      {documents.map((doc) => (
+      {documents.map((doc) => featured ? (
         <li key={doc.id}>
           <DataRoomCard document={doc} featured={featured} />
         </li>
+      ) : (
+        <LibrarySearchResult key={doc.id} id={doc.id}>
+          <DataRoomCard document={doc} />
+        </LibrarySearchResult>
       ))}
     </ul>
   )
@@ -388,12 +402,12 @@ function ActivityStatus({ document }: { document: DataRoomDocument }) {
   )
 }
 
-function LibraryNavigation({ counts }: { counts: Record<PortalSeries, number> }) {
+function LibraryNavigation() {
   return (
     <nav aria-label="Publication libraries" className="mb-16">
       <p className="text-xs font-medium uppercase tracking-wider text-accent mb-5">Browse libraries</p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {PORTAL_SERIES.map((series) => <a key={series} href={`#library-${series.toLowerCase()}`} className="group border border-border bg-card/20 p-5 hover:border-accent transition-colors"><span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-accent">{series}</span><span className="mt-2 block font-serif text-lg leading-snug group-hover:text-accent transition-colors">{seriesLabel(series)}</span><span className="mt-3 block text-xs text-muted-foreground">{counts[series]} {counts[series] === 1 ? "edition" : "editions"} <span aria-hidden>→</span></span></a>)}
+        {PORTAL_SERIES.map((series) => <LibrarySearchSeries key={series} series={series}><a href={`#library-${series.toLowerCase()}`} className="group border border-border bg-card/20 p-5 hover:border-accent transition-colors"><span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-accent">{series}</span><span className="mt-2 block font-serif text-lg leading-snug group-hover:text-accent transition-colors">{seriesLabel(series)}</span><span className="mt-3 block text-xs text-muted-foreground"><LibrarySearchCount series={series} /> <span aria-hidden>→</span></span></a></LibrarySearchSeries>)}
       </div>
     </nav>
   )
