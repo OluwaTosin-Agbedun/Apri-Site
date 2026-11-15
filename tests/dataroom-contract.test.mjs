@@ -13,8 +13,8 @@ import {
   newestFirst,
   portalCategoryLabel,
   portalTypeLabel,
-  PORTAL_CATEGORIES,
 } from '../src/lib/papermark-dataroom-contract.ts'
+import { DEFAULT_CATALOGUE } from '../src/lib/publication-catalogue.ts'
 
 // ---------------------------------------------------------------------------
 // Watermark
@@ -112,8 +112,9 @@ describe('dataRoomLinkSettings', () => {
 // ---------------------------------------------------------------------------
 
 describe('categoriseDataRoomDocument', () => {
-  it('matches folder-based category', () => {
-    assert.equal(categoriseDataRoomDocument({ title: 'Something', category: 'PLM' }), 'PLM')
+  it('matches the mapped folder, and the publication record\'s series first', () => {
+    assert.equal(categoriseDataRoomDocument({ title: 'Something', folderPath: '/political-landscape-monitor' }), 'PLM')
+    assert.equal(categoriseDataRoomDocument({ title: 'Something', series: 'PLM', folderPath: '/Admin' }), 'PLM')
   })
 
   it('matches title-based prefix', () => {
@@ -125,16 +126,16 @@ describe('categoriseDataRoomDocument', () => {
   })
 
   it('does not match a prefix without a separator', () => {
-    assert.equal(categoriseDataRoomDocument({ title: 'ADMIN-notes' }), 'OTHER')
-    assert.equal(categoriseDataRoomDocument({ title: 'MINIMAL report' }), 'OTHER')
+    assert.equal(categoriseDataRoomDocument({ title: 'ADMIN-notes' }), null)
+    assert.equal(categoriseDataRoomDocument({ title: 'MINIMAL report' }), null)
   })
 
-  it('returns OTHER for unrecognised titles', () => {
-    assert.equal(categoriseDataRoomDocument({ title: 'Random document' }), 'OTHER')
+  it('leaves unrecognised titles awaiting a category (null), never Other by default', () => {
+    assert.equal(categoriseDataRoomDocument({ title: 'Random document' }), null)
   })
 
   it('folder wins over title', () => {
-    assert.equal(categoriseDataRoomDocument({ title: 'MIN-2026-08 Note', category: 'AIU' }), 'AIU')
+    assert.equal(categoriseDataRoomDocument({ title: 'MIN-2026-08 Note', folderPath: '/athena-intelligence-updates' }), 'AIU')
   })
 })
 
@@ -144,8 +145,8 @@ describe('portalCategoryLabel / portalTypeLabel', () => {
     assert.ok(portalTypeLabel('MIN').length > 0)
   })
 
-  it('PORTAL_CATEGORIES has six entries', () => {
-    assert.equal(PORTAL_CATEGORIES.length, 6)
+  it('the publication catalogue has every stored code (six categories plus historical BP)', () => {
+    assert.equal(DEFAULT_CATALOGUE.length, 7)
   })
 })
 

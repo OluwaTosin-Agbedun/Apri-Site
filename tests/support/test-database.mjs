@@ -15,34 +15,22 @@ import { createServer } from 'node:http'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { PGlite } from '@electric-sql/pglite'
+import { splitSqlStatements } from '../../scripts/lib/sql-statements.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 const read = (p) => readFileSync(join(ROOT, p), 'utf8')
 
 /**
- * Two statements in db/schema.sql cannot run here, and are the only ones
- * allowed to fail:
- *  - `create extension pgcrypto`: not bundled with PGlite, and not needed --
- *    gen_random_uuid() is built into PostgreSQL 13 and later;
- *  - a stray ");" on its own (a known defect in schema.sql, reported
- *    separately). Anything else that fails stops the run.
+ * One statement in db/schema.sql cannot run here, and is the only one allowed
+ * to fail: `create extension pgcrypto`, which is not bundled with PGlite and
+ * not needed -- gen_random_uuid() is built into PostgreSQL 13 and later.
+ * Anything else that fails stops the run.
  */
-const TOLERATED = [/^create extension if not exists pgcrypto;$/, /^\);$/]
+const TOLERATED = [/^create extension if not exists pgcrypto$/]
 
+/** db/schema.sql split exactly as `pnpm db:migrate` splits it. */
 function schemaStatements() {
-  const statements = []
-  let current = ''
-  let inDollar = false
-  for (const line of read('db/schema.sql').split(/\r?\n/)) {
-    if ((line.match(/\$\$/g) ?? []).length % 2 === 1) inDollar = !inDollar
-    current += line + '\n'
-    if (!inDollar && /;\s*(--.*)?$/.test(line)) {
-      statements.push(current)
-      current = ''
-    }
-  }
-  if (current.trim()) statements.push(current)
-  return statements
+  return splitSqlStatements(read('db/schema.sql'))
 }
 
 /**

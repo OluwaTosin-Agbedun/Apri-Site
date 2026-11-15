@@ -24,22 +24,29 @@
  * the database and Papermark calls as `WithdrawalDeps`.
  */
 
-export const REVIEW_SERIES = ["MIN", "AIU", "PLM"] as const
-export type ReviewSeriesKey = (typeof REVIEW_SERIES)[number]
+import { reviewCodes, type CatalogueCode } from "./publication-catalogue.ts"
+
+/** Every category a Complimentary Review edition may be filed under, in the default catalogue order. */
+export const REVIEW_SERIES: readonly CatalogueCode[] = reviewCodes()
+export type ReviewSeriesKey = CatalogueCode
 
 // ---------------------------------------------------------------------------
 // Which edition each series offers
 // ---------------------------------------------------------------------------
 
 /**
- * The homepage cards: at most one per series, in MIN, AIU, PLM order.
+ * The homepage cards: at most one per category, in catalogue order (`order`,
+ * the owner's; the default order otherwise).
  *
- * Each series stands alone. A series with no offered edition, or whose offered
- * edition is not ready, simply has no card -- it neither hides the other series
- * nor is quietly replaced by an older edition.
+ * Each category stands alone. A category with no offered edition, or whose
+ * offered edition is not ready, simply has no card -- it neither hides the
+ * others nor is quietly replaced by an older edition. A card exists only for
+ * an edition the query chose (once the withdrawal migration has run: one an
+ * owner explicitly offered), so supporting a category adds no card by itself.
  */
 export function selectOfferedCards<T extends { slotKey: string; accessConfigured: boolean }>(
   rows: readonly T[],
+  order: readonly string[] = REVIEW_SERIES,
 ): T[] {
   const bySeries = new Map<string, T>()
   for (const row of rows) {
@@ -48,7 +55,7 @@ export function selectOfferedCards<T extends { slotKey: string; accessConfigured
     if (!bySeries.has(row.slotKey)) bySeries.set(row.slotKey, row)
   }
   const cards: T[] = []
-  for (const series of REVIEW_SERIES) {
+  for (const series of order) {
     const row = bySeries.get(series)
     if (row && row.accessConfigured === true) cards.push(row)
   }

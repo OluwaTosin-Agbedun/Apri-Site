@@ -48,7 +48,7 @@ political-economy intelligence on Nigeria.
 | Path | Purpose |
 |---|---|
 | `/` | Homepage: services, featured Complimentary Review editions, **Access Subscriber Library** |
-| `/publications`, `/publications/[slug]` | Publications, and the Review Publication Archive (ordered from Admin) |
+| `/publications`, `/publications/[slug]` | Publications, and the Review Publication Archive (ordered from Admin; one column per category with published editions) |
 | `/services`, `/team` | Services, and the team page (owner-managed portraits) |
 | `/access` | Subscription access requests (Individual / Professional) |
 | `/request-briefing` | Request a briefing; notifies the briefing manager |
@@ -65,6 +65,11 @@ political-economy intelligence on Nigeria.
     mapped. Each permitted edition opens through the subscriber's own exact-document Papermark
     link, watermarked with their name.
   - The **legacy library** is used for plans with no Data Room.
+  - Both list **every permitted edition**, grouped by the
+    [publication catalogue](#publication-catalogue) in its order, each category with its card
+    and count. An edition with no category is still listed, last, under **Publications awaiting
+    a category**. The single **Latest** card is the newest permitted edition across every
+    category. A category only places and labels an edition: it never grants access.
 - **Viewing inside APRI.** Papermark lets another site frame only its `/embed` page
   (`/view/<link>/embed`, or `/<slug>/embed` on a custom domain). Other viewer addresses send
   `X-Frame-Options`, so browsers refuse them in a frame.
@@ -87,29 +92,42 @@ political-economy intelligence on Nigeria.
   notice.
 - **Search.** Both subscriber library paths can search the editions the subscriber is already
   permitted to see.
-  - **Filters:** keywords, MIN/AIU/PLM, and an inclusive issue-date range using either or both
-    dates. The filters combine.
+  - **Filters:** keywords, publication type (only the categories the reader has), and an
+    inclusive issue-date range using either or both dates. The filters combine.
   - **Feedback:** matching counts, **Clear filters**, a no-results message, and plain messages
     for an impossible or reversed date range.
-  - **Coverage:** titles and existing descriptions, not PDF contents. Subject, sector and
-    geography tags and structured summaries are separate work.
+  - **Coverage:** titles, existing descriptions and the approved protected summary the reader
+    may see, not PDF contents. **Subject**, **Sector** and **Geography** filters (from the
+    editions' tags) appear only when the reader's permitted editions carry tags of that kind,
+    offering only those labels.
   - **Dates:** filters use editorial issue dates, never upload or sync timestamps. An undated
     edition is listed when no date is set, and excluded once a date range is applied.
   - **Latest:** the single Latest card stays above the archive and is never filtered.
   - **Privacy and access:** filtering runs in the browser over the list the server already
     rendered (`src/lib/library-search.ts`, `src/components/LibrarySearch.tsx`). It makes no
     Papermark or database calls, and keeps search terms out of URLs, browser storage and
-    analytics. Only display fields (title, description, type, issue date) are passed for
-    searching, never links or Papermark ids. Opening a document still checks current access on
-    the server.
-  - No migration or new setting is needed.
+    analytics. Only display fields (title, description, type, issue date, tag labels and approved
+    summary text) are passed for searching, never links, Papermark ids or unapproved text.
+    Opening a document still checks current access on the server.
+  - Tag filters and summaries need the editorial metadata migration (see
+    [Database and migrations](#database-and-migrations)); without it, search works as before.
+- **Reader details, tags and summaries.** Each permitted edition's card shows the details an
+  editor entered (reading time, covered period, information cut-off, author/editor, tags), only
+  when present, and the owner-approved summary in a closed **Summary** disclosure: what changed,
+  why it matters, implications and risks, what to watch, and an optional source date and
+  uncertainty. Drafts and edited-but-unapproved text never reach a reader, a public or review
+  page, metadata, an email or a search record. See
+  [`docs/publication-metadata-and-summaries.md`](docs/publication-metadata-and-summaries.md).
 
 ### Complimentary Review (prospects and approved readers)
 
 1. **Request.** A prospect requests at `/review`, confirms their email, and an owner approves
    them in Admin → Review Requests.
 2. **Recipients.** Each edition has its own recipient list (Admin → Review Library → edition
-   recipients). Withdrawn and draft editions are never offered.
+   recipients). Withdrawn and draft editions are never offered. Editions may be in any catalogue
+   category except BP. Nothing is auto-assigned, auto-published or auto-offered, and approved
+   card copy exists only for MIN, AIU and PLM: an edition in any other category needs the
+   owner's own title and description before it can be published.
 3. **How readers open editions.** Where the public cards lead is controlled by an owner in
    **Admin → Review Library → Where public review cards lead**. It is reversible.
 
@@ -132,6 +150,54 @@ political-economy intelligence on Nigeria.
    link, use **Enable / verify downloads** on its Admin edition card. A failed verification is
    never reported as ready. Downloads remain confidential and may not be redistributed; a
    copy already saved cannot be taken back by withdrawing an edition.
+
+### Publication catalogue
+
+One owner-controlled list of categories (`src/lib/publication-catalogue.ts`, edited in
+**Admin → Publication Categories**) drives both subscriber libraries, Complimentary Review, the
+Publications archive, the homepage review cards and Admin.
+
+| Code | Label | Notes |
+|---|---|---|
+| MIN | Monthly Intelligence Notes | |
+| AIU | Athena Intelligence Updates | |
+| PLM | Political Landscape Monitor | |
+| AEO | Election & Democratic Governance Monitor | Formerly "Election Observatory" (kept as another name) |
+| QIB | Quarterly Intelligence Briefs | |
+| OTHER | Other Assigned Publications | Only an explicit choice, never a fallback |
+| BP | Board Papers | Historical, inactive |
+
+- **Placement.** A Data Room document is placed by its publication record's series; else its
+  Papermark folder, matched **exactly** against the owner's folder mappings; else (only for a
+  document in no folder) a code at the start of its name; else it is **awaiting a category**.
+  An unmapped folder is never guessed. Papermark spells "&" as "and" in folder paths.
+- **Owners** edit labels, card labels, order, the active flag and other names, and add or
+  remove folder mappings. Codes cannot be created there: a new code needs a migration.
+- **Never access.** A category or folder never grants access: the access policy and each
+  review edition's own readers decide.
+
+Details, the default folder mappings and the decisions behind them:
+[`docs/publication-catalogue.md`](docs/publication-catalogue.md).
+
+### Loading placeholders
+
+While the subscriber portal (`/portal`, a document, the sign-in steps) or the Complimentary
+Review library (`/review/library` and its sign-in) does its server work, Next.js shows a
+placeholder of generic grey shapes in the page's own layout (`src/components/PageSkeleton.tsx`
+and each folder's `loading.tsx`).
+
+- No data, names, titles, links or counts; showing one starts no work and adds no delay.
+- One visually hidden "Loading…" status; the pulse stops for reduced motion; one column on
+  phones.
+- Every real state still replaces it: empty library, notices, redirects, not-found and errors.
+  Without JavaScript the page replaces it once it arrives; a failed page leaves a short notice.
+- **Public pages and the Admin console have no placeholder, on purpose.** A streamed
+  placeholder makes the response `200 OK` before the page runs, so pages under it lose real
+  `404`, `307` and `500` status codes. Keeping placeholders to the portal and review library
+  keeps real status codes everywhere else. Monitor portal and review-library failures through
+  runtime error logs, not status codes.
+
+Details and trade-offs: [`docs/skeleton-loading.md`](docs/skeleton-loading.md).
 
 ---
 
@@ -221,9 +287,11 @@ The full write-up is in [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.m
 | Overview | Metrics and recent activity |
 | Subscribers | Seats, activation (prepares the library, then sends onboarding), term and paid periods, **Document access** per edition (Also give / Hide), **Prepare library access**, signed-in browsers and **Sign out of all browsers** |
 | Access Health | Every subscriber's reconciliation state |
-| Documents | Publication records; **Who gets this edition** (plans, On/Off) |
-| Data Rooms | Map each plan to its Papermark Data Room |
-| Review Library | Daily view: a short list of problems only when a real one exists (missing settings or migrations, an edition whose readers are not yet applied to Papermark, rooms needing repair, refused emails), checked on the server each time; editions grouped MIN / AIU / PLM with status, homepage offer, approved-reader count and access health (sync, details, readers with Select all / Unselect all and preview, prepare secure access, publish, offer, withdraw, re-offer, history, order); **Approved readers** (find an email, see exactly what it can open, add or remove per edition, with apply and read-back to Papermark); **Personal rooms** status with **Repair**. **Advanced / Diagnostics**: where the cards lead, personal reader access (when each reader's link closes, check and repair; never the link itself), review email delivery records, the address book, library switch and Data Room. |
+| Documents | Publication records; **Who gets this edition** (plans, On/Off); **Reader details and tags** (a save made from a page opened before someone else's save is refused: reload and repeat it); **Protected summary for subscribers** (drafted by any administrator, approved or withdrawn by owners; editing approved text takes it down until re-approved). A record that anything uses, or that holds a written protected summary, is never deleted: archive it instead |
+| Publication Tags | The subject, sector and geography vocabulary: add (owners and editors); rename, retire, restore, delete unused (owners) |
+| Data Rooms | Map each plan to its Papermark Data Room; shows each document's category as the portal places it and flags unmapped folders |
+| Publication Categories | The one publication catalogue: labels, card labels, order, active flag, other names, Papermark folder mappings, and what is awaiting a category, with unmapped paid and Review Data Room folders (owner only) |
+| Review Library | Daily view: a short list of problems only when a real one exists (missing settings or migrations, an edition whose readers are not yet applied to Papermark, rooms needing repair, refused emails), checked on the server each time; editions grouped by catalogue category with status, homepage offer, approved-reader count and access health (sync, details, readers with Select all / Unselect all and preview, prepare secure access, publish, offer, withdraw, re-offer, history, order); **Approved readers** (find an email, see exactly what it can open, add or remove per edition, with apply and read-back to Papermark); **Personal rooms** status with **Repair**. **Advanced / Diagnostics**: where the cards lead, personal reader access (when each reader's link closes, check and repair; never the link itself), review email delivery records, the address book, library switch and Data Room. |
 | Review Requests | Verified prospects, approvals, subscription processing |
 | Engagement | Who is reading what (subscribers and review readers), per edition |
 | Briefings, Copies, Team, Administrators | Briefing requests, issued copies, team portraits, accounts |
@@ -248,8 +316,14 @@ src/lib/                     Server logic (server-only), including:
   review-reader.ts             remembered Review Library sessions
   review-reader-rooms.ts, reader-room-policy.ts           personal Papermark rooms
   publications.ts              public and per-email review edition queries
+  publication-catalogue.ts     the one category catalogue and placement rules (pure)
+  publication-catalogue-dal.ts the owner's catalogue from the database (defaults before 20261114)
+  publication-metadata.ts      reader details, tag and protected-summary rules (pure)
+  publication-metadata-dal.ts  reader details loader, editor panel, tag vocabulary
+  publication-summaries.ts     protected summaries: compare-and-set writes, approved-only reads
   papermark*.ts                Papermark client and contracts
   view-attribution.ts, papermark-collector.ts             engagement attribution and polling
+src/components/PageSkeleton.tsx  loading placeholders for /portal and /review/library (no data)
 db/schema.sql                Full schema for a new database
 db/migrations/               Additive, idempotent migrations for existing databases
 db/rollback/                 One rollback per migration
@@ -334,7 +408,11 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 
 ## Database and migrations
 
-- **A new database:** `pnpm db:migrate` applies `db/schema.sql`.
+- **A new database:** `pnpm db:migrate` applies `db/schema.sql`. It splits the file into
+  statements the way psql does (`scripts/lib/sql-statements.mjs`), so a semicolon inside a
+  comment, a quoted string or a `do $$ ... $$` block does not cut a statement in two;
+  `tests/schema-fresh-install.test.mjs` applies the whole schema to an empty database. (Until
+  15 November 2026 a stray `);` in the schema and a naive split stopped a fresh install part-way.)
 - **An existing database:** apply new files from `db/migrations/` **in filename order**, before or
   with the deploy that needs them. Every migration is additive and safe to re-run, and each has a
   rollback in `db/rollback/`. Code checks whether newer migrations are present and keeps the
@@ -374,11 +452,24 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 | 30 | `20261010_review_access_reliability.sql` | Owner-only review email outcomes and delivery events; room routing columns (confirmed edition set, per-reader lease) |
 | 31 | `20261011_review_reader_open_window.sql` | When each reader's personal Papermark link closes, and which room document is each edition: turns on direct, code-free Read |
 | 32 | `20261012_papermark_work_queue.sql` | Shared Papermark pacing, saved reader repair jobs, owned leases and resumable paid verification |
+| 33 | `20261114_publication_catalogue.sql` | One publication catalogue: owner-edited category labels, order and active flag, exact Papermark folder mappings (seeded once from the defaults); `documents.series` may be OTHER; review editions may use any catalogue code but BP. Changes no existing row. Sets a 5-second lock timeout: if it fails on a lock, re-run it |
+| 34 | `20261114_publication_editorial_metadata.sql` | Optional reader details on publication records (author/editor, covered period, information cut-off, reading time), the subject/sector/geography tag vocabulary and assignments (an assigned tag cannot be deleted), and approved protected summaries with revisions. Additive, no backfill. Sets a 5-second lock timeout: if it fails on a lock, re-run it |
 
 A read-only check on 2 October 2026 found every migration through `20261010` applied in
 production. `20261011` is new: until it is applied, the library sends readers to each edition's
 own Papermark link (a Papermark code per edition) and no personal link is changed. Verification
 queries are in each feature's document under `docs/`.
+
+Before `20261114_publication_catalogue.sql` is applied, the site uses the built-in catalogue:
+owner edits, series OTHER and review editions outside MIN/AIU/PLM wait for it. Its rollback
+(`db/rollback/20261114_publication_catalogue.rollback.sql`) refuses, changing nothing, while a
+record has series OTHER, a review edition is in AEO, QIB or OTHER, or an owner has edited a
+category or mapping; it is safe to run twice.
+
+`20261114_publication_editorial_metadata.sql` sorts after the catalogue migration and does not
+depend on it. Before it is applied, both libraries list, open and search as before and the
+Admin panels say the migration is needed. Its rollback refuses, changing nothing, while any
+summary, tag, tag assignment or reader-detail value exists; it can be re-run.
 
 ---
 
@@ -402,6 +493,40 @@ pnpm check:secrets                # staged changes; --all for every tracked file
   - `library-search-db.test.mjs` uses the real access loaders: January versus May terms,
     individual Allow/Block, another plan's editions and both library paths;
   - `library-search-form.test.mjs` covers the rendered controls and where search terms may go.
+- **Publication catalogue:**
+  - `tests/publication-catalogue.test.mjs`: defaults, owner overrides, exact folder mapping
+    (including Papermark's stored folder paths), placement order, sections, search types,
+    validation, review rules, and guards against hard-coded series lists;
+  - `publication-catalogue-db.test.mjs`: all six categories plus "awaiting a category" on both
+    library paths with the real loaders (January–March and May-onward periods, Allow and Block,
+    another plan), the single Latest, review readers in different categories, no
+    auto-assignment, owner-only Admin actions and the review copy rule;
+  - `publication-catalogue-migration.test.mjs`: fresh seed, an upgrade with representative data
+    that changes no row, safe re-runs that keep owner edits, every rollback guard and a re-runnable
+    rollback.
+- **Reader details, tags and summaries:**
+  - `tests/publication-metadata.test.mjs` (rules and card rendering) and
+    `publication-metadata-db.test.mjs` (saving through the real actions, a stale save refused
+    without losing another editor's tag, tag permissions, retire-not-delete, what readers see on
+    both paths, details never decide access);
+  - `publication-summaries-db.test.mjs`: draft, approve, edit-invalidates, withdraw, forged
+    owner cookie, concurrency (edit versus approve, two edits, two approvals, and an approval or
+    withdrawal at a revision that has moved on refused by the statement itself), approved copy
+    only and only to entitled readers, and a record with a written summary is not deleted;
+    `publication-summaries-leak-db.test.mjs`: no protected text in email bodies;
+  - `publication-metadata-sync-db.test.mjs`: every Data Room sync path keeps details, tags and
+    summaries;
+  - `publication-metadata-migration.test.mjs` and `publication-metadata-premigration-db.test.mjs`:
+    fresh, upgrade, every rollback guard on an upgraded database holding real saved details, tags
+    and summaries, and the site before the migration;
+  - `library-tag-filters.test.mjs` and `library-tag-filters-db.test.mjs`: tag filters, and
+    options and counts only from each reader's permitted editions.
+- **Loading placeholders:** `tests/skeleton-loading.test.mjs` covers rendering and
+  accessibility, reduced motion and phone layout, source guards (no data, session, Papermark or
+  email imports), which placeholder each page shows, that no `loading.tsx` exists outside the
+  portal and review library, and a stream shaped like Next.js's, with and without JavaScript.
+- **Fresh install:** `tests/schema-fresh-install.test.mjs` checks the SQL splitter and applies every
+  statement of `db/schema.sql` to an empty database, twice.
 - **CI** (`.github/workflows/ci.yml`) runs the secret scan, type check, tests and build on every
   push to `main` and on pull requests.
 
@@ -417,6 +542,16 @@ pnpm check:secrets                # staged changes; --all for every tracked file
    - **Where public review cards lead** stays on Papermark links until an owner changes it.
    - **Personal Papermark rooms** stay off until an owner records the controlled two-reader test.
      See [`docs/review-reader-library.md`](docs/review-reader-library.md).
+   - **Publication catalogue:** after applying `20261114_publication_catalogue.sql` and
+     deploying, an owner opens **Admin → Publication Categories**, checks the folder mappings and
+     the "awaiting a category" counts, and decides where the `board-intelligence-updates` folder
+     belongs (it is deliberately unmapped). Review Data Room folders that are not mapped are
+     listed there too.
+   - **Reader details, tags and summaries:** apply `20261114_publication_editorial_metadata.sql`
+     after the catalogue migration. Nothing is seeded: owners and editors agree the starting
+     tag vocabulary in **Admin → Publication Tags**, editors draft summaries, and an owner
+     approves each one. Nothing is shown to readers until it is entered and, for summaries,
+     approved.
 3. **Pushing to GitHub.** Use the plain HTTPS remote. Credentials come from the operating
    system's credential manager, never a token in the URL.
 
@@ -451,7 +586,7 @@ can be delayed; the saved jobs and leases remain recoverable. See
 |---|---|
 | `run-tests.mjs` | The test runner |
 | `check-secrets.mjs`, `install-hooks.mjs` | Secret scan and its pre-commit hook |
-| `migrate.mjs`, `seed.mjs` | Schema and seed for a database |
+| `migrate.mjs`, `seed.mjs` | Schema and seed for a database (`lib/sql-statements.mjs` splits SQL as psql does; the test database uses it too) |
 | `access-recovery-preview.mjs` | Read-only preview of subscriber access; `--apply-release` backfill |
 | `reconcile-subscriber-document-links.mjs` | Batch reconciliation of personal links (dry run by default) |
 | `subscription-access-rollout-report.mjs` | Every subscriber's access state, with no link ids |
@@ -460,7 +595,32 @@ can be delayed; the saved jobs and leases remain recoverable. See
 
 ## Current status and what still needs a live check
 
-Last updated **14 November 2026**.
+Last updated **15 November 2026**.
+
+**Loading placeholders (Stage 2):** the portal and the Complimentary Review library show a
+data-free placeholder while their server work runs. Public pages and Admin deliberately have
+none, so they keep real `404`, `307` and `500` responses. Checked locally (`next dev`, invented
+data, mock Papermark), not on the deployed site; a production build's prefetching and a real
+screen reader are not yet checked.
+
+**Publication catalogue (Stage 2):** one owner-controlled catalogue of six active categories
+(plus BP, inactive) replaces the three-category assumptions. Visible changes once deployed:
+- the portal library order changes from PLM, MIN, AIU to MIN, AIU, PLM, AEO, QIB, Other;
+- permitted QIB editions, and permitted editions with no category, become visible (they were
+  hidden before);
+- AEO reads "Election & Democratic Governance Monitor" instead of "Election Observatory";
+- the PLM heading on `/publications` and in Admin reads "Political Landscape Monitor";
+- the homepage review intro names the categories actually offered;
+- review sync no longer guesses a category from words in a folder's name;
+- publishing a paid edition with no category now also needs its edition date.
+
+Tested locally with invented data, an in-memory database and no Papermark; not verified live.
+
+**Reader details, tags and approved summaries (Stage 2):** optional reader details and
+controlled subject/sector/geography tags per edition, tag filters in search over permitted
+editions only, and protected summaries that editors draft and owners approve (enforced on the
+server, compare-and-set revisions, editing takes approved text down). Tested locally with
+invented data, an in-memory database, a mock Papermark and no email; not verified live.
 
 **Subscriber archive search:** keyword, publication-type and inclusive issue-date filters
 are available in both subscriber library paths. Papermark delivery, the Latest card,
@@ -543,4 +703,11 @@ coverage uses the isolated database and a mock provider.
   incident, the access rule, migration order and recovery.
 - [`docs/subscription-entitlement-rollout.md`](docs/subscription-entitlement-rollout.md): the
   earlier entitlement rollout (it points to the recovery document).
+- [`docs/publication-catalogue.md`](docs/publication-catalogue.md): the publication catalogue,
+  default folder mappings, placement rules, Admin controls, migration and rollback.
+- [`docs/publication-metadata-and-summaries.md`](docs/publication-metadata-and-summaries.md):
+  reader details, the tag vocabulary, tag filters, and the draft/approve rules for protected
+  summaries.
+- [`docs/skeleton-loading.md`](docs/skeleton-loading.md): the portal and review-library
+  loading placeholders, why public and Admin pages have none, and the no-JavaScript behaviour.
 - `AGENTS.md` / `CLAUDE.md`: instructions for coding assistants working in this repository.

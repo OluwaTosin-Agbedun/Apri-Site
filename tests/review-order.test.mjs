@@ -23,8 +23,11 @@ describe("moving an edition", () => {
 describe("the order readers see", () => {
   it("the Publications archive and the review library put an owner's order first, then the default", () => {
     const lib = read("src/lib/publications.ts")
-    const clauses = lib.match(/order by case e\.series[^\n]*\s*\(to_jsonb\(e\) ->> 'display_position'\)::int asc nulls last,/g) ?? []
+    // Category order comes from the owner's publication catalogue, passed as
+    // an ordered list, instead of a fixed MIN/AIU/PLM case expression.
+    const clauses = lib.match(/order by coalesce\(array_position\(\$\{order\}::text\[\], e\.series\), 999\),\s*\(to_jsonb\(e\) ->> 'display_position'\)::int asc nulls last,/g) ?? []
     assert.equal(clauses.length, 4, "archive (two) and review library (two) queries")
+    assert.doesNotMatch(lib, /case e\.series when/)
   })
 
   it("Admin lists editions in the same order, and only an owner can move one", () => {

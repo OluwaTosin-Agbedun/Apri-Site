@@ -1,7 +1,7 @@
 import 'server-only'
 import { getSql } from './db'
 import { isLevel, tierDisplayName, levelForPublicTier, visibilitiesForLevel, type Level } from './entitlements'
-import { PORTAL_SERIES } from './portal-library'
+import { CATALOGUE_CODES } from './publication-catalogue'
 import { papermarkShareUrl } from './papermark-embed'
 import { ensureSubscriberLibraryAccess, type LibraryAccess } from './dataroom-lifecycle'
 import { sendOnboardingEmails, startOnboardingTracking, type OnboardingRun } from './subscriber-onboarding'
@@ -389,7 +389,7 @@ export function activationDone(result: SubscriberActivation): boolean {
  *    Papermark share link, unique to them), or
  *  - a document in their Papermark client folder, or
  *  - a live personal copy, or a shared edition, of a published edition at
- *    their level in a series the portal lists.
+ *    their level in any catalogue category (the portal lists every one).
  */
 async function validatedLegacyLibrary(
   sql: ReturnType<typeof getSql>,
@@ -412,7 +412,7 @@ async function validatedLegacyLibrary(
        and d.series = any($3::text[])
        and ((pa.link_url like 'https://%') or (d.is_shared_copy and d.papermark_link like 'https://%'))
      limit 1`,
-    [row.id, visibilitiesForLevel(level), [...PORTAL_SERIES]],
+    [row.id, visibilitiesForLevel(level), [...CATALOGUE_CODES]],
   )) as unknown[]
   return rows.length > 0
 }

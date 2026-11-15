@@ -1,5 +1,6 @@
 import "server-only"
 import { getSql } from "./db"
+import { getPublicationCatalogue, orderedCodes } from "./publication-catalogue-dal"
 import { deserialiseRecipients } from "./review-recipients"
 import {
   expectedRecipientsFor,
@@ -168,6 +169,7 @@ export async function grantedEditionsForProspect(
   if (!email) return []
   const shared = await readSharedRecipients(sql)
   const onSharedList = shared.includes(email)
+  const order = orderedCodes(await getPublicationCatalogue())
 
   const rows = (await sql`
     select e.id, e.series, e.title, e.edition_label, e.secure_link_id,
@@ -185,7 +187,7 @@ export async function grantedEditionsForProspect(
         ))
         or (e.recipient_mode = 'shared_legacy' and ${onSharedList}::boolean)
       )
-    order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+    order by coalesce(array_position(${order}::text[], e.series), 999),
              e.is_latest desc, e.edition_sort_key desc, e.created_at desc, e.id desc
   `) as Array<{
     id: string

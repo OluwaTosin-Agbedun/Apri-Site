@@ -8,6 +8,7 @@ import {
 } from "@/lib/publications"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 import { reviewEntryMode } from "@/lib/review-reader"
+import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 
 export const revalidate = 300
 
@@ -18,11 +19,20 @@ export const metadata = {
 }
 
 export default async function PublicationsPage() {
-  const [publications, archive, entryMode] = await Promise.all([
+  const [publications, archive, entryMode, catalogue] = await Promise.all([
     getPublishedPublications(),
     getReviewPublicationArchive(),
     reviewEntryMode(),
+    getPublicationCatalogue(),
   ])
+  // One column per catalogue category that has published editions here, in
+  // the owner's order. The archive query already returns only what is
+  // published and ready, so a category with none simply has no column.
+  const columns = catalogue.categories
+    .map((category) => ({ category, cards: archive.filter((item) => item.slotKey === category.code) }))
+    .filter((column) => column.cards.length > 0)
+  const columnGrid =
+    columns.length >= 3 ? "md:grid-cols-2 lg:grid-cols-3" : columns.length === 2 ? "md:grid-cols-2" : ""
 
   return (
     <div className="min-h-screen bg-background">
@@ -53,24 +63,18 @@ export default async function PublicationsPage() {
               </div>
             </div>
 
-            {/* One column per series on wider screens -- MIN, AIU, PLM -- with
-                each series' current and earlier editions stacked in its own
-                column; everything stacks on a phone. Only editions the query
-                returned are shown: a series with none has no column, rather
-                than a withdrawn edition filling the gap. */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-start">
-              {(["MIN", "AIU", "PLM"] as const).map((series) => {
-                const labels = {
-                  MIN: "Monthly Intelligence Notes",
-                  AIU: "Athena Intelligence Updates",
-                  PLM: "Political Landscape Monitors",
-                }
-                const cards = archive.filter((item) => item.slotKey === series)
-                if (!cards.length) return null
+            {/* One column per category with published editions on wider
+                screens, in catalogue order, with each category's current and
+                earlier editions stacked in its own column; everything stacks
+                on a phone. Only editions the query returned are shown: a
+                category with none has no column, rather than a withdrawn
+                edition filling the gap. */}
+            <div className={`grid grid-cols-1 ${columnGrid} gap-6 md:gap-8 items-start`}>
+              {columns.map(({ category, cards }) => {
                 return (
-                  <div key={series} className="flex flex-col gap-6 min-w-0">
+                  <div key={category.code} className="flex flex-col gap-6 min-w-0">
                     <h3 className="eyebrow pb-3 border-b border-hairline block">
-                      {labels[series]}
+                      {category.label}
                     </h3>
                     {cards.map((card) => (
                       <article

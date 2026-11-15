@@ -3,7 +3,9 @@ import { getSql } from "./db"
 import { isVisibility, type Visibility } from "./entitlements"
 import { canProvisionLinks, deserialiseRecipients } from "./review-recipients"
 import { editionRecipientsReady, editionWithdrawalReady } from "./edition-recipients-schema"
-import { selectOfferedCards } from "./review-withdrawal"
+import { selectOfferedCards, type ReviewSeriesKey } from "./review-withdrawal"
+import { hasApprovedReviewCopy } from "./review-classify"
+import { getPublicationCatalogue, orderedCodes } from "./publication-catalogue-dal"
 
 export { PUBLICATION_SECTIONS, type PublicationSection } from "./sections"
 
@@ -197,7 +199,8 @@ export type ReviewCard = {
   description: string
   frequency: string
   audience: string
-  slotKey: "MIN" | "AIU" | "PLM"
+  /** The edition's catalogue category. */
+  slotKey: ReviewSeriesKey
   editionDate: string | null
   editionLabel: string
   papermarkDocumentId: string
@@ -258,7 +261,7 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
         description: r.description,
         frequency: r.frequency,
         audience: r.audience,
-        slotKey: r.slot_key as "MIN" | "AIU" | "PLM",
+        slotKey: r.slot_key as ReviewCard["slotKey"],
         editionDate: r.edition_date,
         editionLabel: r.edition_label,
         papermarkDocumentId: r.papermark_document_id,
@@ -309,6 +312,8 @@ export async function getReviewLibrary(): Promise<{
     // same cards before and after it.
     const perEdition = await editionRecipientsReady(sql)
     const offering = perEdition && (await editionWithdrawalReady(sql))
+    // Cards follow the owner's catalogue order.
+    const order = orderedCodes(await getPublicationCatalogue())
     const items = (offering
       ? await sql`
     select
@@ -327,7 +332,7 @@ export async function getReviewLibrary(): Promise<{
       and e.publication_state = 'published'
       and e.secure_link_url <> '' and e.secure_link_verified_at is not null
       and e.secure_link_document_id = e.papermark_document_id
-    order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end
+    order by coalesce(array_position(${order}::text[], e.series), 999)
     `
       : perEdition
       ? await sql`
@@ -376,12 +381,17 @@ export async function getReviewLibrary(): Promise<{
       is_latest: boolean
       access_configured: boolean
     }[]
+    // Once the withdrawal migration has run, a card exists only for an edition
+    // an owner explicitly offered. Before it, each series' latest edition is
+    // offered automatically, so that older rule stays with the three original
+    // series: supporting more categories never adds a homepage card by itself.
     const cards = selectOfferedCards(
       items.map((item) => ({
         ...item,
         slotKey: item.slot_key,
         accessConfigured: item.access_configured,
       })),
+      offering ? order : order.filter(hasApprovedReviewCopy),
     )
     if (cards.length === 0) return null
     return {
@@ -429,6 +439,7 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
     // Before the migration: the shared-list rule for every linked edition,
     // exactly as the migration will classify them (see getReviewLibrary).
     const perEdition = await editionRecipientsReady(sql)
+    const order = orderedCodes(await getPublicationCatalogue())
     const rows = (perEdition
       ? await sql`
       select e.id, e.title as pub_title, e.publication_type, e.description, e.frequency,
@@ -445,7 +456,7 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
             where r.edition_id = e.id and r.revoked_at is null
           ))
         )
-      order by case e.series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
+      order by coalesce(array_position(${order}::text[], e.series), 999),
                (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                is_latest desc, edition_sort_key desc, edition_date desc nulls last, edition_order desc,
                created_at desc, id desc
@@ -459,7 +470,7 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
         and e.secure_link_url <> '' and e.secure_link_verified_at is not null
         and e.secure_link_document_id = e.papermark_document_id
         and e.secure_link_id is not null and ${sharedConfigured}::boolean
-      order by case e.series when 'MIN' then 1 when 'AIU' then 2 else 3 end,
+      order by coalesce(array_position(${order}::text[], e.series), 999),
                (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                is_latest desc, edition_sort_key desc, edition_date desc nulls last, edition_order desc,
                created_at desc, id desc
@@ -586,6 +597,7 @@ async function reviewEditionsForEmail(
     const onSharedList = deserialiseRecipients(
       setting("review_approved_recipients"),
     ).includes(email)
+    const order = orderedCodes(await getPublicationCatalogue())
 
     // Before the migration: the shared-list rule for every linked edition,
     // exactly as the migration will classify them (see getReviewLibrary).
@@ -607,7 +619,7 @@ async function reviewEditionsForEmail(
           ))
           or (e.recipient_mode = 'shared_legacy' and ${onSharedList}::boolean)
         )
-      order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+      order by coalesce(array_position(${order}::text[], e.series), 999),
                (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last,
                e.created_at desc, e.id desc
@@ -622,7 +634,7 @@ async function reviewEditionsForEmail(
         and e.secure_link_document_id = e.papermark_document_id
         and e.secure_link_id is not null and ${onSharedList}::boolean
         and (${editionId}::uuid is null or e.id = ${editionId}::uuid)
-      order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+      order by coalesce(array_position(${order}::text[], e.series), 999),
                (to_jsonb(e) ->> 'display_position')::int asc nulls last,
                e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last,
                e.created_at desc, e.id desc

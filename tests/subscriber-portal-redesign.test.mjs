@@ -1,7 +1,13 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { editionsBySeries, newestEdition } from "../src/lib/portal-library.ts"
+import { editionsByCategory, newestEdition } from "../src/lib/portal-library.ts"
+import { DEFAULT_CATALOGUE } from "../src/lib/publication-catalogue.ts"
+
+// Sections are now the publication catalogue's categories (every permitted
+// edition, grouped and ordered by it), not the fixed PLM/MIN/AIU record.
+const editionsBySeries = (items) =>
+  Object.fromEntries(editionsByCategory(items, DEFAULT_CATALOGUE, (item) => item.series).map((s) => [s.key, s.items]))
 
 const read = (path) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8")
@@ -32,10 +38,10 @@ test("equal dates have a deterministic id tie-breaker and missing dates sit last
   )
 })
 
-test("portal renders one Latest card and all three libraries with mobile-first grids", () => {
+test("portal renders one Latest card and every catalogue library with mobile-first grids", () => {
   const portal = read("src/app/portal/page.tsx")
   assert.match(portal, /<DataRoomGrid documents=\{\[latest\]\} featured/)
-  assert.match(portal, /PORTAL_SERIES\.map/)
+  assert.match(portal, /\{sections\.map\(\(section\) => \(/)
   assert.match(portal, /Browse libraries/)
   assert.match(portal, /grid grid-cols-1 md:grid-cols-3/)
 })
@@ -74,6 +80,9 @@ test("subscriber cards do not use review links or enable downloads", () => {
 
 test("publishing a paid portal edition requires its editorial date", () => {
   const actions = read("src/app/actions/documents.ts")
-  assert.match(actions, /\[.PLM., .MIN., .AIU.\]\.includes\(row\.series\)/)
+  // The portal lists every permitted paid edition by date now -- in any
+  // category, or awaiting one -- so every paid edition needs it (behaviour:
+  // tests/publication-catalogue-db.test.mjs).
+  assert.match(actions, /if \(row\.visibility !== 'OPEN' && !row\.edition_date\) \{/)
   assert.match(actions, /Add the edition date before publishing/)
 })

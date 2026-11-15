@@ -261,12 +261,17 @@ import { getSql } from "@/lib/db"
 import type { FormState } from "@/lib/definitions"
 import { prefillReviewCard } from "@/lib/review-prefill"
 import {
+  APPROVED_REVIEW_COPY_CODES,
   classifyReviewDocument,
   generateReviewMetadata,
+  hasApprovedReviewCopy,
   inferReviewEditionLabel,
   isReviewSeries,
+  reviewCopyProblem,
   type ReviewSeries,
 } from "@/lib/review-classify"
+import { reviewCodes } from "@/lib/publication-catalogue"
+import { getPublicationCatalogue, type PublicationCatalogue } from "@/lib/publication-catalogue-dal"
 import { documentVersionKey } from "@/lib/papermark-dataroom-contract"
 import {
   decideSlotRepair,
@@ -297,8 +302,24 @@ import { editionRecipientsReady, editionWithdrawalReady } from "@/lib/edition-re
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-const FIXED_SLOTS = ["MIN", "AIU", "PLM"] as const
-const SLOT_ORDER: Record<string, number> = { MIN: 0, AIU: 1, PLM: 2 }
+// The retired three-slot table (complimentary_review_items) keeps exactly the
+// three series with Chancellor-approved copy. Versioned editions use the whole
+// publication catalogue instead.
+const FIXED_SLOTS = APPROVED_REVIEW_COPY_CODES
+const SLOT_ORDER: Record<string, number> = Object.fromEntries(FIXED_SLOTS.map((code, index) => [code, index]))
+
+/**
+ * The category proposed for a synced Review Data Room document: the owner's
+ * exact folder mapping first, then the approved series names in its filename.
+ * Before the catalogue migration only MIN, AIU and PLM can be stored, so any
+ * other proposal is left unassigned rather than failing the sync. A proposal
+ * only: the edition stays a draft with no readers.
+ */
+function reviewClassification(filename: string, folderPath: string | null | undefined, catalogue: PublicationCatalogue) {
+  const classification = classifyReviewDocument(filename, folderPath, catalogue.folders)
+  const storable = classification.series && (catalogue.migrated || hasApprovedReviewCopy(classification.series))
+  return { ...classification, series: storable ? classification.series : null }
+}
 
 function editionSortKey(label: string, detectedDate: string | null): string {
   if (detectedDate) return detectedDate.slice(0, 7)
@@ -388,9 +409,12 @@ export async function saveReviewLibrarySettings(
   // Each series stands alone: enabling needs at least one series with a
   // verified edition to offer, not all three. Once the withdrawal migration has
   // run, that is the edition the series offers; before it, its latest.
+  // Offered categories are reported in catalogue order; the three original
+  // series are the ones named when they offer nothing.
   let offered: string[] = []
   let missing: string[] = []
   if (enabled) {
+    const order = reviewCodes((await getPublicationCatalogue({ fresh: true })).categories)
     const offering = await editionWithdrawalReady(sql, { fresh: true })
     const current = (offering
       ? await sql`
@@ -406,7 +430,7 @@ export async function saveReviewLibrarySettings(
         and secure_link_document_id = papermark_document_id
     `) as { series: string }[]
     const present = new Set(current.map((row) => row.series))
-    offered = FIXED_SLOTS.filter((series) => present.has(series))
+    offered = order.filter((series) => present.has(series))
     missing = FIXED_SLOTS.filter((series) => !present.has(series))
     if (offered.length === 0)
       return {
@@ -895,12 +919,10 @@ export async function syncReviewLibrary(): Promise<FormState> {
   let added = 0
   let updated = 0
   let unchanged = 0
+  const catalogue = await getPublicationCatalogue({ fresh: true })
 
   for (const d of docs) {
-    const classification = classifyReviewDocument(
-      d.document_name,
-      d.folder_path,
-    )
+    const classification = reviewClassification(d.document_name, d.folder_path, catalogue)
     const vKey = documentVersionKey({
       title: d.document_name,
       numPages: d.num_pages,
@@ -1679,7 +1701,7 @@ export async function updateEditionDetails(
   await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
   if (!isReviewSeries(details.series))
-    return { message: "Choose MIN, AIU or PLM." }
+    return { message: "Choose a publication category from the list." }
   const cleanTitle = details.title.trim().replace(/\s+/g, " ").slice(0, 300)
   if (
     cleanTitle.length <
@@ -1687,6 +1709,9 @@ export async function updateEditionDetails(
   )
     return { message: "A title needs at least three characters." }
   const sql = getSql()
+  // Only MIN, AIU and PLM can be stored until the catalogue migration has run.
+  if (!hasApprovedReviewCopy(details.series) && !(await getPublicationCatalogue({ fresh: true })).migrated)
+    return { message: "Filing an edition under this category needs migration 20261114_publication_catalogue.sql first. Nothing was changed." }
   await sql`
     update review_publication_editions set series = ${details.series}, title = ${cleanTitle},
       edition_label = ${details.editionLabel.trim().slice(0, 120)},
@@ -1700,9 +1725,19 @@ export async function updateEditionDetails(
     where id = ${editionId}::uuid
   `
   refresh()
+  // Saved either way; say now if the copy cannot be published under this
+  // category yet (the publish check refuses it on the same rule).
+  const copyProblem = reviewCopyProblem({
+    series: details.series,
+    title: cleanTitle,
+    description: details.description.trim(),
+    ownerEditedFields: ["title", "description"],
+  })
   return {
     ok: true,
-    message: "Edition details saved; its document and link were unchanged.",
+    message: copyProblem
+      ? `Edition details saved; its document and link were unchanged. Before it can be published: ${copyProblem}`
+      : "Edition details saved; its document and link were unchanged.",
   }
 }
 
@@ -1722,6 +1757,7 @@ export async function generateEditionDefaults(
   if (!row?.series || !isReviewSeries(row.series))
     return { message: "Assign a series first." }
   const value = generateReviewMetadata(row.series, row.papermark_filename)
+  const approved = hasApprovedReviewCopy(row.series)
   const edited =
     row.owner_edited_fields ??
     []
@@ -1735,7 +1771,9 @@ export async function generateEditionDefaults(
   refresh()
   return {
     ok: true,
-    message: "Missing series defaults applied; owner edits were preserved.",
+    message: approved
+      ? "Missing series defaults applied; owner edits were preserved."
+      : "No approved card copy exists for this category, so only a missing edition label was suggested. Enter the title and description yourself.",
   }
 }
 
@@ -1778,6 +1816,22 @@ async function verifyEditionForPublishing(
     }
   if (!edition?.secureLinkId)
     return { message: "Not published: prepare a secure link first." }
+
+  // Approved card copy exists only for MIN, AIU and PLM. An edition in any
+  // other category is published only once the owner has written and saved its
+  // public title and description: none is ever invented for it.
+  if (!hasApprovedReviewCopy(edition.series)) {
+    const [copy] = (await sql`
+      select title, description, owner_edited_fields from review_publication_editions where id = ${editionId}::uuid
+    `) as { title: string; description: string; owner_edited_fields: string[] | null }[]
+    const problem = reviewCopyProblem({
+      series: edition.series,
+      title: copy?.title ?? "",
+      description: copy?.description ?? "",
+      ownerEditedFields: copy?.owner_edited_fields ?? [],
+    })
+    if (problem) return { message: `Not published: ${problem}` }
+  }
 
   // A shared_legacy edition is still judged by the shared list until it is
   // adopted; every other edition by its own recipients only.
@@ -1851,12 +1905,10 @@ export async function backgroundReviewSync(): Promise<{
 
   let added = 0
   let updated = 0
+  const catalogue = await getPublicationCatalogue({ fresh: true })
 
   for (const d of docsResult.value) {
-    const classification = classifyReviewDocument(
-      d.document_name,
-      d.folder_path,
-    )
+    const classification = reviewClassification(d.document_name, d.folder_path, catalogue)
     const vKey = documentVersionKey({
       title: d.document_name,
       numPages: d.num_pages,

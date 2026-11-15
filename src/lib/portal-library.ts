@@ -1,6 +1,13 @@
-export const PORTAL_SERIES = ["PLM", "MIN", "AIU"] as const
-
-export type PortalSeries = typeof PORTAL_SERIES[number]
+import {
+  categorySections,
+  isCatalogueCode,
+  searchTypeOptions,
+  type CatalogueCategory,
+  type CatalogueCode,
+  type CategorySection,
+  type SearchTypeOption,
+} from "./publication-catalogue.ts"
+import { dataRoomSearchEntry, legacySearchEntry, type LibrarySearchEntry } from "./library-search.ts"
 
 export type DatedEdition = {
   id: string
@@ -27,24 +34,76 @@ export function compareEditionsNewestFirst(
   return a.id.localeCompare(b.id)
 }
 
-export function isPortalSeries(value: string | null): value is PortalSeries {
-  return PORTAL_SERIES.includes(value as PortalSeries)
-}
-
+/** The single Latest card: the newest permitted edition across every category. */
 export function newestEdition<T extends DatedEdition>(
   items: readonly T[],
 ): T | null {
   return [...items].sort(compareEditionsNewestFirst)[0] ?? null
 }
 
-export function editionsBySeries<T extends DatedEdition & {
-  series: string | null
-},>(items: readonly T[]): Record<PortalSeries, T[]> {
-  const grouped: Record<PortalSeries, T[]> = { PLM: [], MIN: [], AIU: [] }
-  for (const item of items) {
-    if (isPortalSeries(item.series)) grouped[item.series].push(item)
+/**
+ * A subscriber library's sections: every permitted edition, grouped by its
+ * catalogue category in catalogue order, newest first within each. Nothing
+ * permitted is dropped: an edition with no category is listed last under
+ * "Publications awaiting a category". (See categorySections for which
+ * empty sections are shown.)
+ */
+export function editionsByCategory<T extends DatedEdition>(
+  items: readonly T[],
+  categories: readonly CatalogueCategory[],
+  codeOf: (item: T) => CatalogueCode | null,
+): CategorySection<T>[] {
+  return categorySections([...items].sort(compareEditionsNewestFirst), categories, codeOf)
+}
+
+/**
+ * Everything a subscriber library page shows, built from the permitted list
+ * alone: one helper per library path, used by src/app/portal/page.tsx and by
+ * the database tests, so what is tested is what is rendered.
+ */
+export type LibraryView<T> = {
+  /** Every permitted edition in its catalogue section, catalogue order, newest first. */
+  sections: CategorySection<T>[]
+  /** The browser's search records: display fields only, one per listed edition. */
+  entries: LibrarySearchEntry[]
+  /** The type filter's options: only the categories present among those editions. */
+  types: SearchTypeOption[]
+  /** The single Latest card: the newest edition across every category, never filtered. */
+  latest: T | null
+}
+
+function libraryView<T extends DatedEdition>(
+  items: readonly T[],
+  categories: readonly CatalogueCategory[],
+  codeOf: (item: T) => CatalogueCode | null,
+  entryOf: (item: T) => LibrarySearchEntry,
+): LibraryView<T> {
+  const entries = items.map(entryOf)
+  return {
+    sections: editionsByCategory(items, categories, codeOf),
+    entries,
+    types: searchTypeOptions(entries, categories),
+    latest: newestEdition(items),
   }
-  for (const series of PORTAL_SERIES)
-    grouped[series].sort(compareEditionsNewestFirst)
-  return grouped
+}
+
+/** A legacy record has no folder: its own series is its category, when it is a catalogue code. */
+export function legacyCategory(item: { series: string | null }): CatalogueCode | null {
+  return isCatalogueCode(item.series) ? item.series : null
+}
+
+/** The legacy library (no Data Room): every permitted record, placed by its series. */
+export function legacyLibraryView<T extends DatedEdition & Parameters<typeof legacySearchEntry>[0]>(
+  items: readonly T[],
+  categories: readonly CatalogueCategory[],
+): LibraryView<T> {
+  return libraryView(items, categories, legacyCategory, legacySearchEntry)
+}
+
+/** The Data Room library: every listed document, placed by its resolved category (series, else mapped folder). */
+export function dataRoomLibraryView<T extends DatedEdition & Parameters<typeof dataRoomSearchEntry>[0]>(
+  documents: readonly T[],
+  categories: readonly CatalogueCategory[],
+): LibraryView<T> {
+  return libraryView(documents, categories, (doc) => doc.category, dataRoomSearchEntry)
 }

@@ -509,7 +509,10 @@ describe('click tracking endpoint', () => {
   })
 
   it('accepts only recognised publications and slot keys', () => {
-    assert.match(src, /slotKey: z\.enum\(\['MIN', 'AIU', 'PLM'\]\)/)
+    // Any Complimentary Review category of the publication catalogue (every
+    // code but BP), from one list rather than a copy of it.
+    assert.match(src, /slotKey: z\.enum\(REVIEW_SERIES as \[string, \.\.\.string\[\]\]\)/)
+    assert.match(src, /import \{ REVIEW_SERIES \} from '@\/lib\/review-withdrawal'/)
     assert.match(src, /Unknown publication/)
     // A review click belongs to the published edition the card showed.
     const fn = fnBody(src, 'resolveTarget')

@@ -12,6 +12,8 @@ const NAV = [
   { href: '/admin/engagement', label: 'Engagement' },
   { href: '/admin/briefings', label: 'Briefing Requests' },
   { href: '/admin/datarooms', label: 'Data Rooms' },
+  // Owners and editors may add tags; only owners rename, retire or delete them.
+  { href: '/admin/tags', label: 'Publication Tags' },
 ]
 
 export default function AdminShell({
@@ -30,7 +32,7 @@ export default function AdminShell({
   children: React.ReactNode
 }) {
   const nav = admin.role === 'owner'
-    ? [...NAV, { href: '/admin/review-library', label: 'Review Library' }, { href: '/admin/review-requests', label: 'Review Requests' }, { href: '/admin/team', label: 'Team Headshots' }, { href: '/admin/administrators', label: 'Administrators' }]
+    ? [...NAV, { href: '/admin/categories', label: 'Publication Categories' }, { href: '/admin/review-library', label: 'Review Library' }, { href: '/admin/review-requests', label: 'Review Requests' }, { href: '/admin/team', label: 'Team Headshots' }, { href: '/admin/administrators', label: 'Administrators' }]
     : NAV
 
   return (

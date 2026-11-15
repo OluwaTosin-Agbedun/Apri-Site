@@ -98,9 +98,12 @@ test("no action applies one recipient list to every published edition", () => {
 
 test("pending candidates can be assigned to populated series", () => {
   const form = read("src/app/admin/review-library/review-form.tsx")
-  assert.match(form, /<option>[\s\S]*?MIN[\s\S]*?<\/option>/)
-  assert.match(form, /<option>[\s\S]*?AIU[\s\S]*?<\/option>/)
-  assert.match(form, /<option>[\s\S]*?PLM[\s\S]*?<\/option>/)
+  // The series choices are the catalogue's review categories (every code but
+  // BP), passed in from the server in the owner's order -- not three literals.
+  assert.match(form, /\{categories\s*\.filter\(\(c\) => c\.active \|\| c\.code === e\.series\)\s*\.map\(\(c\) => \(\s*<option key=\{c\.code\} value=\{c\.code\}/)
+  const page = read("src/app/admin/review-library/page.tsx")
+  assert.match(page, /const reviewCategories = catalogue\.categories\.filter\(\(c\) => isReviewCode\(c\.code\)\)/)
+  assert.match(page, /categories=\{reviewCategories\.map\(/)
   assert.doesNotMatch(form, /unmappedSlots|SlotCard|fixed slots/i)
   assert.match(actions, /series = \$\{details\.series\}/)
 })

@@ -12,11 +12,10 @@ import {
   categoriseDataRoomDocument,
   documentBadge,
   documentVersionKey,
-  PORTAL_CATEGORIES,
-  PORTAL_CATEGORY_KEYS,
   portalCategoryLabel,
   portalTypeLabel,
 } from '../src/lib/papermark-dataroom-contract.ts'
+import { CATALOGUE_CODES, DEFAULT_CATALOGUE } from '../src/lib/publication-catalogue.ts'
 
 import {
   classifySyncedDocument,
@@ -71,15 +70,16 @@ describe('webhook signature verification', () => {
 // ---------------------------------------------------------------------------
 
 describe('portal categories completeness', () => {
-  it('PORTAL_CATEGORIES has exactly 6 entries', () => {
-    assert.equal(PORTAL_CATEGORIES.length, 6)
+  it('the publication catalogue has the six categories and the historical BP', () => {
+    assert.equal(DEFAULT_CATALOGUE.length, 7)
+    assert.deepEqual(DEFAULT_CATALOGUE.filter((c) => c.active).map((c) => c.code), ['MIN', 'AIU', 'PLM', 'AEO', 'QIB', 'OTHER'])
   })
 
-  it('PORTAL_CATEGORY_KEYS matches the 6 categories', () => {
-    assert.deepEqual(PORTAL_CATEGORY_KEYS, ['PLM', 'AEO', 'AIU', 'MIN', 'QIB', 'OTHER'])
+  it('the catalogue codes are in the agreed default order', () => {
+    assert.deepEqual([...CATALOGUE_CODES], ['MIN', 'AIU', 'PLM', 'AEO', 'QIB', 'OTHER', 'BP'])
   })
 
-  it('LIBRARY_SECTIONS matches PORTAL_CATEGORY_KEYS', () => {
+  it('LIBRARY_SECTIONS (the retired folder-sync pipeline) still lists its own sections', () => {
     assert.deepEqual(LIBRARY_SECTIONS, ['PLM', 'AEO', 'AIU', 'MIN', 'QIB', 'OTHER'])
   })
 
@@ -90,14 +90,14 @@ describe('portal categories completeness', () => {
     }
   })
 
-  it('portalCategoryLabel covers all 6 keys', () => {
-    for (const key of PORTAL_CATEGORY_KEYS) {
+  it('portalCategoryLabel covers every code and awaiting a category', () => {
+    for (const key of [...CATALOGUE_CODES, null]) {
       assert.ok(portalCategoryLabel(key).length > 0)
     }
   })
 
-  it('portalTypeLabel covers all 6 keys', () => {
-    for (const key of PORTAL_CATEGORY_KEYS) {
+  it('portalTypeLabel covers every code and awaiting a category', () => {
+    for (const key of [...CATALOGUE_CODES, null]) {
       assert.ok(portalTypeLabel(key).length > 0)
     }
   })
@@ -163,10 +163,14 @@ describe('classifySyncedDocument (all 6 categories)', () => {
 // ---------------------------------------------------------------------------
 
 describe('categoriseDataRoomDocument (Data Room)', () => {
-  it('folder-based category takes priority', () => {
-    assert.equal(categoriseDataRoomDocument({ title: 'MIN-2026-08 Note', category: 'PLM' }), 'PLM')
-    assert.equal(categoriseDataRoomDocument({ title: 'Something', category: 'QIB' }), 'QIB')
-    assert.equal(categoriseDataRoomDocument({ title: 'Something', category: 'AEO' }), 'AEO')
+  it('the mapped folder takes priority over the title', () => {
+    assert.equal(categoriseDataRoomDocument({ title: 'MIN-2026-08 Note', folderPath: '/political-landscape-monitor' }), 'PLM')
+    assert.equal(categoriseDataRoomDocument({ title: 'Something', folderPath: '/quarterly-intelligence-briefs' }), 'QIB')
+    assert.equal(categoriseDataRoomDocument({ title: 'Something', folderPath: '/Election & Democratic Governance Monitor' }), 'AEO')
+  })
+
+  it('a title code never overrides an unmapped folder', () => {
+    assert.equal(categoriseDataRoomDocument({ title: 'MIN-2026-08 Note', folderPath: '/Admin' }), null)
   })
 
   it('title fallback works for all 6 categories', () => {
@@ -175,7 +179,7 @@ describe('categoriseDataRoomDocument (Data Room)', () => {
     assert.equal(categoriseDataRoomDocument({ title: 'AIU-2026-001 Update' }), 'AIU')
     assert.equal(categoriseDataRoomDocument({ title: 'MIN-2026-08 Note' }), 'MIN')
     assert.equal(categoriseDataRoomDocument({ title: 'QIB-2026-Q3 Brief' }), 'QIB')
-    assert.equal(categoriseDataRoomDocument({ title: 'Random document' }), 'OTHER')
+    assert.equal(categoriseDataRoomDocument({ title: 'Random document' }), null, 'awaiting a category, never Other by default')
   })
 })
 

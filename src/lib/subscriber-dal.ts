@@ -6,6 +6,8 @@ import { readSubscriberSession } from "./subscriber-session"
 import { isVisibility, type Visibility } from "./entitlements"
 import { loadLegacyPublicationAccess } from "./access-policy-dal"
 import { loadSessionSubscriber, type CurrentSubscriber } from "./subscriber-principal"
+import { loadReaderPublicationDetails } from "./publication-metadata-dal"
+import type { ReaderPublicationDetails } from "./publication-metadata"
 
 /**
  * The confidentiality boundary for the subscriber surface.
@@ -85,6 +87,8 @@ export type LibraryItem = {
   linkUrl: string | null
   viewedBySubscriber: boolean
   downloadedBySubscriber: boolean
+  /** Stated metadata, tag labels and approved summary; null when none is stated. Listed editions only. */
+  details: ReaderPublicationDetails | null
 }
 
 /**
@@ -115,8 +119,11 @@ export async function getLibraryFor(
   const access = await loadLegacyPublicationAccess(subscriber.id)
   if (access.state === "unavailable") return null
   if (access.state === "not_found") return []
-  return access.items
-    .filter((item) => item.delivery !== "hidden")
+  const listed = access.items.filter((item) => item.delivery !== "hidden")
+  // Reader details only for the editions listed here: decoration that never
+  // decides what is listed, and empty on any failure.
+  const details = await loadReaderPublicationDetails(listed.map((item) => item.publicationId))
+  return listed
     .map((item) => ({
       id: item.publicationId,
       slug: item.slug,
@@ -130,6 +137,7 @@ export async function getLibraryFor(
       linkUrl: item.linkUrl,
       viewedBySubscriber: item.viewedBySubscriber,
       downloadedBySubscriber: item.downloadedBySubscriber,
+      details: details.get(item.publicationId) ?? null,
     }))
 }
 

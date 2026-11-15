@@ -1,6 +1,7 @@
 import "server-only"
 import { getSql } from "./db"
 import { recipientListHash } from "./edition-recipients"
+import { getPublicationCatalogue, orderedCodes } from "./publication-catalogue-dal"
 
 /**
  * Server readiness for Complimentary Review reading, checked on the server
@@ -68,8 +69,6 @@ export async function schemaProblems(): Promise<ReadinessProblem[]> {
   }))
 }
 
-const SERIES_ORDER = ["MIN", "AIU", "PLM"]
-
 /** Published editions whose Papermark link does not carry the reader list APRI holds. */
 export async function editionProblems(): Promise<ReadinessProblem[]> {
   const sql = getSql()
@@ -83,8 +82,11 @@ export async function editionProblems(): Promise<ReadinessProblem[]> {
     where e.publication_state = 'published'
   `) as { id: string; series: string | null; edition_label: string; recipient_mode: string; recipients_verified_hash: string | null; link_ok: boolean; active: string[] }[]
   const name = (r: (typeof rows)[number]) => `${r.series ?? "Edition"} · ${r.edition_label}`
+  // Listed in the owner's catalogue order; an edition with no category last.
+  const order = orderedCodes(await getPublicationCatalogue())
+  const rank = (series: string | null) => (series && order.includes(series) ? order.indexOf(series) : order.length)
   const out: ReadinessProblem[] = []
-  for (const r of rows.sort((a, b) => SERIES_ORDER.indexOf(a.series ?? "") - SERIES_ORDER.indexOf(b.series ?? ""))) {
+  for (const r of rows.sort((a, b) => rank(a.series) - rank(b.series))) {
     if (!r.link_ok) {
       out.push({ key: `edition_link:${r.id}`, level: "attention", message: `${name(r)} is published but has no verified Papermark link, so no reader can open it. Prepare its secure link.` })
     } else if (r.recipient_mode === "edition" && r.recipients_verified_hash !== recipientListHash(r.active)) {

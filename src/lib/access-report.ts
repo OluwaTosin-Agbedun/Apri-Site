@@ -1,6 +1,8 @@
 import "server-only"
 import { getSql } from "./db"
 import { planSubscriberAccess, type AccessPlan } from "./subscriber-access-reconciliation"
+import { resolveFolder } from "./publication-catalogue"
+import { getPublicationCatalogue } from "./publication-catalogue-dal"
 
 /**
  * Read-only reports on subscriber access and paid publication readiness, for
@@ -131,7 +133,7 @@ export async function publicationReadiness(): Promise<PublicationReadiness[]> {
            to_jsonb(d) ->> 'paid_release_state' as explicit_release,
            coalesce(array_agg(distinct dd.title) filter (where dd.title is not null), '{}') as file_titles,
            count(distinct dd.papermark_dataroom_id) filter (where lr.papermark_dataroom_id is not null)::int as paid_rooms,
-           coalesce(array_agg(distinct dd.category) filter (where dd.category is not null), '{}') as categories,
+           coalesce(array_agg(distinct dd.folder_path) filter (where dd.folder_path is not null), '{}') as folder_paths,
            (select count(distinct dl.subscriber_id)::int from papermark_subscriber_document_links dl
               where dl.papermark_document_id in (select x.papermark_document_id from papermark_dataroom_documents x where x.publication_id = d.id)) as issued,
            (select count(distinct dl.subscriber_id)::int from papermark_subscriber_document_links dl
@@ -148,9 +150,15 @@ export async function publicationReadiness(): Promise<PublicationReadiness[]> {
     order by d.edition_date desc nulls first, d.title
   `) as {
     id: string; title: string; series: string | null; edition_date: string | null; visibility: string | null; status: string
-    explicit_release: string | null; file_titles: string[]; paid_rooms: number; categories: string[]
+    explicit_release: string | null; file_titles: string[]; paid_rooms: number; folder_paths: string[]
     issued: number; live: number; paid_views: number
   }[]
+
+  // A folder's category as the portal places it today: the owner's exact
+  // mapping, read now. The stored papermark_dataroom_documents.category is a
+  // sync-time snapshot (older ones from the retired substring classifier) and
+  // is not consulted.
+  const { folders } = await getPublicationCatalogue()
 
   const { publicationPlansReady } = await import("./access-policy-dal")
   const plansBy = new Map<string, string[]>()
@@ -165,7 +173,10 @@ export async function publicationReadiness(): Promise<PublicationReadiness[]> {
     if (plans.length === 0) flags.push("No plan ticked: no subscriber can receive it until at least one plan is ticked.")
     if (!r.edition_date) flags.push("No edition date: enter it from the edition itself; it is never guessed.")
     if (!r.series) flags.push("No series.")
-    const categories = (r.categories ?? []).filter((c) => c && c !== "OTHER")
+    const categories: string[] = [...new Set((r.folder_paths ?? []).flatMap((path) => {
+      const folder = resolveFolder(path, folders)
+      return folder.kind === "mapped" ? [folder.code] : []
+    }))]
     if (r.series && categories.length > 0 && !categories.includes(r.series)) {
       flags.push(`Series ${r.series} differs from the Data Room folder category (${categories.join(", ")}).`)
     }

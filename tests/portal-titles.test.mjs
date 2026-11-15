@@ -107,7 +107,8 @@ describe("every paid surface uses it", () => {
 
   it("Latest and every library render the same card, which shows displayTitle", () => {
     assert.match(portal, /<PortalSection title="Latest">\s*\{latest \? <DataRoomGrid documents=\{\[latest\]\} featured \/>/)
-    assert.match(portal, /<DataRoomGrid documents=\{libraries\[series\]\} \/>/)
+    // Every catalogue section renders the same card.
+    assert.match(portal, /<DataRoomGrid documents=\{section\.items\} \/>/)
     const card = portal.slice(portal.indexOf("function DataRoomCard("), portal.indexOf("function ActivityStatus("))
     assert.match(card, /\{document\.displayTitle\}/)
   })

@@ -9,6 +9,8 @@ import { openWindowReady } from "@/lib/review-reader-rooms"
 import { reviewLibrarySignOut } from "@/app/actions/review-reader"
 import SiteHeader from "@/components/SiteHeader"
 import SubmitButton from "@/components/SubmitButton"
+import { categorySingularLabel } from "@/lib/publication-catalogue"
+import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -18,11 +20,6 @@ export const metadata: Metadata = {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const SERIES: Record<string, string> = {
-  MIN: "Monthly Intelligence Note",
-  AIU: "Athena Intelligence Update",
-  PLM: "Political Landscape Monitor",
-}
 const lagos = (iso: string) =>
   new Date(iso).toLocaleString("en-GB", { timeZone: "Africa/Lagos", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
 const editionDate = (iso: string | null) =>
@@ -55,6 +52,8 @@ export default async function Library({
   const waiting = Boolean(job && ["pending", "running"].includes(job.state))
   if (waiting) kickReviewRoomWorker(reader.email)
   const editions = await getReviewLibraryForEmail(reader.email)
+  // Labels only: which editions are listed is decided above, by assignment.
+  const { categories } = await getPublicationCatalogue()
   const direct = Boolean(reader.sid) && (await openWindowReady())
   const notice = params.unavailable
     ? NOTICE.unavailable
@@ -112,7 +111,7 @@ export default async function Library({
                 <li key={c.id} className={`py-7 sm:py-8 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center ${c.id === chosen ? "bg-accent/5 -mx-4 px-4 sm:-mx-6 sm:px-6" : ""}`}>
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wider text-accent">
-                      {SERIES[c.slotKey] ?? c.publicationType}
+                      {c.slotKey ? categorySingularLabel(c.slotKey, categories) : c.publicationType}
                     </p>
                     <h2 className="font-serif text-xl sm:text-2xl mt-2">{c.pubTitle}</h2>
                     <p className="text-xs text-muted-foreground mt-1">

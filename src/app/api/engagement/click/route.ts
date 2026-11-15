@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { getSql } from '@/lib/db'
 import { ACCESS_EVENT_TYPES } from '@/lib/engagement-metrics'
+import { REVIEW_SERIES } from '@/lib/review-withdrawal'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,7 +34,8 @@ const Body = z.object({
   eventId: z.string().min(8).max(100).regex(/^[A-Za-z0-9_-]+$/),
   eventType: z.enum(ACCESS_EVENT_TYPES),
   publicationId: z.string().regex(UUID_RE).nullish(),
-  slotKey: z.enum(['MIN', 'AIU', 'PLM']).nullish(),
+  // A Complimentary Review category: any catalogue code a review edition may carry.
+  slotKey: z.enum(REVIEW_SERIES as [string, ...string[]]).nullish(),
   // The portal identifies a document by its Papermark id rather than an APRI
   // publication uuid. Resolved and validated server-side like the others, so
   // an id APRI does not know about is still refused.

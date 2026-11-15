@@ -8,6 +8,8 @@ import { accessNotice } from "@/lib/delivery"
 import AccessForm from "./access-form"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 import { reviewEntryMode } from "@/lib/review-reader"
+import { categorySingularLabel, type CatalogueCategory } from "@/lib/publication-catalogue"
+import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 import {
   PUBLICATION_SECTIONS,
   getPublishedPublications,
@@ -94,11 +96,23 @@ function PublicationCard({ doc }: { doc: Publication }) {
   )
 }
 
+/**
+ * What the offered Review cards are, in words: "Monthly Intelligence Note,
+ * Athena Intelligence Update and Political Landscape Monitor". Named from the
+ * cards themselves, so the sentence is true whichever categories an owner
+ * offers.
+ */
+function reviewCardTypes(codes: string[], categories: readonly CatalogueCategory[]): string {
+  const names = [...new Set(codes)].map((code) => categorySingularLabel(code, categories))
+  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+}
+
 export default async function HomePage() {
-  const [documents, reviewLibrary, entryMode] = await Promise.all([
+  const [documents, reviewLibrary, entryMode, catalogue] = await Promise.all([
     getPublishedPublications(),
     getReviewLibrary(),
     reviewEntryMode(),
+    getPublicationCatalogue(),
   ])
 
   return (
@@ -144,7 +158,8 @@ export default async function HomePage() {
           </div>
         </header>
 
-        {/* Exactly one latest edition from each Review publication series. */}
+        {/* At most one edition per Review publication category: only those an
+            owner explicitly offered, in catalogue order. */}
         {reviewLibrary && (
           <section className="mb-24 scroll-mt-28">
             <div className="mb-10">
@@ -152,8 +167,8 @@ export default async function HomePage() {
                 Publications &amp; Briefings
               </h2>
               <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-4">
-                The latest Monthly Intelligence Note, Athena Intelligence Update
-                and Political Landscape Monitor for authorised Review readers.
+                The latest {reviewCardTypes(reviewLibrary.items.map((card) => card.slotKey), catalogue.categories)} for
+                authorised Review readers.
               </p>
             </div>
             <div className="space-y-4">

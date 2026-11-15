@@ -242,9 +242,11 @@ alter table documents add column if not exists visibility    text not null defau
 alter table documents add column if not exists open_link_url text;
 alter table documents add column if not exists page_count    integer;
 
+-- The publication catalogue's codes (src/lib/publication-catalogue.ts); OTHER
+-- since 20261114_publication_catalogue.sql.
 alter table documents drop constraint if exists documents_series_check;
 alter table documents add constraint documents_series_check
-  check (series = '' or series in ('PLM', 'AEO', 'AIU', 'MIN', 'QIB', 'BP'));
+  check (series = '' or series in ('MIN', 'AIU', 'PLM', 'AEO', 'QIB', 'OTHER', 'BP'));
 
 alter table documents drop constraint if exists documents_visibility_check;
 alter table documents add constraint documents_visibility_check
@@ -731,7 +733,6 @@ create index if not exists client_engagement_resend_idx
   on client_engagement_events (resend_email_id) where resend_email_id is not null;
 create index if not exists client_engagement_time_idx
   on client_engagement_events (occurred_at desc);
-);
 create index if not exists auth_tokens_briefing_idx
   on auth_tokens (briefing_request_id, created_at desc);
 create unique index if not exists link_findings_open_key
@@ -833,3 +834,154 @@ create index if not exists review_publication_editions_archive_order_idx
   on review_publication_editions
   (series, edition_date desc nulls last, edition_order desc, created_at desc, id desc)
   where publication_state = 'published';
+
+-- ---------------------------------------------------------------------------
+-- Publication catalogue (mirrors db/migrations/20261114_publication_catalogue.sql)
+--
+-- Owner-edited labels, order and active flag for each stored code, and which
+-- Papermark folder files a document into which category. The defaults live in
+-- src/lib/publication-catalogue.ts. A category never grants access.
+-- ---------------------------------------------------------------------------
+create table if not exists publication_categories (
+  code           text primary key
+                 check (code in ('MIN', 'AIU', 'PLM', 'AEO', 'QIB', 'OTHER', 'BP')),
+  label          text not null check (char_length(btrim(label)) between 1 and 80),
+  singular_label text not null check (char_length(btrim(singular_label)) between 1 and 80),
+  sort_order     integer not null check (sort_order between 0 and 9999),
+  active         boolean not null default true,
+  aliases        text[] not null default '{}' check (cardinality(aliases) <= 10),
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+create table if not exists publication_category_folders (
+  folder_slug   text primary key
+                check (char_length(folder_slug) <= 120 and folder_slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  category_code text not null references publication_categories (code) on update restrict on delete restrict,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists publication_category_folders_code_idx
+  on publication_category_folders (category_code);
+
+insert into publication_categories (code, label, singular_label, sort_order, active, aliases) values
+  ('MIN', 'Monthly Intelligence Notes', 'Monthly Intelligence Note', 10, true, '{}'),
+  ('AIU', 'Athena Intelligence Updates', 'Athena Intelligence Update', 20, true, '{}'),
+  ('PLM', 'Political Landscape Monitor', 'Political Landscape Monitor', 30, true, '{}'),
+  ('AEO', 'Election & Democratic Governance Monitor', 'Election & Democratic Governance Monitor', 40, true, '{"Election Observatory"}'),
+  ('QIB', 'Quarterly Intelligence Briefs', 'Quarterly Intelligence Brief', 50, true, '{}'),
+  ('OTHER', 'Other Assigned Publications', 'Other assigned publication', 60, true, '{}'),
+  ('BP', 'Board Papers', 'Board Paper', 70, false, '{}')
+on conflict (code) do nothing;
+
+insert into publication_category_folders (folder_slug, category_code)
+select v.folder_slug, v.category_code
+from (values
+  ('monthly-intelligence-notes', 'MIN'),
+  ('monthly-intelligence-note', 'MIN'),
+  ('athena-intelligence-updates', 'AIU'),
+  ('political-landscape-monitor', 'PLM'),
+  ('election-and-democratic-governance-monitor', 'AEO'),
+  ('election-democratic-governance-monitor', 'AEO'),
+  ('election-watch', 'AEO'),
+  ('quarterly-intelligence-briefs', 'QIB'),
+  ('other-assigned-publications', 'OTHER')
+) as v (folder_slug, category_code)
+where not exists (select 1 from app_settings where key = 'publication_catalogue_folders_seeded')
+on conflict (folder_slug) do nothing;
+
+insert into app_settings (key, value)
+values ('publication_catalogue_folders_seeded', 'true')
+on conflict (key) do nothing;
+
+alter table review_publication_editions drop constraint if exists review_publication_editions_series_check;
+alter table review_publication_editions add constraint review_publication_editions_series_check
+  check (series is null or series in ('MIN', 'AIU', 'PLM', 'AEO', 'QIB', 'OTHER'));
+
+-- ---------------------------------------------------------------------------
+-- Publication editorial metadata, controlled tags and approved protected
+-- summaries (mirrors db/migrations/20261114_publication_editorial_metadata.sql)
+--
+-- Optional metadata an editor enters on the publication record (never
+-- computed or guessed); the subject/sector/geography vocabulary and each
+-- publication's tags (an assigned tag is retired, never deleted); one
+-- structured protected summary per publication, shown to entitled subscribers
+-- only while an owner's approved copy equals the saved text. Papermark sync
+-- never writes any of these. coverage_areas is a different, public field.
+-- ---------------------------------------------------------------------------
+alter table documents add column if not exists author_editor        text;
+alter table documents add column if not exists covered_period_start date;
+alter table documents add column if not exists covered_period_end   date;
+alter table documents add column if not exists information_cutoff   date;
+alter table documents add column if not exists reading_time_minutes integer;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'documents_author_editor_check'
+                 and conrelid = 'documents'::regclass) then
+    alter table documents add constraint documents_author_editor_check
+      check (author_editor is null or char_length(btrim(author_editor)) between 1 and 200);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'documents_covered_period_check'
+                 and conrelid = 'documents'::regclass) then
+    alter table documents add constraint documents_covered_period_check
+      check ((covered_period_start is null and covered_period_end is null)
+          or (covered_period_start is not null and covered_period_end is not null
+              and covered_period_end >= covered_period_start));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'documents_reading_time_check'
+                 and conrelid = 'documents'::regclass) then
+    alter table documents add constraint documents_reading_time_check
+      check (reading_time_minutes is null or reading_time_minutes between 1 and 600);
+  end if;
+end $$;
+
+create table if not exists publication_tags (
+  id          uuid primary key default gen_random_uuid(),
+  kind        text not null check (kind in ('subject', 'sector', 'geography')),
+  label       text not null check (char_length(label) between 1 and 80 and label = btrim(label)),
+  active      boolean not null default true,
+  created_by  uuid references admins (id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_by  uuid references admins (id) on delete set null,
+  updated_at  timestamptz not null default now(),
+  retired_by  uuid references admins (id) on delete set null,
+  retired_at  timestamptz
+);
+
+create unique index if not exists publication_tags_kind_label_key
+  on publication_tags (kind, lower(label));
+
+create table if not exists publication_tag_assignments (
+  publication_id uuid not null references documents (id) on delete cascade,
+  tag_id         uuid not null references publication_tags (id) on update restrict on delete restrict,
+  assigned_by    uuid references admins (id) on delete set null,
+  assigned_at    timestamptz not null default now(),
+  primary key (publication_id, tag_id)
+);
+
+create index if not exists publication_tag_assignments_tag_idx
+  on publication_tag_assignments (tag_id);
+
+create table if not exists publication_summaries (
+  publication_id          uuid primary key references documents (id) on delete cascade,
+  what_changed            text not null default '' check (char_length(what_changed) <= 4000),
+  why_it_matters          text not null default '' check (char_length(why_it_matters) <= 4000),
+  implications            text not null default '' check (char_length(implications) <= 4000),
+  watch_next              text not null default '' check (char_length(watch_next) <= 4000),
+  source_date             date,
+  uncertainty             text not null default '' check (char_length(uncertainty) <= 2000),
+  revision                bigint not null default 1 check (revision >= 1),
+  updated_by              uuid references admins (id) on delete set null,
+  updated_at              timestamptz not null default now(),
+  approved_fields         jsonb,
+  approved_revision       bigint,
+  approved_by             uuid references admins (id) on delete set null,
+  approved_at             timestamptz,
+  approval_removed_reason text check (approval_removed_reason in ('edited', 'withdrawn')),
+  approval_removed_by     uuid references admins (id) on delete set null,
+  approval_removed_at     timestamptz,
+  created_at              timestamptz not null default now(),
+  constraint publication_summaries_approval_check
+    check ((approved_fields is null) = (approved_at is null))
+);

@@ -25,7 +25,8 @@ test('the portal has no Open Private Library button', () => {
 test('documents render on the portal itself rather than behind a link out', () => {
   // Legacy pipeline uses the entitlement-filtered publication library.
   assert.match(portal, /getLibraryFor\(principal\)/)
-  assert.match(portal, /editionsBySeries\(portalLibrary\)/)
+  // Every permitted edition, grouped by the publication catalogue.
+  assert.match(portal, /legacyLibraryView\(portalLibrary, categories\)/)
   // DR pipeline uses its own grid and cards.
   assert.match(portal, /function DataRoomGrid/)
   assert.match(portal, /function DataRoomCard/)
@@ -34,18 +35,26 @@ test('documents render on the portal itself rather than behind a link out', () =
   assert.match(portal, /function LegacyDocumentCard/)
 })
 
-test('the three paid publication libraries are rendered', () => {
+test('every catalogue library is rendered, in catalogue order', () => {
   assert.equal(SECTION_LABELS.MIN, 'Monthly Intelligence Notes')
   assert.equal(SECTION_LABELS.AIU, 'Athena Intelligence Updates')
   assert.equal(SECTION_LABELS.OTHER, 'Other Assigned Publications')
 
-  assert.match(portal, /PORTAL_SERIES\.map/)
-  assert.match(portal, /editionsBySeries/)
+  // Both library paths render one section per catalogue category (plus
+  // "Publications awaiting a category" when it holds anything).
+  assert.equal((portal.match(/\{sections\.map\(\(section\) => \(/g) ?? []).length, 2)
+  // Sections come from one helper per path, grouped by editionsByCategory.
+  assert.match(portal, /dataRoomLibraryView\(editions, categories\)/)
+  assert.match(portal, /legacyLibraryView\(portalLibrary, categories\)/)
+  assert.match(readFileSync(new URL('../src/lib/portal-library.ts', import.meta.url), 'utf8'), /sections: editionsByCategory\(items, categories, codeOf\)/)
+  assert.doesNotMatch(portal, /PORTAL_SERIES/)
 })
 
 test('Latest shows exactly one editorially newest publication', () => {
-  assert.match(portal, /newestEdition\(editions\)/)
+  // Latest is the helper's newestEdition over the whole permitted list.
+  assert.match(readFileSync(new URL('../src/lib/portal-library.ts', import.meta.url), 'utf8'), /latest: newestEdition\(items\)/)
   assert.match(portal, /documents=\{\[latest\]\}/)
+  assert.match(portal, /<PublicationRow item=\{latest\} \/>/)
 })
 
 test('a card shows the title, type, editorial date and confirmed activity', () => {

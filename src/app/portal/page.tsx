@@ -9,12 +9,11 @@ import {
   touchLastViewed,
   type CurrentSubscriber,
 } from "@/lib/subscriber-dal"
-import { seriesLabel, tierDisplayName } from "@/lib/entitlements"
+import { tierDisplayName } from "@/lib/entitlements"
 import { subscriberSignOut } from "@/app/actions/subscriber-auth"
 import SiteFooter from "@/components/SiteFooter"
 import PortalHeader from "@/components/PortalHeader"
 import LibrarySearch, { LibrarySearchResult, LibrarySearchSeries, LibrarySearchCount } from "@/components/LibrarySearch"
-import { dataRoomSearchEntry, legacySearchEntry } from "@/lib/library-search"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import { subscriberLibraryEmbedUrl } from "@/lib/papermark-embed"
 import { recordClientEvent } from "@/lib/client-engagement"
@@ -22,17 +21,14 @@ import {
   getPreviousPortalVisit,
   getSyncedClientDocuments,
   getDataRoomDocumentsForSubscriber,
-  groupDataRoomByCategory,
   type DataRoomDocument,
   type SyncedClientDocument,
 } from "@/lib/papermark-client-library"
 import { SECTION_LABELS, LIBRARY_SECTIONS } from "@/lib/papermark-contract"
-import {
-  PORTAL_CATEGORIES,
-  portalCategoryLabel,
-  type PortalCategoryKey,
-} from "@/lib/papermark-dataroom-contract"
-import { PORTAL_SERIES, editionsBySeries, isPortalSeries, newestEdition, type PortalSeries } from "@/lib/portal-library"
+import type { CatalogueCategory, CategorySection } from "@/lib/publication-catalogue"
+import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
+import { dataRoomLibraryView, legacyLibraryView } from "@/lib/portal-library"
+import { PublicationFacts, ProtectedSummary } from "@/components/PublicationReaderDetails"
 
 export const dynamic = "force-dynamic"
 
@@ -84,6 +80,7 @@ export default async function PortalPage() {
       <DataRoomPortal
         principal={principal}
         documents={library.documents}
+        categories={library.categories}
         preparing={library.preparing}
         awaitingDetails={library.awaitingDetails}
         previousVisit={previousVisit}
@@ -102,20 +99,24 @@ export default async function PortalPage() {
 async function DataRoomPortal({
   principal,
   documents,
+  categories,
   preparing,
   awaitingDetails,
 }: {
   principal: CurrentSubscriber
   documents: DataRoomDocument[]
+  categories: CatalogueCategory[]
   preparing: number
   awaitingDetails: number
   previousVisit: string | null
 }) {
   await touchLastViewed(principal.id)
 
-  const editions = documents.filter((document) => PORTAL_SERIES.includes(document.series as PortalSeries))
-  const libraries = editionsBySeries(editions)
-  const latest = newestEdition(editions)
+  // Every edition the access policy lists, each in its catalogue section (the
+  // owner's catalogue the documents were placed with). A category only places
+  // a card; it never decides whether one is listed.
+  const editions = documents
+  const { sections, entries: searchEntries, types, latest } = dataRoomLibraryView(editions, categories)
   const total = editions.length
 
   return (
@@ -150,18 +151,18 @@ async function DataRoomPortal({
           {latest ? <DataRoomGrid documents={[latest]} featured /> : <EmptyLibrary awaitingDetails={awaitingDetails > 0} />}
         </PortalSection>
 
-        <LibrarySearch entries={editions.map(dataRoomSearchEntry)}>
-        <LibraryNavigation />
+        <LibrarySearch entries={searchEntries} types={types}>
+        <LibraryNavigation sections={sections} />
 
-        {PORTAL_SERIES.map((series) => (
-          <LibrarySearchSeries key={series} series={series}>
-          <section id={`library-${series.toLowerCase()}`} className="mb-16 scroll-mt-24">
+        {sections.map((section) => (
+          <LibrarySearchSeries key={section.key} series={section.key}>
+          <section id={`library-${section.key.toLowerCase()}`} className="mb-16 scroll-mt-24">
             <div className="flex items-end justify-between gap-4 border-b border-border pb-4 mb-6">
-              <div><p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-accent mb-2">{series}</p>
-                <h2 className="font-serif text-xl sm:text-2xl text-foreground">{seriesLabel(series)}</h2></div>
-              <span className="text-xs text-muted-foreground"><LibrarySearchCount series={series} /></span>
+              <div>{section.code && <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-accent mb-2">{section.code}</p>}
+                <h2 className="font-serif text-xl sm:text-2xl text-foreground">{section.label}</h2></div>
+              <span className="text-xs text-muted-foreground"><LibrarySearchCount series={section.key} /></span>
             </div>
-            {libraries[series].length ? <DataRoomGrid documents={libraries[series]} /> : <p className="text-sm text-muted-foreground py-5">No editions are currently available to you in this library.</p>}
+            {section.items.length ? <DataRoomGrid documents={section.items} /> : <p className="text-sm text-muted-foreground py-5">No editions are currently available to you in this library.</p>}
           </section>
           </LibrarySearchSeries>
         ))}
@@ -197,8 +198,12 @@ async function LegacyPortal({
   }
   await touchLastViewed(principal.id)
 
-  const portalLibrary = library.filter((item) => isPortalSeries(item.series))
-  const grouped = editionsBySeries(portalLibrary)
+  // Every permitted edition, each in its catalogue section (a legacy record's
+  // own series; none yet means "Publications awaiting a category"), in the
+  // owner's catalogue.
+  const { categories } = await getPublicationCatalogue()
+  const portalLibrary = library
+  const { sections, entries: searchEntries, types, latest } = legacyLibraryView(portalLibrary, categories)
   const total = portalLibrary.length
 
   return (
@@ -222,27 +227,31 @@ async function LegacyPortal({
         </p>
 
         <PortalSection title="Latest">
-          {portalLibrary.length > 0 ? <ul className="grid grid-cols-1 gap-4"><li><PublicationRow item={newestEdition(portalLibrary)!} /></li></ul> : <EmptyLibrary />}
+          {latest ? <ul className="grid grid-cols-1 gap-4"><li><PublicationRow item={latest} /></li></ul> : <EmptyLibrary />}
         </PortalSection>
 
         {portalLibrary.length > 0 && (
-          <LibrarySearch entries={portalLibrary.map(legacySearchEntry)}>
+          <LibrarySearch entries={searchEntries} types={types}>
           <PortalSection title="Published editions">
-            <LibraryNavigation />
+            <LibraryNavigation sections={sections} />
             <div className="space-y-12">
-              {PORTAL_SERIES.map((series) => (
-                <LibrarySearchSeries key={series} series={series}>
-                <section id={`library-${series.toLowerCase()}`} className="scroll-mt-24">
+              {sections.map((section) => (
+                <LibrarySearchSeries key={section.key} series={section.key}>
+                <section id={`library-${section.key.toLowerCase()}`} className="scroll-mt-24">
                   <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-5">
-                    {seriesLabel(series)}
+                    {section.label}
                   </h3>
-                  <ul className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {grouped[series].map((item) => (
-                      <LibrarySearchResult key={item.id} id={item.id}>
-                        <PublicationRow item={item} />
-                      </LibrarySearchResult>
-                    ))}
-                  </ul>
+                  {section.items.length ? (
+                    <ul className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {section.items.map((item) => (
+                        <LibrarySearchResult key={item.id} id={item.id}>
+                          <PublicationRow item={item} />
+                        </LibrarySearchResult>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No editions are currently available to you in this library.</p>
+                  )}
                 </section>
                 </LibrarySearchSeries>
               ))}
@@ -364,6 +373,7 @@ function DataRoomCard({ document, featured = false }: { document: DataRoomDocume
               </>
             )}
           </div>
+          <PublicationFacts details={document.details} />
         </div>
         <div className="flex gap-3 shrink-0 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border sm:items-start sm:pt-1">
           {document.delivery === "preparing" ? (
@@ -383,6 +393,7 @@ function DataRoomCard({ document, featured = false }: { document: DataRoomDocume
           )}
         </div>
       </div>
+      <ProtectedSummary summary={document.details?.summary} />
       {/* Only a view Papermark recorded for this subscriber counts. Opening the
           card is a click, not a view, and is never shown here. */}
       {document.viewedBySubscriber && (
@@ -402,12 +413,13 @@ function ActivityStatus({ document }: { document: DataRoomDocument }) {
   )
 }
 
-function LibraryNavigation() {
+/** One card per library section, in catalogue order, each with its (filtered) count. */
+function LibraryNavigation({ sections }: { sections: Pick<CategorySection<unknown>, "key" | "code" | "label">[] }) {
   return (
     <nav aria-label="Publication libraries" className="mb-16">
       <p className="text-xs font-medium uppercase tracking-wider text-accent mb-5">Browse libraries</p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {PORTAL_SERIES.map((series) => <LibrarySearchSeries key={series} series={series}><a href={`#library-${series.toLowerCase()}`} className="group border border-border bg-card/20 p-5 hover:border-accent transition-colors"><span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-accent">{series}</span><span className="mt-2 block font-serif text-lg leading-snug group-hover:text-accent transition-colors">{seriesLabel(series)}</span><span className="mt-3 block text-xs text-muted-foreground"><LibrarySearchCount series={series} /> <span aria-hidden>→</span></span></a></LibrarySearchSeries>)}
+        {sections.map((section) => <LibrarySearchSeries key={section.key} series={section.key}><a href={`#library-${section.key.toLowerCase()}`} className="group border border-border bg-card/20 p-5 hover:border-accent transition-colors">{section.code && <span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-accent">{section.code}</span>}<span className="mt-2 block font-serif text-lg leading-snug group-hover:text-accent transition-colors">{section.label}</span><span className="mt-3 block text-xs text-muted-foreground"><LibrarySearchCount series={section.key} /> <span aria-hidden>→</span></span></a></LibrarySearchSeries>)}
       </div>
     </nav>
   )
@@ -516,6 +528,8 @@ function PublicationRow({ item }: { item: Item }) {
           <p className="text-sm text-foreground/60 leading-relaxed mt-2">{item.summary}</p>
         )}
         {meta && <p className="text-xs text-muted-foreground mt-3">{meta}</p>}
+        <PublicationFacts details={item.details} />
+        <ProtectedSummary summary={item.details?.summary} />
         <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border">
           Access being prepared — we will email you when it is ready.
         </p>
@@ -525,11 +539,12 @@ function PublicationRow({ item }: { item: Item }) {
   }
 
   return (
+    <div className="flex h-full flex-col">
     <a
       href={item.linkUrl}
       target="_blank"
       rel="noreferrer"
-      className="block h-full border border-border bg-card/30 p-5 sm:p-6 hover:border-accent transition-colors group"
+      className="block flex-1 border border-border bg-card/30 p-5 sm:p-6 hover:border-accent transition-colors group"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -546,6 +561,7 @@ function PublicationRow({ item }: { item: Item }) {
               </>
             )}
           </div>
+          <PublicationFacts details={item.details} />
         </div>
         <span
           aria-hidden
@@ -556,6 +572,9 @@ function PublicationRow({ item }: { item: Item }) {
       </div>
       <LegacyViewed item={item} />
     </a>
+    {/* Outside the link: a disclosure cannot sit inside an <a>. */}
+    <ProtectedSummary summary={item.details?.summary} attached />
+    </div>
   )
 }
 

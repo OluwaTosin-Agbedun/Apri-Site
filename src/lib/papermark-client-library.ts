@@ -10,11 +10,19 @@ import {
   categoriseDataRoomDocument,
   documentBadge,
   portalDocumentTitle,
-  portalTypeLabel,
-  type PortalCategoryKey,
 } from "./papermark-dataroom-contract"
+import {
+  categorySingularLabel,
+  type CatalogueCategory,
+  type CatalogueCode,
+  type CategorySection,
+} from "./publication-catalogue"
+import { editionsByCategory } from "./portal-library"
+import { getPublicationCatalogue, type PublicationCatalogue } from "./publication-catalogue-dal"
 import { getDocumentLinkByDocRowId } from "./dataroom-dal"
 import { loadSubscriberAccess, type DocumentAccess } from "./access-policy-dal"
+import { loadReaderPublicationDetails } from "./publication-metadata-dal"
+import type { ReaderPublicationDetails } from "./publication-metadata"
 
 export type SyncedClientDocument = {
   id: string
@@ -37,7 +45,9 @@ export type DataRoomDocument = {
   dataroomDocumentId: string | null
   title: string
   displayTitle: string
-  category: PortalCategoryKey
+  /** Its catalogue category; null when it has none yet ("Publications awaiting a category"). */
+  category: CatalogueCode | null
+  /** The singular label on the card. */
   categoryLabel: string
   numPages: number | null
   contentType: string | null
@@ -54,6 +64,12 @@ export type DataRoomDocument = {
   downloadedBySubscriber: boolean
   /** Opens now ("open", or "preserved" for a link issued earlier), or is still being prepared. */
   delivery: "open" | "preparing" | "preserved"
+  /**
+   * What an editor stated about the edition (author/editor, covered period,
+   * cut-off, reading time), its tag labels and its approved summary; null when
+   * none is stated. Only ever for an edition this library lists.
+   */
+  details?: ReaderPublicationDetails | null
 }
 
 /**
@@ -69,6 +85,8 @@ export type SubscriberDataRoomLibrary =
   | {
       state: "ready"
       documents: DataRoomDocument[]
+      /** The catalogue the documents were placed with, in the owner's order. */
+      categories: CatalogueCategory[]
       dataroomId: string
       /** Allowed documents whose personal link is not ready yet. */
       preparing: number
@@ -78,12 +96,23 @@ export type SubscriberDataRoomLibrary =
   | { state: "no_room" }
   | { state: "unavailable"; message: string }
 
-/** One room document, shaped for the portal, from the access policy's record. */
+/**
+ * One room document, shaped for the portal, from the access policy's record.
+ * Its category is the catalogue's (the publication's series, else its mapped
+ * folder): placement only, never a reason to list or hide it.
+ */
 function portalDocument(
   d: DocumentAccess,
-  options: { previousVisit: string | null; viewed: Set<string>; downloaded: Set<string> },
+  options: {
+    previousVisit: string | null
+    viewed: Set<string>
+    downloaded: Set<string>
+    catalogue: PublicationCatalogue
+    /** Reader details by publication id, loaded for the listed editions only (the library; the viewer passes none). */
+    details?: Map<string, ReaderPublicationDetails>
+  },
 ): DataRoomDocument {
-  const cat = categoriseDataRoomDocument({ title: d.fileTitle, category: d.category, folderPath: d.folderPath })
+  const cat = categoriseDataRoomDocument({ title: d.fileTitle, series: d.series, folderPath: d.folderPath, mappings: options.catalogue.folders })
   return {
     id: d.rowId,
     papermarkDocumentId: d.papermarkDocumentId,
@@ -91,7 +120,7 @@ function portalDocument(
     title: d.fileTitle,
     displayTitle: portalDocumentTitle({ syncedName: d.fileTitle, editorialTitle: d.editorialTitle, editorialTitleIsOverride: d.titleOverride }),
     category: cat,
-    categoryLabel: portalTypeLabel(cat),
+    categoryLabel: categorySingularLabel(cat, options.catalogue.categories),
     numPages: d.pageCount ?? d.numPages,
     contentType: d.contentType,
     papermarkCreatedAt: d.papermarkCreatedAt,
@@ -106,6 +135,7 @@ function portalDocument(
     viewedBySubscriber: options.viewed.has(d.papermarkDocumentId) || (d.publicationId !== null && options.viewed.has(d.publicationId)),
     downloadedBySubscriber: options.downloaded.has(d.papermarkDocumentId),
     delivery: d.delivery === "open" || d.delivery === "preserved" ? d.delivery : "preparing",
+    details: (d.publicationId && options.details?.get(d.publicationId)) || null,
   }
 }
 
@@ -119,7 +149,7 @@ function portalDocument(
  */
 export async function getDataRoomDocumentsForSubscriber(
   subscriberId: string,
-  options: { previousVisit?: string | null } = {},
+  options: { previousVisit?: string | null; catalogue?: PublicationCatalogue } = {},
 ): Promise<SubscriberDataRoomLibrary> {
   const access = await loadSubscriberAccess(subscriberId)
   if (access.state === "unavailable") return { state: "unavailable", message: access.message }
@@ -147,10 +177,15 @@ export async function getDataRoomDocumentsForSubscriber(
   }
 
   const previousVisit = options.previousVisit ?? null
+  const catalogue = options.catalogue ?? (await getPublicationCatalogue())
+  // Reader details only for the editions listed here (never hidden ones):
+  // decoration that never decides what is listed, and empty on any failure.
+  const details = await loadReaderPublicationDetails(listed.map((d) => d.publicationId))
   return {
     state: "ready",
     dataroomId: access.room.dataroomId,
-    documents: listed.map((d) => portalDocument(d, { previousVisit, viewed, downloaded })),
+    categories: catalogue.categories,
+    documents: listed.map((d) => portalDocument(d, { previousVisit, viewed, downloaded, catalogue, details })),
     preparing: listed.filter((d) => d.delivery === "preparing").length,
     awaitingDetails: access.documents.filter((d) => d.decision.outcome === "unresolved" && d.delivery === "hidden").length,
   }
@@ -179,7 +214,7 @@ export async function getDataRoomDocumentForSubscriber(
 
   // The live personal link for this subscriber and this exact document.
   const docLink = found.link ? await getDocumentLinkByDocRowId({ subscriberId, documentRowId }) : null
-  const document = portalDocument(found, { previousVisit: null, viewed: new Set(), downloaded: new Set() })
+  const document = portalDocument(found, { previousVisit: null, viewed: new Set(), downloaded: new Set(), catalogue: await getPublicationCatalogue() })
   return {
     document: { ...document, badge: null },
     documentLinkUrl: docLink?.linkUrl ?? null,
@@ -189,15 +224,15 @@ export async function getDataRoomDocumentForSubscriber(
   }
 }
 
-/** Group Data Room documents by portal category. */
+/**
+ * Every listed Data Room document, in its catalogue section, catalogue order,
+ * newest first: nothing the access policy lists is left out.
+ */
 export function groupDataRoomByCategory(
-  documents: DataRoomDocument[],
-): Record<PortalCategoryKey, DataRoomDocument[]> {
-  const grouped: Record<PortalCategoryKey, DataRoomDocument[]> = {
-    PLM: [], AEO: [], AIU: [], MIN: [], QIB: [], OTHER: [],
-  }
-  for (const doc of documents) grouped[doc.category].push(doc)
-  return grouped
+  documents: readonly DataRoomDocument[],
+  categories: readonly CatalogueCategory[],
+): CategorySection<DataRoomDocument>[] {
+  return editionsByCategory(documents, categories, (doc) => doc.category)
 }
 
 /**

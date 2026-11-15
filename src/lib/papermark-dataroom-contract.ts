@@ -6,6 +6,16 @@
  * published OpenAPI document at https://docs.papermark.com/docs/openapi.json.
  */
 
+import {
+  DEFAULT_FOLDER_MAPPINGS,
+  categoryLabel,
+  categorySingularLabel,
+  normaliseSegment,
+  resolveCategory,
+  type CatalogueCode,
+  type FolderMapping,
+} from './publication-catalogue.ts'
+
 // ---------------------------------------------------------------------------
 // Watermark — Subscriber Edition
 // ---------------------------------------------------------------------------
@@ -337,51 +347,32 @@ export function isDocumentTargetedLink(
 }
 
 // ---------------------------------------------------------------------------
-// Portal categories
+// Portal categories: the publication catalogue
 // ---------------------------------------------------------------------------
 
 /**
- * The sections a library is shown in, in order.
- *
- * A document is placed by the Data Room folder it sits in, because that is what
- * an editor chooses when they file it. Where there is no folder, the series
- * code at the start of the title is read instead — anchored and requiring the
- * separator, so `ADMIN-notes` is not a Monthly Intelligence Note. Anything
- * still unrecognised lands in Other rather than being dropped.
+ * Where a paid Data Room document is shown comes from the one publication
+ * catalogue (src/lib/publication-catalogue.ts): the publication record's own
+ * series first, then the Data Room folder it is filed in -- matched exactly
+ * against the folders an owner has mapped, never by a code or word found
+ * inside a folder name -- and, only for a document in no folder at all, a
+ * series code at the very start of its name (anchored, separator required, so
+ * `ADMIN-notes` is not a Monthly Intelligence Note). Anything else has no
+ * category yet (null): it is still listed to readers it is permitted for,
+ * under "Publications awaiting a category", and Admin flags its folder for
+ * mapping. "Other Assigned Publications" is an explicit choice, never a
+ * fallback. None of this decides access.
  */
-export const PORTAL_CATEGORIES = [
-  { key: 'PLM', label: 'Political Landscape Monitor', codes: ['PLM'], aliases: [] as string[] },
-  { key: 'AEO', label: 'Election & Democratic Governance Monitor', codes: ['AEO'], aliases: ['election watch'] },
-  { key: 'AIU', label: 'Athena Intelligence Updates', codes: ['AIU'], aliases: [] as string[] },
-  { key: 'MIN', label: 'Monthly Intelligence Notes', codes: ['MIN'], aliases: [] as string[] },
-  { key: 'QIB', label: 'Quarterly Intelligence Briefs', codes: ['QIB'], aliases: [] as string[] },
-  { key: 'OTHER', label: 'Other Assigned Publications', codes: [] as string[], aliases: [] as string[] },
-] as const satisfies readonly { key: string; label: string; codes: readonly string[]; aliases: readonly string[] }[]
+export { normaliseSegment }
 
-export type PortalCategoryKey = (typeof PORTAL_CATEGORIES)[number]['key']
-
-export const PORTAL_CATEGORY_KEYS = PORTAL_CATEGORIES.map((c) => c.key)
-
-export function portalCategoryLabel(key: PortalCategoryKey): string {
-  return PORTAL_CATEGORIES.find((c) => c.key === key)?.label ?? 'Other Assigned Publications'
+/** The plural label for a category (the built-in default; pages use the owner's catalogue). */
+export function portalCategoryLabel(key: CatalogueCode | null): string {
+  return categoryLabel(key)
 }
 
-/** The singular type shown on one card. */
-export function portalTypeLabel(key: PortalCategoryKey): string {
-  switch (key) {
-    case 'PLM':
-      return 'Political Landscape Monitor'
-    case 'AEO':
-      return 'Election & Democratic Governance Monitor'
-    case 'AIU':
-      return 'Athena Intelligence Update'
-    case 'MIN':
-      return 'Monthly Intelligence Note'
-    case 'QIB':
-      return 'Quarterly Intelligence Brief'
-    default:
-      return 'Publication'
-  }
+/** The singular type shown on one card (the built-in default). */
+export function portalTypeLabel(key: CatalogueCode | null): string {
+  return categorySingularLabel(key)
 }
 
 /**
@@ -434,102 +425,40 @@ export function portalDocumentTitle(args: {
   return syncedDisplayTitle(args.syncedName) || editorial || 'Untitled document'
 }
 
-/** A series code at the very start of a name, separator required. */
-function leadingCode(value: string): string | null {
-  const match = value.trim().toUpperCase().match(/^([A-Z]{3})[-_\s]/)
-  return match ? match[1]! : null
-}
-
-/**
- * Normalise a folder path segment for classification matching.
- *
- * 1. Decode URI characters safely.
- * 2. Convert to lowercase.
- * 3. Replace hyphens and underscores with spaces.
- * 4. Remove harmless leading numeric prefixes (e.g. "04-", "04_", "04 ").
- * 5. Collapse repeated whitespace.
- * 6. Trim.
- */
-export function normaliseSegment(raw: string): string {
-  let s: string
-  try { s = decodeURIComponent(raw) } catch { s = raw }
-  return s
-    .toLowerCase()
-    .replace(/[-_]+/g, ' ')
-    .replace(/&/g, ' ')
-    .replace(/^\d+\s+/, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 export function categoriseDataRoomDocument(args: {
   title: string
-  category?: string | null
+  /** The linked publication record's series: an editorial decision, so it wins. */
+  series?: string | null
   folderPath?: string | null
-}): PortalCategoryKey {
-  // The folder an editor filed it in comes first: that is a decision, and a
-  // file name is only a habit. Check both the stored category (which may be a
-  // prior classification result like 'MIN') and the raw folder path from
-  // Papermark (which may be a slug like '/monthly-intelligence-note' or a
-  // human-readable name like 'Monthly Intelligence Notes').
-  for (const source of [args.category, args.folderPath]) {
-    const raw = (source ?? '').trim()
-    if (!raw) continue
-
-    // First check the raw value for 3-letter codes (case-insensitive).
-    const upper = raw.toUpperCase()
-    for (const category of PORTAL_CATEGORIES) {
-      for (const code of category.codes) {
-        if (upper.includes(code)) return category.key
-      }
-    }
-
-    // Normalise every path segment, then match against labels and aliases.
-    const segments = raw.split('/').map(normaliseSegment).filter(Boolean)
-    const joined = segments.join(' ')
-
-    for (const category of PORTAL_CATEGORIES) {
-      if (category.key === 'OTHER') continue
-      // Normalize the label the same way: strip &, lower, collapse spaces
-      const label = category.label.toLowerCase().replace(/&/g, '').replace(/\s+/g, ' ').trim()
-      // Plural label
-      if (joined.includes(label)) return category.key
-      // Singular form (strip trailing 's')
-      if (label.endsWith('s') && joined.includes(label.slice(0, -1))) {
-        return category.key
-      }
-      // Explicit aliases (e.g. "election watch" → AEO)
-      for (const alias of category.aliases) {
-        if (joined.includes(alias)) return category.key
-      }
-    }
-  }
-
-  const code = leadingCode(args.title)
-  if (code) {
-    const match = PORTAL_CATEGORIES.find((c) =>
-      (c.codes as readonly string[]).includes(code),
-    )
-    if (match) return match.key
-  }
-
-  return 'OTHER'
+  /** The owner's folder mappings; the built-in ones when not given. */
+  mappings?: readonly FolderMapping[]
+}): CatalogueCode | null {
+  return resolveCategory({
+    series: args.series,
+    folderPath: args.folderPath,
+    title: args.title,
+    mappings: args.mappings ?? DEFAULT_FOLDER_MAPPINGS,
+  }).code
 }
 
 /**
- * Maps a PortalCategoryKey to the series code stored on a documents record.
- * Returns empty string for OTHER (no series).
+ * The series code stored on a publication record created from a synced
+ * document. A document with no category stores no series. OTHER (from a
+ * folder explicitly mapped to Other Assigned Publications) is stored only
+ * once the catalogue migration allows it (`otherStorable`); before that it
+ * stores no series, and its folder mapping still places it.
  */
-export function categoryToSeries(key: PortalCategoryKey): string {
-  return key === 'OTHER' ? '' : key
+export function categoryToSeries(key: CatalogueCode | null, options: { otherStorable?: boolean } = {}): string {
+  if (!key) return ''
+  return key !== 'OTHER' || options.otherStorable === true ? key : ''
 }
 
 /**
- * Maps a PortalCategoryKey to the default visibility level for new publications.
+ * Maps a category to the default visibility level for new publications.
  * Falls back to 'L1' when the tier is unknown.
  */
 export function categoryToDefaultVisibility(
-  key: PortalCategoryKey,
+  key: CatalogueCode | null,
   publicTier?: string | null,
 ): string {
   if (publicTier) {
@@ -670,15 +599,19 @@ export type DerivedMetadata = {
 
 export function derivePublicationMetadata(args: {
   filename: string
-  category: PortalCategoryKey
+  category: CatalogueCode | null
   folderPath?: string | null
   numPages?: number | null
   publicTier?: string | null
+  /** Whether documents.series may hold OTHER yet (20261114_publication_catalogue.sql applied). */
+  otherStorable?: boolean
 }): DerivedMetadata {
   const title = humaniseFilename(args.filename)
-  const series = categoryToSeries(args.category)
+  const series = categoryToSeries(args.category, { otherStorable: args.otherStorable })
   const editionDate = parseEditionDate(args.filename)
-  const editionCode = generateEditionCode(series, editionDate)
+  // Other Assigned Publications is a mixed group with no code convention (and
+  // several may share a month), so no edition code is invented for it.
+  const editionCode = series === 'OTHER' ? '' : generateEditionCode(series, editionDate)
   const visibility = categoryToDefaultVisibility(args.category, args.publicTier)
   const template = series ? SERIES_TEMPLATES[series] : null
 

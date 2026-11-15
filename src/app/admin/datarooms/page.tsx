@@ -3,7 +3,8 @@ import { requireOwner } from "@/lib/dal"
 import AdminShell from "@/components/AdminShell"
 import { getLevelRoomMappings, getDataRoomStats, getSyncedDocumentsForRoom, getPersonalLinkGaps, getRecordsOutsideDataRooms } from "@/lib/dataroom-dal"
 import { PUBLIC_TIERS, tierDisplayName } from "@/lib/entitlements"
-import { portalCategoryLabel, type PortalCategoryKey } from "@/lib/papermark-dataroom-contract"
+import { categoryLabel, resolveCategory } from "@/lib/publication-catalogue"
+import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 import DataRoomMappingForm, { MappingActions, CreatePublicationButton, LinkExistingPublication, GenerateDocumentDetailsButton } from "./dataroom-form"
 
 export const dynamic = "force-dynamic"
@@ -11,11 +12,12 @@ export const metadata = { title: "Data Rooms · APRI" }
 
 export default async function DataRoomsPage() {
   const admin = await requireOwner()
-  const [mappings, stats, linkGaps, outsideRooms] = await Promise.all([
+  const [mappings, stats, linkGaps, outsideRooms, catalogue] = await Promise.all([
     getLevelRoomMappings(),
     getDataRoomStats(),
     getPersonalLinkGaps(),
     getRecordsOutsideDataRooms(),
+    getPublicationCatalogue({ fresh: true }),
   ])
 
   const mapped = new Set(mappings.map((m) => m.publicTier))
@@ -149,7 +151,11 @@ export default async function DataRoomsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {docs.map((doc) => (
+                  {docs.map((doc) => {
+                    // Placed exactly as the portal places it: the record's
+                    // series, else the owner's folder mapping.
+                    const placed = resolveCategory({ series: doc.series, folderPath: doc.folderPath, title: doc.title, mappings: catalogue.folders })
+                    return (
                     <tr key={doc.id} className="hover:bg-black/5 transition-colors">
                       <td className="p-3 text-foreground max-w-xs truncate" title={doc.title}>
                         {doc.title}
@@ -158,11 +164,12 @@ export default async function DataRoomsPage() {
                         <span className="text-xs">{doc.folderPath || "—"}</span>
                         <br />
                         <span className="text-xs text-muted-foreground">
-                          {portalCategoryLabel(doc.category as PortalCategoryKey)}
+                          {categoryLabel(placed.code, catalogue.categories)}
                         </span>
-                        {doc.category === "OTHER" && (
+                        {!placed.code && (
                           <span className="ml-2 text-[0.65rem] text-amber-600">
-                            Category not recognised. Check this document&apos;s Papermark Data Room folder.
+                            {placed.unmappedFolder ? "This folder is not mapped to a category. " : "No series and no folder. "}
+                            <Link href="/admin/categories" className="underline">Map it in Publication Categories</Link> or set the record&apos;s series.
                           </span>
                         )}
                       </td>
@@ -214,7 +221,8 @@ export default async function DataRoomsPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

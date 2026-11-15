@@ -5,13 +5,13 @@ import AdminShell from "@/components/AdminShell"
 import { getSubscriberTimeline, type EngagementTimelineEntry } from "@/lib/client-engagement"
 import { formatLagos } from "@/lib/engagement-metrics"
 import { getMonitorStatus, getSubscriberMonitorDetail } from "@/lib/reader-monitoring"
-import { lagosDateRange, NO_LOGIN, NO_VISIT } from "@/lib/reader-monitoring-rules"
+import { lagosDateRange, MONITOR_SERIES, NO_LOGIN, NO_VISIT } from "@/lib/reader-monitoring-rules"
 import { Badge, EditionActivityTable } from "../monitor-parts"
 
 export const dynamic = "force-dynamic"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const SERIES = ["MIN", "AIU", "PLM", "AEO", "QIB"]
+const SERIES: readonly string[] = MONITOR_SERIES
 
 const EVENT_LABELS: Record<string, string> = {
   signin_email_sent: "Sign-in email accepted by the email provider",

@@ -24,6 +24,7 @@ const RANK: Record<Level, number> = { L1: 1, L2: 2, L3: 3, L4: 4 }
  * level; they differ only in how many named seats the organisation buys.
  */
 import { SUBSCRIPTION_CATALOGUE, subscriptionDisplayName } from './subscription-catalogue.ts'
+import { CATALOGUE_CODES, DEFAULT_CATALOGUE, isCatalogueCode, type CatalogueCode } from './publication-catalogue.ts'
 
 export const PUBLIC_TIERS = SUBSCRIPTION_CATALOGUE.map((item) => ({
   name: item.storedName,
@@ -283,22 +284,22 @@ export function isPersonalEmail(email: string): boolean {
   return PERSONAL_EMAIL_DOMAINS.has(trimmed.slice(at + 1))
 }
 
-/** Human label for a publication series code. */
-export const SERIES = {
-  PLM: 'Political Landscape Monitor',
-  AEO: 'Election Observatory',
-  AIU: 'Athena Intelligence Update',
-  MIN: 'Monthly Intelligence Note',
-  QIB: 'Quarterly Intelligence Brief',
-  BP: 'Board Paper',
-} as const
+/**
+ * Publication series codes and their singular labels, from the one publication
+ * catalogue (src/lib/publication-catalogue.ts). These are the built-in labels:
+ * pages that show a library read the owner's catalogue through
+ * src/lib/publication-catalogue-dal.ts.
+ */
+export const SERIES = Object.fromEntries(
+  DEFAULT_CATALOGUE.map((category) => [category.code, category.singularLabel]),
+) as Record<CatalogueCode, string>
 
-export type SeriesCode = keyof typeof SERIES
+export type SeriesCode = CatalogueCode
 
-export const SERIES_CODES = Object.keys(SERIES) as SeriesCode[]
+export const SERIES_CODES: SeriesCode[] = [...CATALOGUE_CODES]
 
 export function isSeriesCode(value: unknown): value is SeriesCode {
-  return typeof value === 'string' && value in SERIES
+  return isCatalogueCode(value)
 }
 
 export function seriesLabel(code: string): string {

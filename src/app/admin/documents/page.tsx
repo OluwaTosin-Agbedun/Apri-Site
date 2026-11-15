@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { requireAdmin } from '@/lib/dal'
 import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
-import { seriesLabel, visibilityBadge, isVisibility } from '@/lib/entitlements'
+import { visibilityBadge, isVisibility } from '@/lib/entitlements'
+import { categorySingularLabel } from '@/lib/publication-catalogue'
+import { getPublicationCatalogue } from '@/lib/publication-catalogue-dal'
 import SyncPanel from './sync-panel'
 import RowActions from './row-actions'
 
@@ -35,6 +37,8 @@ const STATUS_BADGE: Record<string, string> = {
 export default async function AdminDocumentsPage() {
   const admin = await requireAdmin()
   const sql = getSql()
+  // Series shown with the owner's catalogue labels.
+  const { categories } = await getPublicationCatalogue()
 
   const documents = (await sql`
     select id, title, kicker, section_label, status, cta_mode,
@@ -95,7 +99,7 @@ export default async function AdminDocumentsPage() {
                     )}
                   </td>
                   <td className="p-4 text-foreground/70">
-                    {doc.series ? seriesLabel(doc.series) : doc.section_label || '—'}
+                    {doc.series ? categorySingularLabel(doc.series, categories) : doc.section_label || '—'}
                     {doc.edition_date && (
                       <span className="block text-xs text-muted-foreground mt-0.5">
                         {new Date(doc.edition_date).toLocaleDateString('en-GB')}

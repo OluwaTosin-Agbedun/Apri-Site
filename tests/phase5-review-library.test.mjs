@@ -22,17 +22,20 @@ describe('fixed review slots', () => {
     assert.equal(approvedOnly.length, 3)
   })
 
-  it('review-library actions define FIXED_SLOTS = MIN, AIU, PLM', () => {
+  // The retired three-slot table keeps exactly the three series with
+  // Chancellor-approved copy, now taken from that copy rather than restated.
+  it('review-library actions define FIXED_SLOTS as the approved-copy series (MIN, AIU, PLM)', () => {
     const src = read('src/app/actions/review-library.ts')
-    // Either quote style: the formatter now writes double quotes.
-    assert.match(src, /FIXED_SLOTS\s*=\s*\[['"]MIN['"],\s*['"]AIU['"],\s*['"]PLM['"]\]/)
+    assert.match(src, /const FIXED_SLOTS = APPROVED_REVIEW_COPY_CODES/)
+    const classify = read('src/lib/review-classify.ts')
+    assert.match(classify, /export const APPROVED_REVIEW_COPY_CODES = Object\.keys\(SERIES_META\)/)
+    const keys = [...classify.slice(classify.indexOf('const SERIES_META'), classify.indexOf('export const APPROVED_REVIEW_COPY_CODES')).matchAll(/^  (\w{3}): \{/gm)].map((m) => m[1])
+    assert.deepEqual(keys, ['MIN', 'AIU', 'PLM'])
   })
 
-  it('SLOT_ORDER is MIN=0, AIU=1, PLM=2', () => {
+  it('SLOT_ORDER is MIN=0, AIU=1, PLM=2 (the approved-copy order)', () => {
     const src = read('src/app/actions/review-library.ts')
-    assert.match(src, /MIN:\s*0/)
-    assert.match(src, /AIU:\s*1/)
-    assert.match(src, /PLM:\s*2/)
+    assert.match(src, /const SLOT_ORDER: Record<string, number> = Object\.fromEntries\(FIXED_SLOTS\.map\(\(code, index\) => \[code, index\]\)\)/)
   })
 })
 
@@ -398,15 +401,19 @@ describe('library enable validation', () => {
 // 18. Three-column responsive layout
 // ---------------------------------------------------------------------------
 
-test('publications page shows MIN, AIU and PLM as three columns on desktop, stacking on mobile', () => {
+test('publications page shows one column per category with published editions, stacking on mobile', () => {
   const src = read('src/app/publications/page.tsx')
   const section = src.slice(src.indexOf('<section id="review-publications"'), src.indexOf('</section>'))
-  // One grid, three columns from md up, one column below it.
-  assert.match(section, /<div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-start">/)
-  assert.doesNotMatch(section, /md:grid-cols-2/)
-  // Each column is one series, in MIN, AIU, PLM order, holding all its editions.
-  assert.match(section, /\(\["MIN", "AIU", "PLM"\] as const\)\.map\(\(series\) =>/)
-  assert.match(section, /const cards = archive\.filter\(\(item\) => item\.slotKey === series\)\s*if \(!cards\.length\) return null/)
+  // One grid: one column on a phone, then one column per category that has
+  // published editions (two from md, three from lg when there are three or
+  // more), instead of exactly three.
+  assert.match(section, /<div className=\{`grid grid-cols-1 \$\{columnGrid\} gap-6 md:gap-8 items-start`\}>/)
+  assert.match(src, /columns\.length >= 3 \? "md:grid-cols-2 lg:grid-cols-3" : columns\.length === 2 \? "md:grid-cols-2" : ""/)
+  // Each column is one category, in the owner's catalogue order, holding all
+  // its editions; a category with none has no column.
+  assert.match(src, /\.filter\(\(column\) => column\.cards\.length > 0\)/)
+  assert.match(section, /\{columns\.map\(\(\{ category, cards \}\) =>/)
+  assert.match(section, /\{category\.label\}/)
   assert.match(section, /\{cards\.map\(\(card\) => \(/)
   // Every card keeps its own secure link and edition details.
   assert.match(section, /href=\{entryMode === "library" \? `\/review\/library\?edition=\$\{card\.id\}` : card\.secureUrl\}/)

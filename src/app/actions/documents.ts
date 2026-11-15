@@ -6,6 +6,8 @@ import { requireAdmin, requireOwner } from '@/lib/dal'
 import { getSql } from '@/lib/db'
 import { DocumentSchema, fieldErrors, type FormState } from '@/lib/definitions'
 import { portalTitleOverrideReady } from '@/lib/portal-title-schema'
+import { catalogueSchemaReady } from '@/lib/publication-catalogue-dal'
+import { hasWrittenSummary } from '@/lib/publication-metadata-dal'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STATUSES = ['draft', 'published', 'archived'] as const
@@ -69,7 +71,9 @@ export async function setDocumentStatus(
     }
 
     // Portal order comes from the issue date, never from a later upload or sync.
-    if (row.visibility !== 'OPEN' && ['PLM', 'MIN', 'AIU'].includes(row.series) && !row.edition_date) {
+    // The portal lists every permitted paid edition by date -- in any category,
+    // or awaiting one -- so every paid edition needs it.
+    if (row.visibility !== 'OPEN' && !row.edition_date) {
       return { message: 'Add the edition date before publishing this subscriber edition.' }
     }
 
@@ -112,11 +116,14 @@ export async function deleteDocument(id: string): Promise<FormState> {
       exists (select 1 from document_views where publication_id = ${id}::uuid) as views,
       exists (select 1 from document_download_events where publication_id = ${id}::uuid) as downloads
   `) as { dataroom: boolean; review: boolean; access: boolean; views: boolean; downloads: boolean }[]
+  // A written protected summary would be deleted with the record (cascade).
+  const summary = await hasWrittenSummary(sql, id)
   const uses = [
     refs?.dataroom && 'a Data Room document',
     refs?.review && 'a review slot',
     refs?.access && 'subscriber access records',
     (refs?.views || refs?.downloads) && 'reading history',
+    summary && 'a protected summary (clear its text in the editor first if it is not needed)',
   ].filter(Boolean)
   if (uses.length > 0) {
     return { message: `This publication record is used by ${uses.join(', ')}, so it was not deleted. Archive it instead.` }
@@ -166,6 +173,11 @@ export async function saveDocument(
   if (!parsed.success) return { errors: fieldErrors(parsed.error) }
   const d = parsed.data
   const sql = getSql()
+
+  // OTHER is stored only once the catalogue migration has widened the rule.
+  if (d.series === 'OTHER' && !(await catalogueSchemaReady(sql, { fresh: true }))) {
+    return { errors: { series: ['Other Assigned Publications can be chosen once migration 20261114_publication_catalogue.sql is applied.'] } }
+  }
 
   // Empty strings become NULL so that the unique index on `code` does not treat
   // several un-coded drafts as duplicates of one another.

@@ -5,6 +5,7 @@
  */
 
 import { cumulativeCoverage, formatPageList, sessionProgress, type Coverage, type PageEvidence } from "./page-progress"
+import { CATALOGUE_CODES } from "./publication-catalogue"
 
 export const LAGOS_OFFSET = "+01:00" // Africa/Lagos is UTC+1 all year (no daylight saving).
 
@@ -270,7 +271,8 @@ export function accessRouteLabel(method: string | null | undefined): string {
 }
 
 export const MONITOR_STATUSES = ["active", "term_ended", "pending", "lapsed", "suspended", "declined"] as const
-export const MONITOR_SERIES = ["MIN", "AIU", "PLM", "AEO", "QIB"] as const
+/** Every publication catalogue code (src/lib/publication-catalogue.ts). */
+export const MONITOR_SERIES = CATALOGUE_CODES
 
 /**
  * The monitor's filters from the address bar, keeping only known values --

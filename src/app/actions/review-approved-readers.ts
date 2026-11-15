@@ -9,6 +9,7 @@ import { getReviewLibraryForEmail } from "@/lib/publications"
 import { recentReviewEmailAttempts, attemptStatus } from "@/lib/review-email-attempts"
 import { saveEditionRecipients, previewEditionRecipients, applyEditionRecipients } from "./review-edition-access"
 import { recipientListHash } from "@/lib/edition-recipients"
+import { getPublicationCatalogue, orderedCodes } from "@/lib/publication-catalogue-dal"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -41,6 +42,7 @@ export type ReaderLookup = {
 async function lookup(email: string): Promise<ReaderLookup> {
   const sql = getSql()
   const opens = new Set((await getReviewLibraryForEmail(email)).map((e) => e.id))
+  const order = orderedCodes(await getPublicationCatalogue())
   const rows = (await sql`
     select e.id, e.series, e.title, e.edition_label, e.publication_state, e.recipient_mode,
            (e.secure_link_id is not null) as has_link, e.recipients_verified_hash,
@@ -50,7 +52,7 @@ async function lookup(email: string): Promise<ReaderLookup> {
                     where r.edition_id = e.id and r.email = ${email} and r.revoked_at is null) as is_recipient
     from review_publication_editions e
     where e.publication_state in ('published', 'draft', 'withdrawn')
-    order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+    order by coalesce(array_position(${order}::text[], e.series), 999),
              (to_jsonb(e) ->> 'display_position')::int asc nulls last, e.edition_sort_key desc, e.created_at desc
   `) as { id: string; series: string | null; title: string; edition_label: string; publication_state: string; recipient_mode: string; has_link: boolean; is_recipient: boolean; recipients_verified_hash: string | null; active: string[] }[]
   let room: ReaderLookup["room"] = null

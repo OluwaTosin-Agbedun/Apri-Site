@@ -128,9 +128,10 @@ test('classify: empty filename → null series', () => {
   assert.equal(r.series, null)
 })
 
-test('classify: QIB is not a review series', () => {
+test('classify: a filename alone never proposes QIB; only a mapped folder does', () => {
   const r = classifyReviewDocument('QIB-2026-Q2 Quarterly Intelligence Brief.pdf')
   assert.equal(r.series, null)
+  assert.equal(classifyReviewDocument('QIB-2026-Q2 Quarterly Intelligence Brief.pdf', '/quarterly-intelligence-briefs').series, 'QIB')
 })
 
 // ---------------------------------------------------------------------------
@@ -547,14 +548,19 @@ test('isReviewSeries: valid', () => {
   assert.ok(isReviewSeries('PLM'))
 })
 
-test('isReviewSeries: invalid', () => {
-  assert.ok(!isReviewSeries('QIB'))
-  assert.ok(!isReviewSeries('AEO'))
+// A Complimentary Review edition may now be filed under any publication
+// catalogue category except BP (Board Papers are never review editions).
+test('isReviewSeries: the other catalogue categories are valid, BP and unknown values are not', () => {
+  assert.ok(isReviewSeries('QIB'))
+  assert.ok(isReviewSeries('AEO'))
+  assert.ok(isReviewSeries('OTHER'))
+  assert.ok(!isReviewSeries('BP'))
   assert.ok(!isReviewSeries(''))
+  assert.ok(!isReviewSeries('L1'))
 })
 
-test('SUPPORTED_SERIES is exactly MIN, AIU, PLM', () => {
-  assert.deepEqual([...SUPPORTED_SERIES], ['MIN', 'AIU', 'PLM'])
+test('SUPPORTED_SERIES is every catalogue category but BP, in catalogue order', () => {
+  assert.deepEqual([...SUPPORTED_SERIES], ['MIN', 'AIU', 'PLM', 'AEO', 'QIB', 'OTHER'])
 })
 
 // ---------------------------------------------------------------------------

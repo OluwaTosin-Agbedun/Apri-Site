@@ -13,6 +13,7 @@ import {
   readSharedRecipients,
 } from "@/lib/edition-recipients-dal"
 import { editionRecipientsReady } from "@/lib/edition-recipients-schema"
+import { getPublicationCatalogue, orderedCodes } from "@/lib/publication-catalogue-dal"
 import { ProspectAccess, type ProspectEditionRow } from "./prospect-access"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const fmt = (v: string | null) =>
@@ -45,12 +46,13 @@ export default async function Page({
   const perEdition = await editionRecipientsReady(sql, { fresh: true })
   let editionRows: ProspectEditionRow[] = []
   if (perEdition) {
+    const order = orderedCodes(await getPublicationCatalogue())
     const publishedEditions = (await sql`
       select e.id, e.series, e.title, e.edition_label, e.recipient_mode, e.recipients_verified_hash,
              e.secure_link_id
       from review_publication_editions e
       where e.publication_state = 'published'
-      order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+      order by coalesce(array_position(${order}::text[], e.series), 999),
                e.is_latest desc, e.edition_sort_key desc, e.created_at desc, e.id desc
     `) as Array<{
       id: string

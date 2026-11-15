@@ -42,7 +42,16 @@ const field =
 const label =
   'block text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2'
 
-export default function DocumentForm({ draft }: { draft: DocumentDraft }) {
+/** A series the editor may choose: the owner's active categories (plus the record's current one), in catalogue order. */
+export type SeriesOption = { code: string; label: string; disabled?: boolean }
+
+export default function DocumentForm({
+  draft,
+  seriesOptions = SERIES_CODES.map((code) => ({ code, label: SERIES[code] })),
+}: {
+  draft: DocumentDraft
+  seriesOptions?: SeriesOption[]
+}) {
   const action = saveDocument.bind(null, draft.id)
   const [state, formAction, pending] = useActionState<FormState, FormData>(
     action,
@@ -134,8 +143,8 @@ export default function DocumentForm({ draft }: { draft: DocumentDraft }) {
             <label htmlFor="series" className={label}>Series</label>
             <select id="series" name="series" defaultValue={draft.series} className={field}>
               <option value="">Unassigned</option>
-              {SERIES_CODES.map((code) => (
-                <option key={code} value={code}>{SERIES[code]}</option>
+              {seriesOptions.map((o) => (
+                <option key={o.code} value={o.code} disabled={o.disabled}>{o.label}</option>
               ))}
             </select>
             {err('series')}

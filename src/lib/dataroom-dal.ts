@@ -3,6 +3,8 @@ import { getSql } from './db'
 import { PUBLIC_TIERS } from './entitlements'
 import { expiryProblem } from './personal-links'
 import { portalDocumentTitle } from './papermark-dataroom-contract'
+import { getPublicationCatalogue } from './publication-catalogue-dal'
+import type { CatalogueCode } from './publication-catalogue'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -998,7 +1000,8 @@ export async function getSyncedDocumentsForRoom(
     else {
       if (!r.editorial_title) missing.push('Editorial title')
       if (!r.editorial_summary) missing.push('One-line summary')
-      // The portal places an edition by its series and orders it by date.
+      // The record's series is the editorial category (the portal falls back
+      // to the folder mapping without one); the portal orders by date.
       if (!r.series) missing.push('Series')
       if (!r.edition_date) missing.push('Edition date')
     }
@@ -1154,6 +1157,22 @@ export async function autoLinkByPapermarkId(
 // Create or reuse a publication record for a synced DR document
 // ---------------------------------------------------------------------------
 
+/**
+ * The category a synced document's publication record is created or completed
+ * with: the owner's exact folder mapping (a code at the start of the name only
+ * for a file in no folder); null when it has none yet, which stores no series.
+ * `otherStorable`: whether series OTHER may be written yet (the catalogue
+ * migration has widened documents_series_check), so a document in a folder
+ * explicitly mapped to Other Assigned Publications gets that series rather
+ * than none.
+ */
+async function syncedCategory(title: string, folderPath: string | null): Promise<{ category: CatalogueCode | null; otherStorable: boolean }> {
+  const { categoriseDataRoomDocument } = await import('./papermark-dataroom-contract')
+  const { folders, migrated } = await getPublicationCatalogue({ fresh: true })
+  return { category: categoriseDataRoomDocument({ title, folderPath, mappings: folders }), otherStorable: migrated }
+}
+
+
 async function insertWithSafeSlug(
   sql: ReturnType<typeof getSql>,
   baseSlug: string,
@@ -1260,7 +1279,7 @@ export async function createPublicationForSyncedDocument(args: {
   const { derivePublicationMetadata } = await import('./papermark-dataroom-contract')
   const meta = derivePublicationMetadata({
     filename: doc.title,
-    category: doc.category as import('./papermark-dataroom-contract').PortalCategoryKey,
+    ...(await syncedCategory(doc.title, doc.folder_path)),
     folderPath: doc.folder_path,
     numPages: doc.num_pages,
     publicTier: args.publicTier,
@@ -1394,7 +1413,7 @@ export async function generateMissingDetailsForRoom(
     const { derivePublicationMetadata } = await import('./papermark-dataroom-contract')
     const meta = derivePublicationMetadata({
       filename: row.filename,
-      category: row.category as import('./papermark-dataroom-contract').PortalCategoryKey,
+      ...(await syncedCategory(row.filename, row.folder_path)),
       folderPath: row.folder_path,
       numPages: row.num_pages,
       publicTier,
@@ -1473,7 +1492,7 @@ export async function generateMissingDetailsForSingleDocument(
   const { derivePublicationMetadata } = await import('./papermark-dataroom-contract')
   const meta = derivePublicationMetadata({
     filename: r.filename,
-    category: r.category as import('./papermark-dataroom-contract').PortalCategoryKey,
+    ...(await syncedCategory(r.filename, r.folder_path)),
     folderPath: r.folder_path,
     numPages: r.num_pages,
   })

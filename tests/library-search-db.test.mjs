@@ -23,7 +23,7 @@ import {
   legacySearchEntry,
   EMPTY_LIBRARY_FILTERS,
 } from "../src/lib/library-search.ts"
-import { PORTAL_SERIES, newestEdition } from "../src/lib/portal-library.ts"
+import { newestEdition } from "../src/lib/portal-library.ts"
 
 process.env.DATABASE_URL = process.env.APRI_TEST_DATABASE_URL
 
@@ -89,11 +89,11 @@ async function exception(subscriberId, publicationId, decision) {
   `
 }
 
-/** Exactly what the portal page builds for a Data Room reader. */
+/** Exactly what the portal page builds for a Data Room reader: every permitted edition. */
 async function dataRoom(subscriberId) {
   const library = await getDataRoomDocumentsForSubscriber(subscriberId)
   assert.equal(library.state, "ready")
-  const editions = library.documents.filter((d) => PORTAL_SERIES.includes(d.series))
+  const editions = library.documents
   return { editions, entries: editions.map(dataRoomSearchEntry) }
 }
 
@@ -101,7 +101,7 @@ async function dataRoom(subscriberId) {
 async function legacy(subscriberId) {
   const library = await getLibraryFor({ id: subscriberId, hasAccess: true, level: "L1" })
   assert.ok(Array.isArray(library))
-  const editions = library.filter((d) => PORTAL_SERIES.includes(d.series))
+  const editions = library
   return { editions, entries: editions.map(legacySearchEntry) }
 }
 

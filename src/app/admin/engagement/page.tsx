@@ -11,6 +11,7 @@ import {
   type MonitorFilters,
 } from "@/lib/reader-monitoring"
 import { readMonitorFilters, NO_LOGIN, NO_VISIT, type DateRange } from "@/lib/reader-monitoring-rules"
+import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 import { EngagementMaintenance, ReaderSearch } from "./engagement-client"
 import { Badge, EditionActivityTable } from "./monitor-parts"
 
@@ -41,7 +42,7 @@ const STATUSES = [
   { value: "declined", label: "Declined" },
 ]
 
-const SERIES = ["", "MIN", "AIU", "PLM", "AEO", "QIB"]
+type SeriesOption = { value: string; label: string }
 
 /** Keeps only known values, so nothing from the address bar reaches a query unchecked. */
 function readFilters(params: Params): { filters: MonitorFilters; rangeInvalid: boolean } {
@@ -58,6 +59,11 @@ export default async function EngagementPage({ searchParams }: { searchParams: P
   const tab = TABS.find((t) => t.key === params.tab)?.key ?? "subscribers"
   const { filters, rangeInvalid } = readFilters(params)
   const status = await getMonitorStatus()
+  // The series filter's options: every catalogue code, in the owner's order
+  // and with the owner's labels (it matches the stored series, so an inactive
+  // code with history stays selectable).
+  const { categories } = await getPublicationCatalogue()
+  const seriesOptions: SeriesOption[] = categories.map((c) => ({ value: c.code, label: `${c.code} · ${c.label}` }))
 
   return (
     <AdminShell
@@ -80,7 +86,7 @@ export default async function EngagementPage({ searchParams }: { searchParams: P
         ))}
       </div>
 
-      <FilterBar tab={tab} filters={filters} />
+      <FilterBar tab={tab} filters={filters} seriesOptions={seriesOptions} />
       {rangeInvalid && (
         <p className="text-sm text-amber-800 mb-4">
           That date range is not valid (the end must be on or after the start), so all-time activity is shown.
@@ -99,7 +105,7 @@ export default async function EngagementPage({ searchParams }: { searchParams: P
   )
 }
 
-function FilterBar({ tab, filters }: { tab: string; filters: MonitorFilters }) {
+function FilterBar({ tab, filters, seriesOptions }: { tab: string; filters: MonitorFilters; seriesOptions: SeriesOption[] }) {
   const input = "border border-border bg-background px-3 py-2 text-sm w-full"
   return (
     <form method="get" className="border border-border bg-card/30 p-4 mb-4">
@@ -128,10 +134,11 @@ function FilterBar({ tab, filters }: { tab: string; filters: MonitorFilters }) {
         ) : null}
         <label className="text-xs text-muted-foreground w-full sm:w-44">
           Series
-          <select name="series" defaultValue={filters.series} className={input}>
-            {SERIES.map((s) => (
-              <option key={s || "all"} value={s}>
-                {s || "Any series"}
+          <select name="series" defaultValue={filters.series} className={input} aria-describedby="series-filter-note">
+            <option value="">Any series</option>
+            {seriesOptions.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>
@@ -157,6 +164,10 @@ function FilterBar({ tab, filters }: { tab: string; filters: MonitorFilters }) {
           </Link>
         </div>
       </div>
+      <p id="series-filter-note" className="mt-3 text-xs text-muted-foreground">
+        Series matches the series saved on the publication record or review edition. A Data Room document placed only by its
+        folder mapping has no saved series, so it is not matched: give its record a series under Data Rooms.
+      </p>
     </form>
   )
 }

@@ -1,18 +1,21 @@
 "use client"
 
 import { createContext, useContext, useId, useMemo, useState, type FocusEvent, type ReactNode } from "react"
-import { seriesLabel } from "@/lib/entitlements"
-import { PORTAL_SERIES, type PortalSeries } from "@/lib/portal-library"
+import { searchTypeOptions, type SearchTypeOption } from "@/lib/publication-catalogue"
 import {
   EMPTY_LIBRARY_FILTERS,
+  LIBRARY_TAG_KINDS,
+  LIBRARY_TAG_KIND_LABELS,
   MAX_LIBRARY_QUERY_LENGTH,
   UNREADABLE_DATE,
+  libraryTagOptions,
   searchLibrary,
   type LibrarySearchEntry,
   type LibrarySearchFilters,
 } from "@/lib/library-search"
 
-type SearchState = { visible: Set<string>; counts: Record<PortalSeries, number>; active: boolean }
+/** Matching editions per section key (a catalogue code, or "unassigned"). */
+type SearchState = { visible: Set<string>; counts: Record<string, number>; active: boolean }
 const SearchContext = createContext<SearchState | null>(null)
 
 function useLibrarySearch(): SearchState {
@@ -28,13 +31,23 @@ function useLibrarySearch(): SearchState {
  *
  * `initialFilters` sets the starting state (the portal always starts empty;
  * tests use it to render each state).
+ *
+ * `types` are the publication-type options: the categories present among the
+ * reader's permitted editions, in catalogue order, with the owner's labels
+ * (the portal passes them; without them they are worked out from `entries`
+ * with the built-in labels). Display fields only, like `entries`.
+ *
+ * Subject, Sector and Geography filters appear only when the reader's
+ * permitted entries carry tags of that kind, offering only those labels.
  */
 export default function LibrarySearch({
   entries,
+  types,
   children,
   initialFilters = EMPTY_LIBRARY_FILTERS,
 }: {
   entries: LibrarySearchEntry[]
+  types?: SearchTypeOption[]
   children: ReactNode
   initialFilters?: LibrarySearchFilters
 }) {
@@ -43,12 +56,17 @@ export default function LibrarySearch({
   // considers unreadable: its value is already "", so React cannot reset it.
   const [resetCount, setResetCount] = useState(0)
   const id = useId()
-  const result = useMemo(() => searchLibrary(entries, filters), [entries, filters])
+  const options = useMemo(() => types ?? searchTypeOptions(entries), [types, entries])
+  // Only kinds the reader's own permitted editions carry, with only their labels.
+  const tagOptions = useMemo(() => libraryTagOptions(entries), [entries])
+  const tagKinds = LIBRARY_TAG_KINDS.filter((kind) => tagOptions[kind].length > 0)
+  const searchesSummaries = entries.some((entry) => Boolean(entry.brief))
+  const result = useMemo(() => searchLibrary(entries, filters, options.map((option) => option.value)), [entries, filters, options])
   const state = useMemo<SearchState>(() => ({
     visible: new Set(result.entries.map((entry) => entry.id)),
-    counts: Object.fromEntries(PORTAL_SERIES.map((series) => [series, result.entries.filter((entry) => entry.series === series).length])) as Record<PortalSeries, number>,
+    counts: Object.fromEntries(options.map((option) => [option.value, result.entries.filter((entry) => entry.series === option.value).length])),
     active: result.active,
-  }), [result])
+  }), [result, options])
   const field = "min-h-11 min-w-0 w-full border border-foreground/50 bg-background px-3 py-2 text-base sm:text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
   const change = (key: keyof LibrarySearchFilters, value: string) => setFilters((current) => ({ ...current, [key]: value }))
   // A date the browser cannot read (31 February, a missing year) shows in the
@@ -76,21 +94,30 @@ export default function LibrarySearch({
       <section aria-labelledby={`${id}-heading`} className="mb-10 border-y border-border py-6">
         <h2 id={`${id}-heading`} className="font-serif text-xl sm:text-2xl text-foreground">Find a publication</h2>
         <p id={`${id}-help`} className="mt-2 mb-5 text-sm text-foreground/70 max-w-2xl leading-relaxed">
-          Search titles and descriptions, or filter by publication type and issue date.
+          {searchesSummaries ? "Search titles, descriptions and summaries" : "Search titles and descriptions"}, or filter by publication type{tagKinds.map((kind) => `, ${LIBRARY_TAG_KIND_LABELS[kind].label.toLowerCase()}`).join("")} and issue date.
         </p>
         <form role="search" aria-label="Search your publication library" aria-describedby={`${id}-help`} autoComplete="off" onSubmit={(event) => event.preventDefault()}>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <label htmlFor={`${id}-query`} className="block min-w-0 text-sm font-medium">
               Keywords
-              <input id={`${id}-query`} type="search" value={filters.query} maxLength={MAX_LIBRARY_QUERY_LENGTH} onChange={(event) => change("query", event.target.value)} autoComplete="off" enterKeyHint="search" className={`${field} mt-2`} placeholder="Title or description" />
+              <input id={`${id}-query`} type="search" value={filters.query} maxLength={MAX_LIBRARY_QUERY_LENGTH} onChange={(event) => change("query", event.target.value)} autoComplete="off" enterKeyHint="search" className={`${field} mt-2`} placeholder={searchesSummaries ? "Title, description or summary" : "Title or description"} />
             </label>
             <label htmlFor={`${id}-series`} className="block min-w-0 text-sm font-medium">
               Publication type
               <select id={`${id}-series`} value={filters.series} onChange={(event) => change("series", event.target.value)} aria-invalid={result.errorField === "series" ? true : undefined} aria-describedby={result.errorField === "series" ? `${id}-error` : undefined} className={`${field} mt-2`}>
                 <option value="">All publication types</option>
-                {PORTAL_SERIES.map((series) => <option key={series} value={series}>{seriesLabel(series)}</option>)}
+                {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
+            {tagKinds.map((kind) => (
+              <label key={kind} htmlFor={`${id}-${kind}`} className="block min-w-0 text-sm font-medium">
+                {LIBRARY_TAG_KIND_LABELS[kind].label}
+                <select id={`${id}-${kind}`} value={filters[kind]} onChange={(event) => change(kind, event.target.value)} aria-invalid={result.errorField === kind ? true : undefined} aria-describedby={result.errorField === kind ? `${id}-error` : undefined} className={`${field} mt-2`}>
+                  <option value="">{LIBRARY_TAG_KIND_LABELS[kind].all}</option>
+                  {tagOptions[kind].map((label) => <option key={label} value={label}>{label}</option>)}
+                </select>
+              </label>
+            ))}
             <label htmlFor={`${id}-from`} className="block min-w-0 text-sm font-medium">
               Issue date from
               <input key={`from-${resetCount}`} id={`${id}-from`} type="date" value={dateValue(filters.from)} onChange={(event) => change("from", event.target.value)} onBlur={leaveDate("from")} aria-invalid={fromInvalid ? true : undefined} aria-describedby={fromInvalid ? `${id}-error` : undefined} className={`${field} mt-2`} />
@@ -125,12 +152,13 @@ export function LibrarySearchResult({ id, children }: { id: string; children: Re
   return visible.has(id) ? <li>{children}</li> : null
 }
 
-export function LibrarySearchSeries({ series, children }: { series: PortalSeries; children: ReactNode }) {
+/** A section (by its key: catalogue code or "unassigned"), hidden while filtering finds nothing in it. */
+export function LibrarySearchSeries({ series, children }: { series: string; children: ReactNode }) {
   const { active, counts } = useLibrarySearch()
-  return !active || counts[series] > 0 ? <>{children}</> : null
+  return !active || (counts[series] ?? 0) > 0 ? <>{children}</> : null
 }
 
-export function LibrarySearchCount({ series }: { series: PortalSeries }) {
-  const count = useLibrarySearch().counts[series]
+export function LibrarySearchCount({ series }: { series: string }) {
+  const count = useLibrarySearch().counts[series] ?? 0
   return <>{count} {count === 1 ? "edition" : "editions"}</>
 }

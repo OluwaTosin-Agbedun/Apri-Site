@@ -184,7 +184,9 @@ describe("where search terms may and may not go", () => {
       assert.doesNotMatch(source, /useSearchParams|useRouter|next\/navigation|history\.|location\.|localStorage|sessionStorage|indexedDB|document\.cookie|fetch\(|sendBeacon|XMLHttpRequest|@vercel\/analytics|track\(|recordAccessClick|recordClientEvent/)
     }
     // Every import is on an allowlist, so a helper that reports or stores terms cannot slip in.
-    const allowed = new Set(["react", "@/lib/entitlements", "@/lib/portal-library", "@/lib/library-search"])
+    // The publication catalogue is pure (no database, network or storage):
+    // it supplies the type options and their labels.
+    const allowed = new Set(["react", "@/lib/entitlements", "@/lib/portal-library", "@/lib/library-search", "@/lib/publication-catalogue"])
     for (const m of component.matchAll(/^import [\s\S]*? from "([^"]+)"/gm)) assert.ok(allowed.has(m[1]), m[1])
     assert.match(component, /onSubmit=\{\(event\) => event\.preventDefault\(\)\}/)
     assert.match(component, /const clear = \(\) => \{\s*setFilters\(EMPTY_LIBRARY_FILTERS\)\s*setResetCount/, "Clear filters resets every filter and remounts the date fields")
@@ -194,7 +196,10 @@ describe("where search terms may and may not go", () => {
   })
 
   it("the search rules import nothing that talks to Papermark or the database", () => {
-    for (const m of rules.matchAll(/^import .* from "([^"]+)"/gm)) assert.match(m[1], /^\.\/(entitlements|portal-library)\.ts$/, m[1])
+    for (const m of rules.matchAll(/^import .* from "([^"]+)"/gm)) assert.match(m[1], /^\.\/(entitlements|portal-library|publication-catalogue)\.ts$/, m[1])
+    const catalogue = read("src/lib/publication-catalogue.ts")
+    assert.doesNotMatch(catalogue, /^import /m, "the catalogue rules import nothing at all")
+    assert.doesNotMatch(catalogue, /fetch\(|localStorage|sessionStorage|document\.cookie|getSql|neon/)
   })
 
   it("follows the portal's layout rules: one column first, no two columns on small phones, no fixed widths", () => {
@@ -208,10 +213,20 @@ describe("where search terms may and may not go", () => {
 
   it("the portal searches only the permitted list each library already shows", () => {
     const page = read("src/app/portal/page.tsx")
-    assert.match(page, /<LibrarySearch entries=\{editions\.map\(dataRoomSearchEntry\)\}>/)
-    assert.match(page, /<LibrarySearch entries=\{portalLibrary\.map\(legacySearchEntry\)\}>/)
-    assert.match(page, /const editions = documents\.filter\(\(document\) => PORTAL_SERIES\.includes/)
-    assert.match(page, /const portalLibrary = library\.filter\(\(item\) => isPortalSeries\(item\.series\)\)/)
+    // Both paths search exactly the list they show: every permitted edition
+    // (no longer narrowed to MIN, AIU and PLM), with type options taken from
+    // the categories present in it. Sections, entries, types and Latest come
+    // from one helper per path (src/lib/portal-library.ts), which
+    // tests/publication-catalogue-db.test.mjs runs against the real loaders.
+    assert.match(page, /const \{ sections, entries: searchEntries, types, latest \} = dataRoomLibraryView\(editions, categories\)/)
+    assert.match(page, /const \{ sections, entries: searchEntries, types, latest \} = legacyLibraryView\(portalLibrary, categories\)/)
+    assert.equal((page.match(/<LibrarySearch entries=\{searchEntries\} types=\{types\}>/g) ?? []).length, 2)
+    assert.match(page, /const editions = documents\r?\n/)
+    assert.match(page, /const portalLibrary = library\r?\n/)
+    assert.doesNotMatch(page, /PORTAL_SERIES|isPortalSeries/)
+    const helpers = read("src/lib/portal-library.ts")
+    assert.match(helpers, /const entries = items\.map\(entryOf\)/)
+    assert.match(helpers, /types: searchTypeOptions\(entries, categories\)/)
   })
 
   it("keeps the single Latest card outside the searchable archive on both paths", () => {

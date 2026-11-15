@@ -156,10 +156,12 @@ test('publications page: shows verified email badge', () => {
 // 6. Exactly three active review cards from complimentary_review_items
 // ---------------------------------------------------------------------------
 
-test('publications page: renders every archived edition, grouped by series', () => {
+test('publications page: renders every archived edition, grouped by catalogue category', () => {
   const src = read('src/app/publications/page.tsx')
-  assert.match(src, /\(\["MIN", "AIU", "PLM"\] as const\)\.map\(\(series\) =>/)
-  assert.match(src, /archive\.filter\(\(item\) => item\.slotKey === series\)/)
+  // One group per category of the owner's publication catalogue (any
+  // category with published editions), not a fixed MIN, AIU, PLM list.
+  assert.match(src, /catalogue\.categories\s*\.map\(\(category\) => \(\{ category, cards: archive\.filter\(\(item\) => item\.slotKey === category\.code\) \}\)\)/)
+  assert.match(src, /\{columns\.map\(\(\{ category, cards \}\) =>/)
   assert.match(src, /\{cards\.map\(\(card\) => \(/)
 })
 
@@ -205,7 +207,8 @@ test('admin page: editions ordered by series, then the owner\'s order, then late
   const src = read('src/app/admin/review-library/page.tsx')
   // An owner's arrangement (Order on the Publications page) comes first
   // within each series; without one, the latest edition leads as before.
-  assert.match(src, /order by case e\.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,\s+\(to_jsonb\(e\) ->> 'display_position'\)::int asc nulls last,\s+e\.is_latest desc, e\.edition_sort_key desc/)
+  // Categories in the owner's catalogue order (passed as an ordered list).
+  assert.match(src, /order by coalesce\(array_position\(\$\{order\}::text\[\], e\.series\), 999\),\s+\(to_jsonb\(e\) ->> 'display_position'\)::int asc nulls last,\s+e\.is_latest desc, e\.edition_sort_key desc/)
 })
 
 // ---------------------------------------------------------------------------
@@ -375,7 +378,11 @@ test('publications page: review section hidden when there is nothing to list', (
 test('actions: enabling needs one series with a verified edition, not all three', () => {
   const fn = enableGate(read('src/app/actions/review-library.ts'))
   assert.match(fn, /Cannot enable: no series has a verified edition to offer\./)
-  assert.match(fn, /offered = FIXED_SLOTS\.filter\(\(series\) => present\.has\(series\)\)/)
+  // Offered categories come from the publication catalogue, in its order;
+  // the three original series are the ones named when they offer nothing.
+  assert.match(fn, /const order = reviewCodes\(\(await getPublicationCatalogue\(\{ fresh: true \}\)\)\.categories\)/)
+  assert.match(fn, /offered = order\.filter\(\(series\) => present\.has\(series\)\)/)
+  assert.match(fn, /missing = FIXED_SLOTS\.filter\(\(series\) => !present\.has\(series\)\)/)
 })
 
 test('actions: enabling counts only verified links to the exact document', () => {

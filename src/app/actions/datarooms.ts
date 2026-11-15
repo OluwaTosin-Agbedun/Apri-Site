@@ -41,6 +41,7 @@ import {
   revokeAllDataRoomLinks,
 } from "@/lib/dataroom-lifecycle"
 import { prepareRoomLinks, describeRoomLinks, type RoomLinkSummary } from "@/lib/document-links"
+import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 import { queueSubscriberAccessReconciliation, reconcileSubscriberAccess } from "@/lib/subscriber-access-reconciliation"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -141,15 +142,19 @@ async function syncRoomForLevel(publicTier: string): Promise<RoomSync> {
     return { ok: false, message: docsResult.message }
   }
 
+  // The category is the owner's exact folder mapping (or, for a file in no
+  // folder, a code at the start of its name); '' when it has none yet. A
+  // snapshot for Admin only: the portal works it out afresh on every visit.
+  const { folders } = await getPublicationCatalogue({ fresh: true })
   const documents = docsResult.value.map((d) => ({
     documentId: d.document_id,
     dataroomDocumentId: d.id,
     title: d.document_name,
     category: categoriseDataRoomDocument({
       title: d.document_name,
-      category: d.folder_path,
       folderPath: d.folder_path,
-    }),
+      mappings: folders,
+    }) ?? "",
     folderId: d.folder_id,
     folderPath: d.folder_path ?? null,
     numPages: d.num_pages,

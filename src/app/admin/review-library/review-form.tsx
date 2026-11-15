@@ -18,6 +18,10 @@ import {
 import type { FormState } from "@/lib/definitions"
 import { EditionAccessPanel, type EditionAccess } from "./edition-access-panel"
 import { EditionWithdrawalPanel, type EditionWithdrawal } from "./edition-withdrawal-panel"
+import { hasApprovedReviewCopy, reviewCopyProblem } from "@/lib/review-classify"
+
+/** A category an edition may be filed under, from the owner's publication catalogue. */
+type ReviewCategoryOption = { code: string; label: string; active: boolean }
 
 const field =
   "w-full border border-border bg-background p-3 text-sm focus:outline-none focus:border-accent"
@@ -62,6 +66,10 @@ export default function ReviewLibraryForm(props: {
   lastSyncResult: string
   editions: Edition[]
   addressBook: string[]
+  /** The catalogue's review categories, in its order. */
+  categories: ReviewCategoryOption[]
+  /** Whether 20261114_publication_catalogue.sql is applied (only MIN, AIU and PLM can be stored before it). */
+  catalogueMigrated: boolean
   /** "editions": daily publication management. "setup": library switch and Data Room, shown under Advanced. */
   part?: "editions" | "setup"
 }) {
@@ -80,7 +88,7 @@ export default function ReviewLibraryForm(props: {
         lastSyncAt={props.lastSyncAt}
         lastSyncResult={props.lastSyncResult}
       />
-      <EditionsSection editions={props.editions} addressBook={props.addressBook} />
+      <EditionsSection editions={props.editions} addressBook={props.addressBook} categories={props.categories} catalogueMigrated={props.catalogueMigrated} />
     </div>
   )
 }
@@ -217,9 +225,13 @@ function SyncSection({
 function EditionsSection({
   editions,
   addressBook,
+  categories,
+  catalogueMigrated,
 }: {
   editions: Edition[]
   addressBook: string[]
+  categories: ReviewCategoryOption[]
+  catalogueMigrated: boolean
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState("")
@@ -237,12 +249,13 @@ function EditionsSection({
       setBusy(null)
     }
   }
-  const groups = [
-    { key: "MIN", label: "Monthly Intelligence Notes" },
-    { key: "AIU", label: "Athena Intelligence Updates" },
-    { key: "PLM", label: "Political Landscape Monitors" },
+  // One group per catalogue category, in the owner's order, then anything not
+  // yet filed under one. Empty groups are not shown.
+  const known = new Set(categories.map((c) => c.code))
+  const groups: { key: string | null; label: string }[] = [
+    ...categories.map((c) => ({ key: c.code, label: c.label })),
     { key: null, label: "Not yet assigned to a series" },
-  ] as const
+  ]
   return (
     <section>
       <div className="mb-5">
@@ -257,7 +270,7 @@ function EditionsSection({
               )}
       <div className="space-y-10">
         {groups.map((g) => {
-          const items = editions.filter((e) => (g.key === null ? !["MIN", "AIU", "PLM"].includes(e.series ?? "") : e.series === g.key))
+          const items = editions.filter((e) => (g.key === null ? !known.has(e.series ?? "") : e.series === g.key))
           if (items.length === 0) return null
           return (
             <div key={g.key ?? "none"}>
@@ -267,7 +280,7 @@ function EditionsSection({
               </h3>
               <div className="space-y-6">
                 {items.map((e) => (
-                  <EditionCard key={e.id} edition={e} busy={busy === e.id} run={run} addressBook={addressBook} />
+                  <EditionCard key={e.id} edition={e} busy={busy === e.id} run={run} addressBook={addressBook} categories={categories} catalogueMigrated={catalogueMigrated} />
                 ))}
               </div>
             </div>
@@ -283,12 +296,24 @@ function EditionCard({
   busy,
   run,
   addressBook,
+  categories,
+  catalogueMigrated,
 }: {
   edition: Edition
   busy: boolean
   run: (id: string, fn: () => Promise<FormState>) => Promise<void>
   addressBook: string[]
+  categories: ReviewCategoryOption[]
+  catalogueMigrated: boolean
 }) {
+  // No approved card copy exists outside MIN, AIU and PLM: the owner writes it,
+  // and the server refuses to publish until they have (the same rule,
+  // reviewCopyProblem, including copy carried over from another category).
+  const copyProblem =
+    e.series && !hasApprovedReviewCopy(e.series)
+      ? reviewCopyProblem({ series: e.series, title: e.title, description: e.description, ownerEditedFields: e.ownerEditedFields })
+      : null
+  const categoryName = categories.find((c) => c.code === e.series)?.label ?? e.series
   const exact =
     !!e.secureLinkId &&
     !!e.secureLinkUrl &&
@@ -398,6 +423,12 @@ function EditionCard({
         />
       </dl>
       </details>
+      {copyProblem && (
+        <p className="mb-6 border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800" role="note">
+          No approved card copy exists for {categoryName}. Enter and save this edition&apos;s own public title and description
+          below before publishing: nothing is filled in for you, and publishing is refused until you have. {copyProblem}
+        </p>
+      )}
       <EditionAccessPanel
         key={`${e.access.mode}:${e.access.recipients.join(",")}`}
         editionId={e.id}
@@ -435,9 +466,14 @@ function EditionCard({
         <Field title="Assigned publication series">
           <select name="series" defaultValue={e.series ?? ""} className={field}>
             <option value="">Choose series</option>
-            <option>MIN</option>
-            <option>AIU</option>
-            <option>PLM</option>
+            {categories
+              .filter((c) => c.active || c.code === e.series)
+              .map((c) => (
+                <option key={c.code} value={c.code} disabled={!catalogueMigrated && !hasApprovedReviewCopy(c.code)}>
+                  {c.code} · {c.label}
+                  {!catalogueMigrated && !hasApprovedReviewCopy(c.code) ? " (needs migration 20261114)" : ""}
+                </option>
+              ))}
           </select>
         </Field>
         <Field title="Edition label / publication period">

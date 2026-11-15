@@ -3,10 +3,33 @@ import { requireAdmin } from '@/lib/dal'
 import { portalTitleOverrideReady } from '@/lib/portal-title-schema'
 import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
-import DocumentForm, { type DocumentDraft } from './document-form'
+import DocumentForm, { type DocumentDraft, type SeriesOption } from './document-form'
+import { getPublicationCatalogue, type PublicationCatalogue } from '@/lib/publication-catalogue-dal'
+import { seriesChoices } from '@/lib/publication-catalogue'
 import { EditionAvailabilityForm } from '@/app/admin/subscribers/[id]/access-forms'
 import { publicationPlansReady } from '@/lib/access-policy-dal'
 import { SUBSCRIPTION_CATALOGUE } from '@/lib/subscription-catalogue'
+import PublicationDetailsForm from './publication-details-form'
+import SummaryForm from './summary-form'
+import { loadEditorPanel } from '@/lib/publication-metadata-dal'
+import { EDITORIAL_METADATA_PENDING, EMPTY_METADATA, EMPTY_SUMMARY, formatDay } from '@/lib/publication-metadata'
+import type { StoredSummary } from '@/lib/publication-summaries'
+
+/** Who did what to a protected summary, for the editor (Admin only). */
+function summaryNotes(summary: StoredSummary | null): string[] {
+  if (!summary) return []
+  const on = (at: string | null) => (at ? ` on ${formatDay(at.slice(0, 10))}` : '')
+  const notes: string[] = []
+  if (summary.status === 'approved') notes.push(`Approved by ${summary.approvedBy ?? 'an owner'}${on(summary.approvedAt)}.`)
+  if (summary.updatedAt) notes.push(`Last saved by ${summary.updatedBy ?? 'an administrator'}${on(summary.updatedAt)}.`)
+  if (summary.status !== 'approved' && summary.removedReason === 'edited') {
+    notes.push(`The approval was removed when ${summary.removedBy ?? 'an administrator'} changed the text${on(summary.removedAt)}. Subscribers do not see it until an owner approves it again.`)
+  }
+  if (summary.status !== 'approved' && summary.removedReason === 'withdrawn') {
+    notes.push(`The approval was withdrawn by ${summary.removedBy ?? 'an owner'}${on(summary.removedAt)}.`)
+  }
+  return notes
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +91,11 @@ type Row = {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** The series an editor may choose, from the owner's publication catalogue (see seriesChoices). */
+function seriesOptions(catalogue: PublicationCatalogue, current: string): SeriesOption[] {
+  return seriesChoices(catalogue.categories, current, { migrated: catalogue.migrated })
+}
+
 /** A date column rendered into a value an <input type="date"> accepts. */
 function dateInput(value: string | null): string {
   if (!value) return ''
@@ -84,6 +112,7 @@ export default async function EditDocumentPage({
 }) {
   const admin = await requireAdmin()
   const { id } = await params
+  const catalogue = await getPublicationCatalogue()
 
   if (id === 'new') {
     return (
@@ -93,7 +122,7 @@ export default async function EditDocumentPage({
         title="New publication record"
         description="Saved as a draft. It will not appear publicly until you publish it."
       >
-        <DocumentForm draft={BLANK} />
+        <DocumentForm draft={BLANK} seriesOptions={seriesOptions(catalogue, '')} />
       </AdminShell>
     )
   }
@@ -168,6 +197,10 @@ export default async function EditDocumentPage({
   `) as { n: number }[]
   const planChoices = SUBSCRIPTION_CATALOGUE.map((o) => ({ value: o.storedName, label: o.name }))
 
+  // Reader details, tags and the protected summary (migration 20261114_publication_editorial_metadata).
+  // A read failure leaves the panels disabled rather than breaking the editor.
+  const panel = await loadEditorPanel(sql, row.id).catch(() => null)
+
   return (
     <AdminShell
       admin={admin}
@@ -201,7 +234,27 @@ export default async function EditDocumentPage({
           )}
         </section>
       )}
-      <DocumentForm draft={draft} />
+      <DocumentForm draft={draft} seriesOptions={seriesOptions(catalogue, draft.series)} />
+      <PublicationDetailsForm
+        id={row.id}
+        ready={panel?.ready === true}
+        metadata={panel?.metadata ?? EMPTY_METADATA}
+        tags={panel?.tags ?? []}
+        assigned={panel?.assigned ?? []}
+        detailsVersion={panel?.detailsVersion ?? ''}
+        pendingMessage={panel ? EDITORIAL_METADATA_PENDING : 'These details could not be loaded just now. Reload the page to try again.'}
+        publicEdition={row.visibility === 'OPEN'}
+      />
+      <SummaryForm
+        id={row.id}
+        saved={panel?.summary?.text ?? EMPTY_SUMMARY}
+        revision={panel?.summary?.revision ?? 0}
+        history={{ status: panel?.summary?.status ?? 'none', notes: summaryNotes(panel?.summary ?? null) }}
+        ready={panel?.ready === true}
+        canApprove={admin.role === 'owner'}
+        pendingMessage={panel ? EDITORIAL_METADATA_PENDING : 'The summary could not be loaded just now. Reload the page to try again.'}
+        publicEdition={row.visibility === 'OPEN'}
+      />
     </AdminShell>
   )
 }

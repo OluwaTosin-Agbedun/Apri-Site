@@ -1,13 +1,25 @@
 /**
- * Complimentary Review document classification — Phase 3.
+ * Complimentary Review document classification.
  *
  * Pure functions with no server or network dependency, safe to import
- * in tests. Classifies Papermark filenames into the three supported
- * review series (MIN, AIU, PLM) and generates Chancellor-approved
- * metadata for each.
+ * in tests. Proposes a catalogue category for a newly synced Review Data
+ * Room document -- by the owner's exact folder mapping first, then by the
+ * Chancellor-approved series names in its filename -- for a draft the owner
+ * reviews. It never publishes, assigns or offers anything. Approved card copy
+ * exists only for MIN, AIU and PLM; an edition in any other category gets
+ * none invented and must have its details entered before it is published.
  */
+import {
+  DEFAULT_FOLDER_MAPPINGS,
+  isReviewCode,
+  resolveFolder,
+  reviewCodes,
+  type CatalogueCode,
+  type FolderMapping,
+} from "./publication-catalogue.ts"
 
-export type ReviewSeries = "MIN" | "AIU" | "PLM"
+/** A category a Complimentary Review edition may be filed under: any catalogue code but BP. */
+export type ReviewSeries = CatalogueCode
 
 export type ReviewClassification = {
   series: ReviewSeries | null
@@ -26,14 +38,16 @@ export type ReviewMetadata = {
 
 // ---------------------------------------------------------------------------
 // Chancellor-approved card content (identical to review-prefill.ts APPROVED_CARDS)
+// Only these three categories have approved copy. Nothing is invented for any
+// other: its edition starts blank and the owner writes it.
 // ---------------------------------------------------------------------------
 
-const SERIES_META: Record<ReviewSeries, {
+const SERIES_META: Partial<Record<CatalogueCode, {
   displayTitle: string
   publicationType: string
   description: string
   frequency: string
-}> = {
+}>> = {
   MIN: {
     displayTitle: "Nigeria Political & Regulatory Environment",
     publicationType: "Monthly Intelligence Note",
@@ -55,6 +69,49 @@ const SERIES_META: Record<ReviewSeries, {
       "A monthly monitoring product covering Nigeria’s democratic, electoral and political landscape. Although public-facing, it should appear here as part of the broader monthly intelligence bouquet available to APRI readers.",
     frequency: "Monthly",
   },
+}
+
+/** The categories with Chancellor-approved card copy (the original three review series). */
+export const APPROVED_REVIEW_COPY_CODES = Object.keys(SERIES_META) as CatalogueCode[]
+
+export function hasApprovedReviewCopy(series: string | null | undefined): boolean {
+  return typeof series === "string" && (APPROVED_REVIEW_COPY_CODES as readonly string[]).includes(series)
+}
+
+const sameCopy = (a: string, b: string) => {
+  const norm = (s: string) => s.normalize("NFKC").replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim().toLowerCase()
+  return norm(a) !== "" && norm(a) === norm(b)
+}
+
+/**
+ * Why an edition cannot be published yet for want of its own card copy, or
+ * null when it can. Approved copy exists only for MIN, AIU and PLM. An edition
+ * in any other category needs a title and description the owner has written
+ * and saved -- and neither may still be the approved copy of one of those
+ * three (as when a MIN draft is moved to QIB without being rewritten, which
+ * saves every field as owner-edited). One rule for the publish check, the
+ * save message and the Admin warning.
+ */
+export function reviewCopyProblem(edition: {
+  series: string | null
+  title: string
+  description: string
+  ownerEditedFields: readonly string[]
+}): string | null {
+  if (!edition.series) return "Assign a category first."
+  if (hasApprovedReviewCopy(edition.series)) return null
+  const edited = edition.ownerEditedFields
+  if (!edited.includes("title") || !edited.includes("description") || !edition.description.trim()) {
+    return "No approved card copy exists for this category. Enter and save this edition's public title and description first."
+  }
+  const borrowed = APPROVED_REVIEW_COPY_CODES.find((code) => {
+    const meta = SERIES_META[code]!
+    return sameCopy(edition.title, meta.displayTitle) || sameCopy(edition.description, meta.description)
+  })
+  if (borrowed) {
+    return `The title or description is still the approved ${borrowed} card copy. Write this category's own title and description first.`
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -195,23 +252,41 @@ export function parseReviewEditionDate(title: string): string | null {
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * The category proposed for a synced Review Data Room document's draft:
+ *  1. the folder it is filed in, when an owner has mapped that folder (exact
+ *     match, as for paid documents) to a category a review edition may use;
+ *  2. otherwise the Chancellor-approved series names in its filename (MIN,
+ *     AIU, PLM only -- nothing else is guessed from a name);
+ *  3. otherwise none: the owner assigns it.
+ * A proposal only. The edition is a draft with no readers until the owner
+ * assigns readers and publishes it.
+ */
 export function classifyReviewDocument(
   filename: string,
   folderPath?: string | null,
+  mappings: readonly FolderMapping[] = DEFAULT_FOLDER_MAPPINGS,
 ): ReviewClassification {
   const clean = cleanFilename(filename)
+  const folder = resolveFolder(folderPath, mappings)
   const series =
-    detectSeries(filename) ?? (folderPath ? detectSeries(folderPath) : null)
+    (folder.kind === "mapped" && isReviewCode(folder.code) ? folder.code : null) ?? detectSeries(filename)
   const editionDate = parseReviewEditionDate(filename)
 
   return { series, cleanTitle: clean, editionDate }
 }
 
+/**
+ * Draft defaults for an edition. The approved card copy only for MIN, AIU and
+ * PLM; for every other category the copy fields stay empty -- never invented
+ * -- and only the edition label is suggested.
+ */
 export function generateReviewMetadata(
   series: ReviewSeries,
   filename: string,
 ): ReviewMetadata {
-  const meta = SERIES_META[series]
+  const meta = SERIES_META[series] ?? { displayTitle: "", publicationType: "", description: "", frequency: "" }
+  const approved = hasApprovedReviewCopy(series)
   const editionDate = parseReviewEditionDate(filename)
 
   let editionLabel = inferReviewEditionLabel(filename)
@@ -232,7 +307,7 @@ export function generateReviewMetadata(
     publicationType: meta.publicationType,
     description: meta.description,
     frequency: meta.frequency,
-    audience: "APRI subscribers and prospective readers",
+    audience: approved ? "APRI subscribers and prospective readers" : "",
     editionLabel,
   }
 }
@@ -254,8 +329,9 @@ export function inferReviewEditionLabel(value: string): string {
     : ""
 }
 
-export const SUPPORTED_SERIES: readonly ReviewSeries[] = ["MIN", "AIU", "PLM"]
+/** Every category a review edition may be filed under, in the default catalogue order. */
+export const SUPPORTED_SERIES: readonly ReviewSeries[] = reviewCodes()
 
 export function isReviewSeries(value: string): value is ReviewSeries {
-  return (SUPPORTED_SERIES as readonly string[]).includes(value)
+  return isReviewCode(value)
 }

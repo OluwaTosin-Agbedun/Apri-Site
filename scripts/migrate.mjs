@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { neon } from '@neondatabase/serverless'
 import 'dotenv/config'
+import { splitSqlStatements, stripSqlComments } from './lib/sql-statements.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const schemaPath = join(here, '..', 'db', 'schema.sql')
@@ -28,20 +29,15 @@ if (!url) {
 const sql = neon(url)
 const schema = readFileSync(schemaPath, 'utf8')
 
-// Split on semicolons at end-of-line, ignoring those inside comments.
-const statements = schema
-  .split('\n')
-  .filter((line) => !line.trimStart().startsWith('--'))
-  .join('\n')
-  .split(';')
-  .map((s) => s.trim())
-  .filter(Boolean)
+// Split the way psql does: a semicolon inside a comment, a quoted string or a
+// dollar-quoted `do $$ ... $$` block does not end a statement.
+const statements = splitSqlStatements(schema)
 
 console.log(`Applying ${statements.length} statements from db/schema.sql …`)
 
 let applied = 0
 for (const statement of statements) {
-  const label = statement.replace(/\s+/g, ' ').slice(0, 72)
+  const label = stripSqlComments(statement).replace(/\s+/g, ' ').trim().slice(0, 72)
   try {
     await sql.query(statement)
     applied++

@@ -22,6 +22,8 @@ import ApprovedReadersPanel from "./approved-readers-panel"
 import RoomsStatus from "./rooms-status"
 import { recentReviewEmailAttempts, attemptStatus, maskEmail } from "@/lib/review-email-attempts"
 import { reviewReadiness } from "@/lib/review-readiness"
+import { getPublicationCatalogue, orderedCodes } from "@/lib/publication-catalogue-dal"
+import { isReviewCode } from "@/lib/publication-catalogue"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -89,6 +91,11 @@ export default async function ReviewLibraryPage() {
   const lastSyncAt = lastSyncRow[0]?.value ?? ""
   const lastSyncResult = lastSyncResultRow[0]?.value ?? ""
 
+  // Editions are grouped and ordered by the owner's publication catalogue.
+  const catalogue = await getPublicationCatalogue({ fresh: true })
+  const order = orderedCodes(catalogue)
+  const reviewCategories = catalogue.categories.filter((c) => isReviewCode(c.code))
+
   const editions = (await sql`
     select e.id, e.series, e.title, e.edition_label, e.edition_sort_key,
            e.papermark_filename, e.num_pages, e.papermark_document_id,
@@ -102,7 +109,7 @@ export default async function ReviewLibraryPage() {
     from review_publication_editions e
     left join review_sync_candidates c on c.id = e.sync_candidate_id
        or (e.sync_candidate_id is null and c.papermark_document_id = e.papermark_document_id)
-    order by case e.series when 'MIN' then 1 when 'AIU' then 2 when 'PLM' then 3 else 4 end,
+    order by coalesce(array_position(${order}::text[], e.series), 999),
              (to_jsonb(e) ->> 'display_position')::int asc nulls last,
              e.is_latest desc, e.edition_sort_key desc, e.edition_date desc nulls last, e.edition_order desc,
              e.created_at desc, e.id desc
@@ -238,7 +245,7 @@ export default async function ReviewLibraryPage() {
       admin={admin}
       current="/admin/review-library"
       title="Complimentary Review Library"
-      description="Publish MIN, AIU and PLM editions, choose who may read each one, and see what every reader can open."
+      description="Publish editions in every publication category, choose who may read each one, and see what every reader can open."
     >
       {problems.length > 0 && (
         <section className="mb-8 border border-border p-4 text-sm" role="status" aria-label="Reader access problems">
@@ -264,15 +271,17 @@ export default async function ReviewLibraryPage() {
         lastSyncResult={lastSyncResult}
         addressBook={approvedRecipients}
         editions={editionProps}
+        categories={reviewCategories.map((c) => ({ code: c.code, label: c.label, active: c.active }))}
+        catalogueMigrated={catalogue.migrated}
       />
 
       <div className="mt-10">
         <EditionOrder
-          groups={(["MIN", "AIU", "PLM"] as const).map((series) => ({
-            series,
-            label: { MIN: "Monthly Intelligence Notes", AIU: "Athena Intelligence Updates", PLM: "Political Landscape Monitors" }[series],
+          groups={reviewCategories.map((category) => ({
+            series: category.code,
+            label: category.label,
             editions: editions
-              .filter((e) => e.series === series && e.publication_state === "published")
+              .filter((e) => e.series === category.code && e.publication_state === "published")
               .map((e) => ({ id: e.id, title: e.title, label: e.edition_label })),
           }))}
         />
@@ -341,6 +350,8 @@ export default async function ReviewLibraryPage() {
             lastSyncResult={lastSyncResult}
             addressBook={approvedRecipients}
             editions={[]}
+            categories={[]}
+            catalogueMigrated={catalogue.migrated}
           />
         </div>
       </details>

@@ -27,7 +27,8 @@ type Props = {
   href: string
   eventType: AccessEventType
   publicationId?: string | null
-  slotKey?: 'MIN' | 'AIU' | 'PLM' | null
+  /** The review edition's catalogue category; validated again on the server. */
+  slotKey?: string | null
   papermarkDocumentId?: string | null
   className?: string
   children: ReactNode

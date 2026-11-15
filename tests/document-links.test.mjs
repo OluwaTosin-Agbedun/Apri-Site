@@ -131,14 +131,17 @@ test('category: folder path "Monthly Intelligence Notes" classifies as MIN', () 
   )
 })
 
-test('category: folder path "/MIN - Reports" classifies as MIN by code', () => {
+// Folder mapping is exact (publication catalogue): a code inside a folder
+// name is never read as a category -- that is how "Admin" became MIN.
+test('category: folder path "/MIN - Reports" is not guessed from the code inside it', () => {
   assert.equal(
     categoriseDataRoomDocument({
       title: 'some-file.pdf',
       folderPath: '/MIN - Reports',
     }),
-    'MIN',
+    null,
   )
+  assert.equal(categoriseDataRoomDocument({ title: 'some-file.pdf', folderPath: '/Admin' }), null)
 })
 
 test('category: folder path "Political Landscape Monitor" classifies as PLM', () => {
@@ -171,9 +174,11 @@ test('category: folder path "Quarterly Intelligence Briefs" classifies as QIB', 
   )
 })
 
-test('category: stored category "MIN" still works for re-classification', () => {
+// The stored classifier output is not an input any more: the publication
+// record's own series is the editorial decision that places it.
+test('category: the publication record\'s series MIN places it', () => {
   assert.equal(
-    categoriseDataRoomDocument({ title: 'any.pdf', category: 'MIN' }),
+    categoriseDataRoomDocument({ title: 'any.pdf', series: 'MIN' }),
     'MIN',
   )
 })
@@ -185,10 +190,10 @@ test('category: title leading code PLM-Report classifies correctly', () => {
   )
 })
 
-test('category: no folder, no code falls to OTHER', () => {
+test('category: no folder, no code is awaiting a category (null), never Other by default', () => {
   assert.equal(
     categoriseDataRoomDocument({ title: 'random_document.pdf' }),
-    'OTHER',
+    null,
   )
 })
 
@@ -411,8 +416,9 @@ test('portal category label: OTHER returns "Other Assigned Publications"', () =>
   assert.equal(portalCategoryLabel('OTHER'), 'Other Assigned Publications')
 })
 
-test('portal type label: OTHER returns "Publication"', () => {
-  assert.equal(portalTypeLabel('OTHER'), 'Publication')
+test('portal type label: OTHER is an explicit category with its own card label; no category reads "Publication"', () => {
+  assert.equal(portalTypeLabel('OTHER'), 'Other assigned publication')
+  assert.equal(portalTypeLabel(null), 'Publication')
 })
 
 test('portal type label: MIN returns "Monthly Intelligence Note"', () => {
@@ -759,11 +765,19 @@ test('category: singular "Monthly Intelligence Note" classifies as MIN', () => {
   )
 })
 
-test('category: singular "Quarterly Intelligence Brief" classifies as QIB', () => {
+test('category: singular "Quarterly Intelligence Brief" is not mapped by default; an owner mapping places it', () => {
   assert.equal(
     categoriseDataRoomDocument({
       title: 'any.pdf',
       folderPath: 'Quarterly Intelligence Brief',
+    }),
+    null,
+  )
+  assert.equal(
+    categoriseDataRoomDocument({
+      title: 'any.pdf',
+      folderPath: 'Quarterly Intelligence Brief',
+      mappings: [{ folderSlug: 'quarterly-intelligence-brief', code: 'QIB' }],
     }),
     'QIB',
   )
@@ -799,14 +813,15 @@ test('category: folder classification takes priority over title code', () => {
   )
 })
 
-test('category: OTHER used only when no folder or title matches', () => {
+test('category: an unmapped folder is awaiting a category, never Other', () => {
   assert.equal(
     categoriseDataRoomDocument({
       title: 'random_doc.pdf',
       folderPath: '/Miscellaneous',
     }),
-    'OTHER',
+    null,
   )
+  assert.equal(categoriseDataRoomDocument({ title: 'random_doc.pdf', folderPath: '/other-assigned-publications' }), 'OTHER', 'Other only when explicitly mapped')
 })
 
 // ---------------------------------------------------------------------------
@@ -866,7 +881,9 @@ test('admin: synced documents table shows editorial status', () => {
 test('admin: synced documents table shows folder path and category', () => {
   const src = read('src/app/admin/datarooms/page.tsx')
   assert.match(src, /doc\.folderPath/)
-  assert.match(src, /portalCategoryLabel/)
+  // Placed exactly as the portal places it, with the owner's labels.
+  assert.match(src, /resolveCategory\(\{ series: doc\.series, folderPath: doc\.folderPath/)
+  assert.match(src, /categoryLabel\(placed\.code, catalogue\.categories\)/)
 })
 
 test('admin: auto-link publications button exists', () => {
@@ -973,14 +990,15 @@ test('category: slug /athena-intelligence-updates classifies as AIU', () => {
   )
 })
 
-test('category: slug /quarterly-intelligence-brief classifies as QIB', () => {
+test('category: slug /quarterly-intelligence-brief (singular, not observed) is not mapped by default', () => {
   assert.equal(
     categoriseDataRoomDocument({
       title: 'any.pdf',
       folderPath: '/quarterly-intelligence-brief',
     }),
-    'QIB',
+    null,
   )
+  assert.equal(categoriseDataRoomDocument({ title: 'any.pdf', folderPath: '/quarterly-intelligence-briefs' }), 'QIB')
 })
 
 test('category: slug /political-landscape-monitor classifies as PLM', () => {
