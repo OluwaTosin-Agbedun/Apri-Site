@@ -335,8 +335,7 @@ function shell(body: string): string {
 
         <tr><td style="padding:24px 40px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:12px;color:#888888;font-family:Arial,Helvetica,sans-serif;line-height:1.6;">
-            Athena Political &amp; Regulatory Advisory (APRA)<br>
-            Athena Centre for Policy &amp; Leadership
+            Athena Political &amp; Regulatory Advisory (APRA)
           </p>
         </td></tr>
 

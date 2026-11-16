@@ -143,7 +143,7 @@ function digestHtml(data: Awaited<ReturnType<typeof getDigestData>>): string {
 
         <tr><td style="padding:16px 32px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:11px;color:#aaa;">
-            Internal only. Contains subscriber activity &mdash; do not forward outside Athena Centre. Dates are in Africa/Lagos time.
+            Internal only. Contains subscriber activity &mdash; do not forward outside APRA. Dates are in Africa/Lagos time.
           </p>
         </td></tr>
 

@@ -78,7 +78,7 @@ export async function sendCopyGapAlert(gaps: CopyGap[]): Promise<boolean> {
 
         <tr><td style="padding:16px 32px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:11px;color:#aaa;">
-            Internal only. Contains subscriber names &mdash; do not forward outside Athena Centre.
+            Internal only. Contains subscriber names &mdash; do not forward outside APRA.
           </p>
         </td></tr>
 

@@ -38,8 +38,8 @@ export default function TermsPage() {
             Terms of Use
           </h1>
           <p className="text-sm text-muted-foreground">
-            The terms on which APRA publications and briefings are provided, by Athena
-            Centre. Last updated {LAST_UPDATED}.
+            The terms on which Athena Political &amp; Regulatory Advisory (APRA)
+            provides its publications and briefings. Last updated {LAST_UPDATED}.
           </p>
         </header>
 

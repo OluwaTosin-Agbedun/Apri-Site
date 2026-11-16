@@ -43,8 +43,8 @@ export default function PrivacyPage() {
             Privacy
           </h1>
           <p className="text-sm text-muted-foreground">
-            Athena Political &amp; Regulatory Advisory (APRA), a service of Athena
-            Centre. Last updated {LAST_UPDATED}.
+            Athena Political &amp; Regulatory Advisory (APRA).
+            Last updated {LAST_UPDATED}.
           </p>
         </header>
 

@@ -833,3 +833,23 @@ an existing installation, and checks that sign-in audits reach their requested s
 Staff security, operations and publication-alert browser titles also carry APRA.
 Final subscriber/review inbox and PDF acceptance, worker configuration and old-host redirects
 resume after this identity change is synced and deployed.
+
+**APRA is a standalone entity (Chancellor's clarification, 16 November 2026).** APRA is a
+standalone registered entity, not a service of the Athena Centre or any other organisation.
+Every "a service of the Athena Centre for Policy and Leadership" statement was removed, along
+with all Athena Centre website links: from the footer, the homepage About section, the team
+page's introduction and its former "Institutional Foundation" section, the privacy notice and
+the terms of use.
+- **Structured data:** the `parentOrganization` relationship is gone from the organisation data.
+- **Emails:** the parent name is gone from the briefing and subscriber email signatures, and
+  internal staff emails now say "do not forward outside APRA".
+- **Footer:** keeps the APRA name, the `athenaadvisory.ng` link and its navigation. The
+  copyright reads "© <current year> Athena Advisory": the year still updates automatically, and
+  "All rights reserved" is gone. No replacement affiliation or tagline was added.
+- **Kept:** factual team biographies and employment history (`src/data/team.ts`), working
+  mailboxes such as `intelligence@athenacentre.org` until verified replacements are supplied,
+  the Papermark document domain and old-host compatibility.
+- **Not invented:** no registration number, legal address or mailbox.
+
+`tests/apra-standalone-identity.test.mjs` keeps this true. No migration, permission, session,
+workflow or provider change.

@@ -27,6 +27,32 @@ The wordmarks and social preview are rendered from editable text; the only
 bundled binary asset is the licensed PDF-notice font. There is no bundled
 image/logo containing the former name to replace.
 
+## Standalone entity (Chancellor's clarification, 16 November 2026)
+
+APRA is a standalone registered entity, not a service of the Athena Centre or
+any other organisation. The site now states no parent organisation:
+
+| Where | Change |
+|---|---|
+| Footer | Removed the "service of the Athena Centre" sentence and the Athena Centre link. Kept "Athena Political & Regulatory Advisory (APRA): athenaadvisory.ng" and the navigation. The copyright is now "© <current year> Athena Advisory": the year still updates automatically, and "All rights reserved" is gone |
+| Homepage About | Removed the "service of" sentence and the Athena Centre link; the APRA link stays |
+| Team page | The introduction no longer draws on the Centre's capabilities, and the "Institutional Foundation" section is removed. Biographies are unchanged |
+| Privacy | Reads "Athena Political & Regulatory Advisory (APRA). Last updated …" |
+| Terms of use | Reads "The terms on which Athena Political & Regulatory Advisory (APRA) provides its publications and briefings" (was "…provided, by Athena Centre") |
+| Structured data | `parentOrganization` removed from the Organization node |
+| Emails | The parent name is removed from the briefing and subscriber email signatures; internal staff emails say "do not forward outside APRA" |
+
+Kept deliberately:
+- factual team biographies and employment history (for example "Founder, Athena Centre for
+  Policy and Leadership");
+- working mailboxes such as `intelligence@athenacentre.org` and the existing verified senders,
+  until verified replacements are supplied;
+- the Papermark document domain `docs.athenacentre.org`;
+- old-host compatibility.
+
+No registration number, legal address or mailbox is invented, and no tagline replaces the
+affiliation. `tests/apra-standalone-identity.test.mjs` pins all of this.
+
 ## Intentional compatibility references
 
 | Reference retained | Reason |

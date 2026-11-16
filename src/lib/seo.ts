@@ -89,11 +89,6 @@ export function publicOrganisationSchema() {
         "@id": `${origin}/#organisation`,
         name: SITE_NAME,
         url: origin,
-        parentOrganization: {
-          "@type": "Organization",
-          name: "Athena Centre for Policy and Leadership",
-          url: "https://www.athenacentre.org/",
-        },
       },
       {
         "@type": "WebSite",

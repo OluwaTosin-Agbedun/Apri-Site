@@ -5,34 +5,19 @@ export default function SiteFooter() {
   return (
     <footer className="pt-10 border-t border-hairline text-xs text-muted-foreground">
       <div className="mb-8 max-w-3xl">
-        <p className="text-sm text-foreground/70 leading-relaxed mb-4">
-          Athena Political &amp; Regulatory Advisory is a service of the
-          Athena Centre for Policy and Leadership.
+        <p>
+          Athena Political &amp; Regulatory Advisory (APRA):{" "}
+          <a
+            href={siteOrigin()}
+            className="text-foreground hover:text-accent transition-colors"
+          >
+            {new URL(siteOrigin()).hostname}
+          </a>
         </p>
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-7">
-          <p>
-            APRA:{" "}
-            <a
-              href={siteOrigin()}
-              className="text-foreground hover:text-accent transition-colors"
-            >
-              {new URL(siteOrigin()).hostname}
-            </a>
-          </p>
-          <p>
-            Athena Centre:{" "}
-            <a
-              href="https://www.athenacentre.org/"
-              className="text-foreground hover:text-accent transition-colors"
-            >
-              www.athenacentre.org
-            </a>
-          </p>
-        </div>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-border/60">
         <p>
-          &copy; {new Date().getFullYear()} Athena Centre. All rights reserved.
+          &copy; {new Date().getFullYear()} Athena Advisory
         </p>
 
         <nav

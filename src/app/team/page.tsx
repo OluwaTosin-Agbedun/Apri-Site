@@ -1,6 +1,5 @@
 import { publicMetadata } from "@/lib/seo"
 import Image from "next/image"
-import { siteOrigin } from "@/lib/site-config"
 import type { Metadata } from "next"
 import SiteFooter from "@/components/SiteFooter"
 import SiteHeader from "@/components/SiteHeader"
@@ -30,9 +29,7 @@ export default async function TeamPage() {
             </p>
             <p>
               Our intelligence is produced through continuous monitoring,
-              structured analysis and internal review, drawing on the wider
-              research and policy capabilities of the Athena Centre for Policy
-              and Leadership.
+              structured analysis and internal review.
             </p>
           </div>
         </header>
@@ -130,37 +127,6 @@ export default async function TeamPage() {
           </div>
         </section>
 
-        <section className="mb-24 pt-16 border-t border-border max-w-4xl">
-          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-8 tracking-tight">
-            Institutional Foundation
-          </h2>
-          <p className="text-sm sm:text-base text-foreground/80 leading-relaxed mb-7">
-            Athena Political &amp; Regulatory Advisory is an intelligence
-            service of the Athena Centre for Policy and Leadership, drawing on
-            the Centre&rsquo;s wider work in governance, elections, public
-            policy, institutional reform and political analysis.
-          </p>
-          <div className="flex flex-col gap-3 text-sm">
-            <p>
-              <span className="text-muted-foreground mr-2">APRA:</span>
-              <a
-                className="text-accent hover:text-accent-hover underline-offset-4 hover:underline"
-                href={siteOrigin()}
-              >
-                {new URL(siteOrigin()).hostname}
-              </a>
-            </p>
-            <p>
-              <span className="text-muted-foreground mr-2">Athena Centre:</span>
-              <a
-                className="text-accent hover:text-accent-hover underline-offset-4 hover:underline"
-                href="https://www.athenacentre.org/"
-              >
-                www.athenacentre.org
-              </a>
-            </p>
-          </div>
-        </section>
         <SiteFooter />
       </main>
     </div>

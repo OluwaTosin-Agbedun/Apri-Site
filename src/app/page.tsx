@@ -392,10 +392,6 @@ export default async function HomePage() {
             strategic outlook.
           </p>
 
-          <p className="text-sm text-foreground/80 leading-relaxed mb-5 max-w-4xl">
-            Athena Political &amp; Regulatory Advisory is a service of the
-            Athena Centre for Policy and Leadership.
-          </p>
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-7 text-sm mb-8">
             <p>
               <span className="text-muted-foreground mr-2">APRA:</span>
@@ -404,15 +400,6 @@ export default async function HomePage() {
                 className="text-accent hover:text-accent-hover transition-colors"
               >
                 {new URL(siteOrigin()).hostname}
-              </a>
-            </p>
-            <p>
-              <span className="text-muted-foreground mr-2">Athena Centre:</span>
-              <a
-                href="https://www.athenacentre.org/"
-                className="text-accent hover:text-accent-hover transition-colors"
-              >
-                www.athenacentre.org
               </a>
             </p>
           </div>
