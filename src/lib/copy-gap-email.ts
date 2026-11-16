@@ -1,4 +1,5 @@
 import 'server-only'
+import { emailOrigin } from './app-url'
 import { Resend } from 'resend'
 import type { CopyGap } from './provisioning'
 
@@ -21,7 +22,7 @@ export async function sendCopyGapAlert(gaps: CopyGap[]): Promise<boolean> {
   // Not configured is not a failure: the queue is still in the admin.
   if (!key || !to || !from) return false
 
-  const appUrl = (process.env.APP_URL ?? 'https://apri.athenacentre.org').replace(/\/$/, '')
+  const appUrl = emailOrigin()
   const oldest = Math.max(...gaps.map((g) => g.ageDays))
 
   try {

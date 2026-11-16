@@ -1,7 +1,8 @@
+import { siteOrigin } from './site-config.ts'
 export const APRI_PRODUCTION_URL = 'https://apri.athenacentre.org'
 
 export function portalVerificationUrl(token: string): string {
-  return `${APRI_PRODUCTION_URL}/portal/verify?token=${encodeURIComponent(token)}`
+  return `${siteOrigin()}/portal/verify?token=${encodeURIComponent(token)}`
 }
 
 /**
@@ -15,7 +16,7 @@ export function portalVerificationUrl(token: string): string {
  * grants no access by itself.
  */
 export function portalSignInUrl(): string {
-  return `${APRI_PRODUCTION_URL}/portal/sign-in`
+  return `${siteOrigin()}/portal/sign-in`
 }
 
 /**
@@ -29,6 +30,7 @@ export function portalSignInUrl(): string {
  * there while subscriber emails, which never read it, were delivered.
  */
 export function emailOrigin(): string {
+  if ((process.env.PUBLIC_SITE_URL ?? '').trim()) return siteOrigin()
   const raw = (process.env.APP_URL ?? '').trim()
   if (raw) {
     try {
@@ -38,5 +40,5 @@ export function emailOrigin(): string {
       // A malformed value falls back to the production site.
     }
   }
-  return APRI_PRODUCTION_URL
+  return siteOrigin()
 }

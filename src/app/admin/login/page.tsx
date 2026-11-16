@@ -11,7 +11,7 @@ export default async function LoginPage() {
   if (await getCurrentAdmin()) redirect('/admin')
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-6 py-16">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-background flex items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm">
         <div className="mb-10">
           <h1 className="font-serif text-2xl text-foreground mb-3 tracking-tight">APRI</h1>
@@ -22,6 +22,6 @@ export default async function LoginPage() {
 
         <LoginForm />
       </div>
-    </div>
+    </main>
   )
 }

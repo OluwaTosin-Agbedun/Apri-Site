@@ -45,7 +45,7 @@ export default async function ContinueSignInPage({
         </div>
       </header>
 
-      <main className="flex-1 max-w-md w-full mx-auto px-6 py-16">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-md w-full mx-auto px-6 py-16">
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-4 leading-tight tracking-tight">
           {usable ? "Continue to your library" : "This sign-in link has been used"}
         </h1>

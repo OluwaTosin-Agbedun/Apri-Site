@@ -14,6 +14,7 @@ const NAV = [
   { href: '/admin/datarooms', label: 'Data Rooms' },
   // Owners and editors may add tags; only owners rename, retire or delete them.
   { href: '/admin/tags', label: 'Publication Tags' },
+  { href: '/admin/security', label: 'Staff Security' },
 ]
 
 export default function AdminShell({
@@ -32,14 +33,14 @@ export default function AdminShell({
   children: React.ReactNode
 }) {
   const nav = admin.role === 'owner'
-    ? [...NAV, { href: '/admin/categories', label: 'Publication Categories' }, { href: '/admin/review-library', label: 'Review Library' }, { href: '/admin/review-requests', label: 'Review Requests' }, { href: '/admin/team', label: 'Team Headshots' }, { href: '/admin/administrators', label: 'Administrators' }]
+    ? [...NAV, { href: '/admin/categories', label: 'Publication Categories' }, { href: '/admin/review-library', label: 'Review Library' }, { href: '/admin/review-requests', label: 'Review Requests' }, { href: '/admin/team', label: 'Team Headshots' }, { href: '/admin/administrators', label: 'Administrators' }, { href: '/admin/operations', label: 'Operations' }, { href: '/admin/notifications', label: 'Publication Alerts' }]
     : NAV
 
   return (
     <div className="min-h-screen bg-background flex">
       <AdminSidebar admin={admin} current={current} nav={nav} />
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="h-14 border-b border-border flex items-center justify-between px-4 sm:px-8 bg-background shrink-0">
           <h1 className="text-sm font-medium text-foreground">Content Management</h1>
           <div className="flex items-center gap-3 text-sm text-foreground/80">

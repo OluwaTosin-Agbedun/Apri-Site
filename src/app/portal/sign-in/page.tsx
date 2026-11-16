@@ -59,7 +59,7 @@ export default async function SignInPage({
         </div>
       </header>
 
-      <main className="flex-1 max-w-md w-full mx-auto px-6 py-16">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-md w-full mx-auto px-6 py-16">
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-4 leading-tight tracking-tight">
           Sign in
         </h1>

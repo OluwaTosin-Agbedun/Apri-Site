@@ -1,4 +1,5 @@
 import "server-only"
+import {noticeSources} from './publication-versions'
 import { getSql } from "./db"
 import { decideAccess, effectiveRelease, type AccessDecision, type PaidRelease, type Period } from "./access-policy"
 import { subscriptionStatus, lagosToday, type SubscriptionStatus } from "./subscription-term"
@@ -275,11 +276,13 @@ export async function loadSubscriberAccess(subscriberId: string, options: Access
     // One file per edition: the one the subscriber already holds a link to,
     // else the copy in their own room, else the first seen.
     const chosen = new Map<string, Record<string, unknown>>()
+    const notices = await noticeSources(sql)
     const unlinked: Record<string, unknown>[] = []
     const rank = (r: Record<string, unknown>) =>
       (links.has(r.papermark_document_id as string) ? 0 : 2) + (r.papermark_dataroom_id === room?.dataroomId ? 0 : 1)
     for (const r of documentRows) {
       const pub = r.publication_id as string | null
+      if(pub&&notices.has(pub)&&r.papermark_document_id!==notices.get(pub))continue
       if (!pub) {
         if (r.papermark_dataroom_id === room?.dataroomId) unlinked.push(r)
         continue
@@ -459,6 +462,8 @@ export async function loadLegacyPublicationAccess(
   if (access.state !== "ok") return access
   try {
     const sql = getSql()
+    const noticeCopies=await noticeSources(sql)
+    const verifiedNoticeCopies=noticeCopies.size?new Set((await sql`select w.document_id from publication_legacy_notice_proofs p join publication_workflows w on w.id=p.workflow_id join publication_access pa on pa.subscriber_id=p.subscriber_id and pa.publication_id=w.document_id where p.subscriber_id=${subscriberId}::uuid and p.checked_at is not null and p.link_hash=md5(pa.link_url||coalesce(pa.papermark_link_id,'')) and p.notice_hash=w.notice_sha256 and w.notice_verified_at is not null`).map(r=>String(r.document_id))):new Set<string>()
     const rows = (await sql`
       select d.id, d.slug, d.code, d.series, d.title, d.summary, d.description,
              to_char(d.edition_date, 'YYYY-MM-DD') as edition_date, d.visibility, d.page_count,
@@ -501,8 +506,9 @@ export async function loadLegacyPublicationAccess(
       })
       // A stamped copy carries one person's name; a shared link only where the
       // record says so. Anything else is "being prepared", never a fallback.
-      const own = https(r.stamped_link) ? r.stamped_link : null
-      const linkUrl = own ?? (r.is_shared_copy === true && https(r.shared_link) ? r.shared_link : null)
+      const noticeRequired=noticeCopies.has(publicationId)
+      const own = https(r.stamped_link)&&(!noticeRequired||verifiedNoticeCopies.has(publicationId)) ? r.stamped_link : null
+      const linkUrl = own ?? (!noticeRequired&&r.is_shared_copy === true && https(r.shared_link) ? r.shared_link : null)
       const delivery: Delivery =
         decision.outcome === "allowed" ? (linkUrl ? "open" : "preparing") : decision.outcome === "unresolved" && own ? "preserved" : "hidden"
       return {

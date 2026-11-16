@@ -41,7 +41,7 @@ export default async function Page({
   return (
     <div className="min-h-screen">
       <SiteHeader />
-      <main className="max-w-3xl mx-auto px-6 py-20">
+      <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 py-20">
         <h1 className="font-serif text-4xl mb-4">Request {PLANS[plan].label}</h1>
         <p className="text-foreground/70 mb-10">
           Provide the contracting details APRI needs to prepare your agreement

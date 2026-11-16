@@ -1,11 +1,12 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
+import { headers, cookies } from 'next/headers'
 import bcrypt from 'bcryptjs'
 import { getSql } from '@/lib/db'
 import { createSession, destroySession } from '@/lib/session'
 import { getCurrentAdmin, isSetupComplete, requireOwner } from '@/lib/dal'
+import { issueStaffChallenge, staffSecurityState, STAFF_CHALLENGE_COOKIE } from '@/lib/admin-security'
 import {
   InviteAdminSchema,
   LoginSchema,
@@ -141,6 +142,15 @@ export async function login(
     return GENERIC
   }
 
+  const security = await staffSecurityState(admin.id, sql)
+  if (security?.enabled || security?.required) {
+    const token = await issueStaffChallenge(admin.id, security.enabled ? 'verify' : 'enroll', sql)
+    if (!token) return { message: 'Too many sign-in checks. Try again in 15 minutes.' }
+    const jar = await cookies()
+    jar.set(STAFF_CHALLENGE_COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/admin', maxAge: 300 })
+    redirect('/admin/mfa')
+  }
+
   await sql`
     insert into login_attempts (email_key, ip, successful)
     values (${email}, ${ip}, true)
@@ -152,7 +162,7 @@ export async function login(
   `
   await sql`update admins set last_login_at = now() where id = ${admin.id}`
 
-  await createSession({ adminId: admin.id, role: admin.role })
+  await createSession({ adminId: admin.id, role: admin.role, ...(security ? { securityVersion: security.version, mfaVerified: false } : {}) })
   redirect('/admin')
 }
 

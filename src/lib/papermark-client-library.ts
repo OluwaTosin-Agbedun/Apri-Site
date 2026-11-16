@@ -23,6 +23,7 @@ import { getDocumentLinkByDocRowId } from "./dataroom-dal"
 import { loadSubscriberAccess, type DocumentAccess } from "./access-policy-dal"
 import { loadReaderPublicationDetails } from "./publication-metadata-dal"
 import type { ReaderPublicationDetails } from "./publication-metadata"
+import {formerNoticePublication} from './publication-versions'
 
 export type SyncedClientDocument = {
   id: string
@@ -41,6 +42,7 @@ export type SyncedClientDocument = {
 
 export type DataRoomDocument = {
   id: string
+  publicationId?: string | null
   papermarkDocumentId: string
   dataroomDocumentId: string | null
   title: string
@@ -117,6 +119,7 @@ function portalDocument(
     id: d.rowId,
     papermarkDocumentId: d.papermarkDocumentId,
     dataroomDocumentId: null,
+    publicationId: d.publicationId,
     title: d.fileTitle,
     displayTitle: portalDocumentTitle({ syncedName: d.fileTitle, editorialTitle: d.editorialTitle, editorialTitleIsOverride: d.titleOverride }),
     category: cat,
@@ -209,11 +212,18 @@ export async function getDataRoomDocumentForSubscriber(
   if (!documentRowId || documentRowId.length > 200) return null
   const access = await loadSubscriberAccess(subscriberId)
   if (access.state !== "ok" || !access.room) return null
-  const found = access.documents.find((d) => d.rowId === documentRowId)
+  let found = access.documents.find((d) => d.rowId === documentRowId)
+  if(!found){
+    // An old first-party bookmark can name the retained original DD row.
+    // Resolve it only through this subscriber's already authorised notice
+    // copy, never through the original row's old personal link.
+    const former=await formerNoticePublication(documentRowId)
+    if(former)found=access.documents.find(d=>d.publicationId===former)
+  }
   if (!found || found.delivery === "hidden") return null
 
   // The live personal link for this subscriber and this exact document.
-  const docLink = found.link ? await getDocumentLinkByDocRowId({ subscriberId, documentRowId }) : null
+  const docLink = found.link ? await getDocumentLinkByDocRowId({ subscriberId, documentRowId:found.rowId }) : null
   const document = portalDocument(found, { previousVisit: null, viewed: new Set(), downloaded: new Set(), catalogue: await getPublicationCatalogue() })
   return {
     document: { ...document, badge: null },

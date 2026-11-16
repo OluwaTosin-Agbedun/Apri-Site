@@ -17,9 +17,42 @@
 
   --color-accent: #b49f69; /* Muted brass */
   --color-accent-hover: #9c8a5a;
+  /* Legible text variants; decorative brass and the established palette stay. */
+  --color-accent-text: #78652f;
+  --color-accent-text-hover: #5b4b22;
 
   --color-card: #ffffff;
   --color-card-border: #e4e4e7;
+}
+
+@layer utilities {
+  .text-accent { color: var(--color-accent-text); }
+  .hover\:text-accent:hover { color: var(--color-accent-text); }
+  .hover\:text-accent-hover:hover { color: var(--color-accent-text-hover); }
+  .group:hover .group-hover\:text-accent { color: var(--color-accent-text); }
+  .bg-accent.text-white { color: var(--color-foreground); }
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-foreground);
+  outline-offset: 3px;
+}
+button, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select {
+  min-height: 44px;
+}
+input, select, textarea { min-width: 0; }
+p a { text-decoration: underline; text-underline-offset: 0.18em; }
+.skip-link {
+  position: fixed; top: 8px; left: 8px; z-index: 100;
+  padding: 12px 20px; color: #ffffff; background: #16161a;
+  transform: translateY(-200%);
+}
+.skip-link:focus { transform: none; }
+#main-content:focus:not(:focus-visible) { outline: none; }
+[id] { scroll-margin-top: 7rem; }
+@media (prefers-reduced-motion: reduce) {
+  .panel-interactive, .btn-primary, .btn-secondary { transition: none; }
+  .panel-interactive:hover, .btn-primary:hover, .btn-secondary:hover { transform: none; }
 }
 
 body {
@@ -46,6 +79,7 @@ body {
    */
   .eyebrow {
     @apply inline-block text-[0.6875rem] font-medium uppercase text-accent;
+    color: var(--color-accent-text);
     letter-spacing: 0.18em;
   }
 
@@ -113,6 +147,7 @@ body {
 
   .btn-secondary:hover {
     @apply border-accent text-accent;
+    color: var(--color-accent-text);
     transform: translateY(-1px);
   }
 

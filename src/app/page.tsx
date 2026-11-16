@@ -1,3 +1,5 @@
+import { publicMetadata } from "@/lib/seo"
+import { siteOrigin } from "@/lib/site-config"
 import Link from "next/link"
 import type { Metadata } from "next"
 import { CONTACT_EMAIL } from "@/config"
@@ -28,11 +30,7 @@ import {
  */
 export const revalidate = 300
 
-export const metadata: Metadata = {
-  title: "Athena Political & Regulatory Intelligence (APRI)",
-  description:
-    "Independent political, regulatory and political-economy intelligence for organisations operating, investing and making strategic decisions in Nigeria.",
-}
+export const metadata: Metadata = publicMetadata("/")
 
 function PublicationCard({ doc }: { doc: Publication }) {
   return (
@@ -44,14 +42,14 @@ function PublicationCard({ doc }: { doc: Publication }) {
         <AccessBadge visibility={doc.visibility} />
       </div>
 
-      <h3 className="font-serif text-xl text-foreground">
+      <h4 className="font-serif text-xl text-foreground">
         <Link
           href={`/publications/${doc.slug}`}
           className="hover:text-accent transition-colors"
         >
           {doc.title}
         </Link>
-      </h3>
+      </h4>
 
       {doc.strapline && (
         <p className="font-serif text-base text-foreground/70 italic mt-2">
@@ -119,7 +117,7 @@ export default async function HomePage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         {/* Hero */}
         <header className="mb-28 sm:mb-36">
           {/*
@@ -401,10 +399,10 @@ export default async function HomePage() {
             <p>
               <span className="text-muted-foreground mr-2">APRI:</span>
               <a
-                href="https://apri.athenacentre.org/"
+                href={siteOrigin()}
                 className="text-accent hover:text-accent-hover transition-colors"
               >
-                apri.athenacentre.org
+                {new URL(siteOrigin()).hostname}
               </a>
             </p>
             <p>
@@ -437,7 +435,7 @@ export default async function HomePage() {
         </section>
 
         <SiteFooter />
-      </div>
+      </main>
     </div>
   )
 }

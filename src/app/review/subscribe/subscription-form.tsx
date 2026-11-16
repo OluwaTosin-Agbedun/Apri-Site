@@ -1,5 +1,6 @@
 "use client"
-import { useActionState, useEffect, useState } from "react"
+import { useActionState } from "react"
+import { useReferrerHost } from "@/lib/use-referrer-host"
 import {
   submitPublicSubscriptionRequest,
   submitSubscriptionRequest,
@@ -27,12 +28,7 @@ export default function SubscriptionForm(props: Props) {
       ? submitSubscriptionRequest.bind(null, props.prospectId)
       : submitPublicSubscriptionRequest
   const [state, formAction, pending] = useActionState<ReviewFormState, FormData>(action, {})
-  const [referrerHost, setReferrerHost] = useState("")
-  useEffect(() => {
-    try {
-      setReferrerHost(document.referrer ? new URL(document.referrer).hostname : "")
-    } catch {}
-  }, [])
+  const referrerHost = useReferrerHost()
   const input = "mt-2 w-full border border-border bg-background px-4 py-3"
   const details = PLANS[plan]
   return (

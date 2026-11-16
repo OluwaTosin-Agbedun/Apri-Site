@@ -1,22 +1,20 @@
+import { publicMetadata } from "@/lib/seo"
+import Image from "next/image"
+import { siteOrigin } from "@/lib/site-config"
 import type { Metadata } from "next"
 import SiteFooter from "@/components/SiteFooter"
 import SiteHeader from "@/components/SiteHeader"
 import { TEAM_MEMBERS } from "@/data/team"
 import { getTeamImages } from "@/lib/team-images"
 
-export const metadata: Metadata = {
-  title:
-    "Our Intelligence Team | Athena Political & Regulatory Intelligence (APRI)",
-  description:
-    "Meet the people behind APRI and learn how our independent political, regulatory and political-economy intelligence is produced and reviewed.",
-}
+export const metadata: Metadata = publicMetadata("/team")
 
 export default async function TeamPage() {
   const images = await getTeamImages()
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-20 max-w-4xl">
           <p className="eyebrow mb-5">Our Intelligence Team</p>
           <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em] break-words">
@@ -57,17 +55,21 @@ export default async function TeamPage() {
                   className="py-10 sm:py-14 grid sm:grid-cols-[180px_1fr] lg:grid-cols-[220px_1fr] gap-8 sm:gap-10"
                 >
                   {image ? (
-                    <img
+                    <Image
                       src={image.imageUrl}
-                      alt={image.altText}
-                      width="440"
-                      height="550"
+                      alt={image.altText||`Portrait of ${member.name}`}
+                      width={440}
+                      height={550}
+                      sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, calc(100vw - 48px)"
+                      quality={90}
+                      unoptimized={!/^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\/team\//i.test(image.imageUrl)}
                       loading="lazy"
                       className="aspect-[4/5] w-full object-cover bg-foreground/5"
                     />
                   ) : (
                     <div
                       className="aspect-[4/5] w-full bg-foreground/5 border border-border grid place-items-center font-serif text-3xl text-foreground/50"
+                      role="img"
                       aria-label={`No portrait supplied for ${member.name}`}
                     >
                       <span aria-hidden>{initials}</span>
@@ -143,9 +145,9 @@ export default async function TeamPage() {
               <span className="text-muted-foreground mr-2">APRI:</span>
               <a
                 className="text-accent hover:text-accent-hover underline-offset-4 hover:underline"
-                href="https://apri.athenacentre.org/"
+                href={siteOrigin()}
               >
-                apri.athenacentre.org
+                {new URL(siteOrigin()).hostname}
               </a>
             </p>
             <p>

@@ -36,7 +36,7 @@ export default async function ReaderSignInPage({
   return (
     <div className="min-h-screen">
       <SiteHeader />
-      <main className="max-w-md mx-auto px-4 sm:px-6 py-14 sm:py-20">
+      <main id="main-content" tabIndex={-1} className="max-w-md mx-auto px-4 sm:px-6 py-14 sm:py-20">
         <h1 className="font-serif text-3xl mb-4">Complimentary Review Library</h1>
         <p className="text-sm text-foreground/70 leading-relaxed mb-8">
           Approved readers: enter the email address your review publications were issued to. We will email

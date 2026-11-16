@@ -1,11 +1,13 @@
 import "server-only"
 import { getSql } from "./db"
+import { dateOnly } from "./subscription-term"
 import { isVisibility, type Visibility } from "./entitlements"
 import { canProvisionLinks, deserialiseRecipients } from "./review-recipients"
 import { editionRecipientsReady, editionWithdrawalReady } from "./edition-recipients-schema"
 import { selectOfferedCards, type ReviewSeriesKey } from "./review-withdrawal"
 import { hasApprovedReviewCopy } from "./review-classify"
 import { getPublicationCatalogue, orderedCodes } from "./publication-catalogue-dal"
+import {publicationVersions,latestEntitledVersions} from './publication-versions'
 
 export { PUBLICATION_SECTIONS, type PublicationSection } from "./sections"
 
@@ -55,7 +57,7 @@ type Row = {
   open_link_url: string | null
   series: string
   code: string | null
-  edition_date: string | null
+  edition_date: string | Date | null
   summary: string
   sort_order: number
   is_published: boolean
@@ -84,7 +86,7 @@ function toPublication(row: Row): Publication {
     openLinkUrl: row.open_link_url,
     series: row.series,
     code: row.code,
-    editionDate: row.edition_date,
+    editionDate: dateOnly(row.edition_date),
     summary: row.summary || row.description,
     sortOrder: row.sort_order,
     isPublished: row.is_published,
@@ -154,7 +156,8 @@ export async function getPublishedPublications(): Promise<Publication[]> {
     )) as Row[]
   }, "published list")
 
-  return rows.map(toPublication).map(toPublicPublication)
+  const result=rows.map(toPublication).map(toPublicPublication)
+  try{return latestEntitledVersions(result,p=>p.id,await publicationVersions('paid',result.map(p=>p.id)))}catch{return []}
 }
 
 /** Published OPEN editions, for the public Publications page. */
@@ -241,7 +244,7 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
       audience: string
       slot_key: string
       id: string
-      edition_date: string | null
+      edition_date: string | Date | null
       edition_label: string
       papermark_document_id: string
       is_latest: boolean
@@ -262,7 +265,7 @@ export async function getPublicReviewLibrary(): Promise<ReviewLibrary | null> {
         frequency: r.frequency,
         audience: r.audience,
         slotKey: r.slot_key as ReviewCard["slotKey"],
-        editionDate: r.edition_date,
+        editionDate: dateOnly(r.edition_date),
         editionLabel: r.edition_label,
         papermarkDocumentId: r.papermark_document_id,
         isLatest: r.is_latest,
@@ -375,7 +378,7 @@ export async function getReviewLibrary(): Promise<{
       slot_key: string
       secure_link_url: string
       id: string
-      edition_date: string | null
+      edition_date: string | Date | null
       edition_label: string
       papermark_document_id: string
       is_latest: boolean
@@ -404,7 +407,7 @@ export async function getReviewLibrary(): Promise<{
         audience: r.audience,
         slotKey: r.slot_key as ReviewCard["slotKey"],
         secureUrl: r.secure_link_url,
-        editionDate: r.edition_date,
+        editionDate: dateOnly(r.edition_date),
         editionLabel: r.edition_label,
         papermarkDocumentId: r.papermark_document_id,
         isLatest: r.is_latest,
@@ -483,12 +486,13 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
       audience: string
       slot_key: ReviewCard["slotKey"]
       secure_link_url: string
-      edition_date: string | null
+      edition_date: string | Date | null
       edition_label: string
       papermark_document_id: string
       is_latest: boolean
     }>
-    return rows.map((r) => ({
+    const visible=latestEntitledVersions(rows,r=>r.id,await publicationVersions('review',rows.map(r=>r.id),sql))
+    return visible.map((r) => ({
       id: r.id,
       pubTitle: r.pub_title,
       publicationType: r.publication_type,
@@ -497,7 +501,7 @@ export async function getReviewPublicationArchive(): Promise<SecureReviewCard[]>
       audience: r.audience,
       slotKey: r.slot_key,
       secureUrl: r.secure_link_url,
-      editionDate: r.edition_date,
+      editionDate: dateOnly(r.edition_date),
       editionLabel: r.edition_label,
       papermarkDocumentId: r.papermark_document_id,
       isLatest: r.is_latest,
@@ -647,7 +651,7 @@ async function reviewEditionsForEmail(
       audience: string
       slot_key: ReviewCard["slotKey"]
       secure_link_url: string
-      edition_date: string | null
+      edition_date: string | Date | null
       edition_label: string
       papermark_document_id: string
       is_latest: boolean
@@ -661,7 +665,7 @@ async function reviewEditionsForEmail(
       audience: r.audience,
       slotKey: r.slot_key,
       secureUrl: r.secure_link_url,
-      editionDate: r.edition_date,
+      editionDate: dateOnly(r.edition_date),
       editionLabel: r.edition_label,
       papermarkDocumentId: r.papermark_document_id,
       isLatest: r.is_latest,

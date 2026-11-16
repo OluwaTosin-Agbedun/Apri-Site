@@ -15,7 +15,7 @@ export default async function Page({
   return (
     <div className="min-h-screen">
       <SiteHeader />
-      <main className="max-w-3xl mx-auto px-6 py-24 space-y-5">
+      <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 py-24 space-y-5">
         <h1 className="font-serif text-4xl">
           Thank you for your APRI subscription request.
         </h1>

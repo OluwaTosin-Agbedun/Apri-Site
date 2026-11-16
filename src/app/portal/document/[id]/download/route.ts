@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { requirePortalPrincipal } from "@/lib/subscriber-dal"
 import { getDataRoomDocumentForSubscriber } from "@/lib/papermark-client-library"
+import {latestPaidPublicationFor} from '@/lib/publication-versions'
 
 export const dynamic = "force-dynamic"
 
@@ -20,6 +21,7 @@ export async function GET(
   if (!result) {
     redirect("/portal")
   }
+  if(result.document.publicationId){const latest=await latestPaidPublicationFor(principal.id,result.document.publicationId);if(latest&&latest!==result.document.publicationId)redirect(`/portal/publication/${latest}`)}
 
   if (!result.allowDownload || !result.documentLinkUrl) {
     redirect(`/portal/document/${encodeURIComponent(documentRowId)}`)

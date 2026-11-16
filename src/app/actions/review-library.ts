@@ -299,6 +299,7 @@ import {
   loadEditionForAccess,
 } from "@/lib/edition-recipients-dal"
 import { editionRecipientsReady, editionWithdrawalReady } from "@/lib/edition-recipients-schema"
+import { publishingGate, releasePreconditions, recordWorkflowRelease, workflowSchemaReady } from "@/lib/publication-workflow"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -1634,15 +1635,18 @@ export async function publishEditionAsLatest(editionId: string): Promise<FormSta
   // Readers with a personal room are brought into line after the response.
   await scheduleRoomReconcile({ editionId })
   const sql = getSql()
+  const prerequisites = await verifyEditionForPublishing(sql,editionId,{metadataOnly:true})
+  if(!prerequisites?.ok)return prerequisites??{message:'Complete the edition setup first.'}
+  const gate = await publishingGate('review',editionId,admin,sql)
+  if(!gate.ok)return {message:gate.message}
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }
   const offering = await editionWithdrawalReady(sql, { fresh: true })
   try {
-    if (offering) {
-      await sql`select promote_review_publication_edition(${editionId}::uuid, ${admin.id}::uuid)`
-    } else {
-      await sql`select promote_review_publication_edition(${editionId}::uuid)`
-    }
+    const commands = await workflowSchemaReady(sql) ? releasePreconditions(sql,'review',editionId,admin,gate.workflow) : []
+    commands.push(offering ? sql`select promote_review_publication_edition(${editionId}::uuid, ${admin.id}::uuid)` : sql`select promote_review_publication_edition(${editionId}::uuid)`)
+    if(gate.workflow)commands.push(recordWorkflowRelease(sql,'review',editionId,admin,gate.workflow))
+    await sql.transaction(commands)
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Edition could not be published." }
   }
@@ -1656,16 +1660,21 @@ export async function publishEditionAsLatest(editionId: string): Promise<FormSta
 
 /** Publish a historical edition without changing the series' latest edition. */
 export async function publishHistoricalEdition(editionId: string): Promise<FormState> {
-  await requireOwner()
+  const admin=await requireOwner()
   if (!UUID.test(editionId)) return { message: "Invalid edition." }
   // Readers with a personal room are brought into line after the response.
   await scheduleRoomReconcile({ editionId })
   const sql = getSql()
+  const prerequisites = await verifyEditionForPublishing(sql,editionId,{metadataOnly:true})
+  if(!prerequisites?.ok)return prerequisites??{message:'Complete the edition setup first.'}
+  const gate = await publishingGate('review',editionId,admin,sql)
+  if(!gate.ok)return {message:gate.message}
   const verified = await verifyEditionForPublishing(sql, editionId)
   if (!verified?.ok) return verified ?? { message: "Edition verification failed." }
   // Never a withdrawn edition: it is offered again only through re-offering,
   // which clears its revoked link and requires a new, verified one.
-  const updated = (await sql`
+  const pre = await workflowSchemaReady(sql) ? releasePreconditions(sql,'review',editionId,admin,gate.workflow) : []
+  const commands = [...pre,sql`
     update review_publication_editions
     set publication_state = 'published', is_latest = false, updated_at = now()
     where id = ${editionId}::uuid and secure_link_id is not null
@@ -1673,7 +1682,10 @@ export async function publishHistoricalEdition(editionId: string): Promise<FormS
       and secure_link_url <> '' and secure_link_verified_at is not null
       and secure_link_document_id = papermark_document_id
     returning id
-  `) as { id: string }[]
+  `]
+  if(gate.workflow)commands.push(recordWorkflowRelease(sql,'review',editionId,admin,gate.workflow))
+  let updated
+  try { const result=await sql.transaction(commands); updated=result[pre.length] } catch {return {message:'Nothing published: the editorial review changed. Reload and review the record.'}}
   if (!updated[0])
     return {
       message: "Not published: verify an exact-document secure link first.",
@@ -1691,6 +1703,7 @@ export async function updateEditionDetails(
   details: {
     series: string
     editionLabel: string
+    editionDate?: string
     title: string
     publicationType: string
     description: string
@@ -1712,9 +1725,12 @@ export async function updateEditionDetails(
   // Only MIN, AIU and PLM can be stored until the catalogue migration has run.
   if (!hasApprovedReviewCopy(details.series) && !(await getPublicationCatalogue({ fresh: true })).migrated)
     return { message: "Filing an edition under this category needs migration 20261114_publication_catalogue.sql first. Nothing was changed." }
-  await sql`
+  const day=details.editionDate
+  if(day&&(!/^\d{4}-\d{2}-\d{2}$/.test(day)||Number.isNaN(new Date(day).getTime())||new Date(day).toISOString().slice(0,10)!==day))return {message:'Enter a real original issue date.'}
+  try { await sql`
     update review_publication_editions set series = ${details.series}, title = ${cleanTitle},
       edition_label = ${details.editionLabel.trim().slice(0, 120)},
+      edition_date = case when ${day!==undefined} then ${day||null}::date else edition_date end,
       edition_sort_key = ${editionSortKey(details.editionLabel, null)},
       publication_type = ${details.publicationType.trim().slice(0, 200)},
       description = ${details.description.trim().slice(0, 2000)},
@@ -1724,6 +1740,7 @@ export async function updateEditionDetails(
       updated_at = now()
     where id = ${editionId}::uuid
   `
+  } catch {return {message:'Details were not saved. A version already adopted in editorial history keeps its original issue date; use its workflow for a correction.'}}
   refresh()
   // Saved either way; say now if the copy cannot be published under this
   // category yet (the publish check refuses it on the same rule).
@@ -1803,6 +1820,7 @@ export async function setEditionReviewState(
 async function verifyEditionForPublishing(
   sql: ReturnType<typeof getSql>,
   editionId: string,
+  options:{metadataOnly?:boolean}={},
 ): Promise<FormState> {
   // Covers both publish actions, which call this before changing anything.
   if (!(await editionRecipientsReady(sql, { fresh: true }))) {
@@ -1843,6 +1861,7 @@ async function verifyEditionForPublishing(
           ? "Not published: the shared list this edition still uses is empty."
           : "Not published: choose, apply and verify at least one recipient for this edition first.",
     }
+  if(options.metadataOnly)return {ok:true}
   const { verifyReviewDocumentLink } = await import("@/lib/papermark-datarooms")
   const check = await verifyReviewDocumentLink({
     linkId: edition.secureLinkId,

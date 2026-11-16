@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
-import { getPublicationBySlug } from '@/lib/publications'
+import { getPublicationBySlug, getPublishedPublications } from '@/lib/publications'
+import {publicationVersions,familyHistory,latestEntitledVersions} from '@/lib/publication-versions'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge, AccessAction } from '@/components/PublicationAccess'
@@ -15,9 +16,14 @@ export default async function PublicationDetailPage({
   const doc = await getPublicationBySlug(slug)
 
   if (!doc) return notFound()
+  const visible=await getPublishedPublications()
+  const candidates=visible.some(p=>p.id===doc.id)?visible:[doc,...visible]
+  const versions=await publicationVersions('paid',candidates.map(p=>p.id))
+  const latest=latestEntitledVersions(familyHistory(candidates,p=>p.id,doc.id,versions),p=>p.id,versions)[0]
+  if(latest&&latest.id!==doc.id)redirect(`/publications/${latest.slug}`)
 
   if (doc.visibility === 'OPEN') {
-    redirect('/publications#complimentary-review')
+    redirect('/publications#review-publications')
   }
 
   const coverageAreas = doc.coverageAreas
@@ -28,7 +34,7 @@ export default async function PublicationDetailPage({
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
           <div className="flex items-start justify-between gap-4 mb-4">
             <span className="text-xs font-medium uppercase tracking-wider text-accent">
@@ -90,7 +96,7 @@ export default async function PublicationDetailPage({
         )}
 
         <SiteFooter />
-      </div>
+      </main>
     </div>
   )
 }

@@ -97,7 +97,7 @@ export default async function ReviewLibraryPage() {
   const reviewCategories = catalogue.categories.filter((c) => isReviewCode(c.code))
 
   const editions = (await sql`
-    select e.id, e.series, e.title, e.edition_label, e.edition_sort_key,
+    select e.id, e.series, e.title, e.edition_label, e.edition_sort_key,to_char(e.edition_date,'YYYY-MM-DD') as issue_date,
            e.papermark_filename, e.num_pages, e.papermark_document_id,
            e.papermark_dataroom_id, e.last_synced_at, e.publication_type,
            e.description, e.frequency, e.audience, e.secure_link_url,
@@ -118,6 +118,7 @@ export default async function ReviewLibraryPage() {
     series: string | null
     title: string
     edition_label: string
+    issue_date: string | null
     edition_sort_key: string
     papermark_filename: string
     num_pages: number | null
@@ -179,6 +180,7 @@ export default async function ReviewLibraryPage() {
     series: e.series,
     title: e.title,
     editionLabel: e.edition_label,
+    editionDate: e.issue_date,
     editionSortKey: e.edition_sort_key,
     papermarkFilename: e.papermark_filename,
     numPages: e.num_pages,

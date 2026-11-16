@@ -8,6 +8,8 @@ const MAX_AGE_SECONDS = 60 * 60 * 8 // 8 hours. Admin sessions should be short.
 export type SessionPayload = {
   adminId: string
   role: 'owner' | 'editor'
+  securityVersion?: number
+  mfaVerified?: boolean
 }
 
 function getKey(): Uint8Array {
@@ -43,7 +45,12 @@ export async function decrypt(token?: string): Promise<SessionPayload | null> {
     const role = payload.role
     if (typeof adminId !== 'string') return null
     if (role !== 'owner' && role !== 'editor') return null
-    return { adminId, role }
+    if (payload.securityVersion !== undefined && (!Number.isSafeInteger(payload.securityVersion) || Number(payload.securityVersion) < 0)) return null
+    if (payload.mfaVerified !== undefined && typeof payload.mfaVerified !== 'boolean') return null
+    return { adminId, role,
+      ...(payload.securityVersion !== undefined ? { securityVersion: Number(payload.securityVersion) } : {}),
+      ...(payload.mfaVerified !== undefined ? { mfaVerified: payload.mfaVerified as boolean } : {}),
+    }
   } catch {
     return null
   }

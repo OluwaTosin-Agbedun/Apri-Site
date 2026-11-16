@@ -10,7 +10,7 @@
  * like a step everyone had to take every time.
  */
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -30,6 +30,10 @@ const NAV_ITEMS: NavItem[] = [
 export default function SiteHeader() {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
+  const toggle = useRef<HTMLButtonElement>(null)
+  function dismiss(event:React.KeyboardEvent) {
+    if (event.key === "Escape" && isOpen) {setIsOpen(false);toggle.current?.focus()}
+  }
 
   const isCurrent = (href: string) => {
     if (href === "/publications") return pathname.startsWith("/publications")
@@ -61,11 +65,12 @@ export default function SiteHeader() {
             </span>
           </Link>
 
-          <nav className="hidden xl:flex items-center gap-7">
+          <nav aria-label="Main navigation" className="hidden xl:flex items-center gap-7">
             {NAV_ITEMS.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={isCurrent(item.href)?"page":undefined}
                 className={linkClass(item.href)}
               >
                 {item.label}
@@ -75,23 +80,27 @@ export default function SiteHeader() {
 
           <button
             type="button"
+            ref={toggle}
+            onKeyDown={dismiss}
             onClick={() => setIsOpen((open) => !open)}
             aria-expanded={isOpen}
-            aria-label="Toggle navigation"
-            className="xl:hidden text-sm text-foreground/70 hover:text-foreground transition-colors cursor-pointer"
+            aria-controls={isOpen?"mobile-navigation":undefined}
+            aria-label={isOpen ? "Close navigation menu" : "Menu"}
+            className="xl:hidden min-w-11 min-h-11 text-sm text-foreground/70 hover:text-foreground transition-colors cursor-pointer"
           >
             {isOpen ? "Close" : "Menu"}
           </button>
         </div>
 
         {isOpen && (
-          <nav className="xl:hidden pb-6 flex flex-col gap-4 border-t border-border pt-6">
+          <nav id="mobile-navigation" aria-label="Mobile navigation" onKeyDown={dismiss} className="xl:hidden pb-6 flex flex-col gap-2 border-t border-border pt-6">
             {NAV_ITEMS.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={isCurrent(item.href)?"page":undefined}
                 onClick={() => setIsOpen(false)}
-                className={linkClass(item.href)}
+                className={`${linkClass(item.href)} min-h-11 flex items-center`}
               >
                 {item.label}
               </Link>

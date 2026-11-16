@@ -1,6 +1,7 @@
 'use client'
 
-import { useActionState, useEffect, useState } from 'react'
+import { useActionState, useState } from 'react'
+import { useReferrerHost } from '@/lib/use-referrer-host'
 import { requestAccess } from '@/app/actions/public'
 import { submitPublicSubscriptionRequest } from '@/app/actions/review-funnel'
 import { PLANS } from '@/lib/subscription-journey'
@@ -48,12 +49,7 @@ export default function AccessForm({
   const [enquiry, enquiryAction, enquiryPending] = useActionState(requestAccess, undefined)
   const [planState, planAction, planPending] = useActionState(submitPublicSubscriptionRequest, {})
   const [subscriptionLevel, setSubscriptionLevel] = useState(defaultLevel)
-  const [referrerHost, setReferrerHost] = useState('')
-  useEffect(() => {
-    try {
-      setReferrerHost(document.referrer ? new URL(document.referrer).hostname : '')
-    } catch {}
-  }, [])
+  const referrerHost = useReferrerHost()
   // Individual and Professional Access are priced plans: the same form, but it
   // also collects what the agreement and invoice need and goes to the
   // subscription-request workflow, which grants nothing until an agreement is

@@ -48,6 +48,8 @@ const tagged = (db) => async (strings, ...values) => {
 
 async function rollback(db) {
   try {
+    // A pre-metadata schema cannot retain the later dependent workflow.
+    await db.exec(read('db/rollback/20261115_stage3_publishing_workflow.rollback.sql'))
     await db.exec(ROLLBACK)
   } catch (error) {
     await db.exec("rollback").catch(() => {})

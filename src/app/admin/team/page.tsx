@@ -3,6 +3,7 @@ import { getTeamImages } from "@/lib/team-images"
 import { TEAM_MEMBERS } from "@/data/team"
 import AdminShell from "@/components/AdminShell"
 import TeamImageForm from "./team-image-form"
+import Image from "next/image"
 export default async function Page() {
   const admin = await requireOwner(),
     images = await getTeamImages(),
@@ -30,9 +31,14 @@ export default async function Page() {
               className="border border-border p-6 grid md:grid-cols-[160px_1fr] gap-6"
             >
               {image ? (
-                <img
+                <Image
                   src={image.imageUrl}
-                  alt={image.altText}
+                  alt={image.altText||`Portrait of ${m.name}`}
+                  width={440}
+                  height={550}
+                  quality={90}
+                  sizes="(min-width: 768px) 160px, calc(100vw - 80px)"
+                  unoptimized={!/^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\/team\//i.test(image.imageUrl)}
                   className="aspect-[4/5] w-full object-cover"
                 />
               ) : (

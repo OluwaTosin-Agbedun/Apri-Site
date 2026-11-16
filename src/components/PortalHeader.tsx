@@ -39,14 +39,14 @@ export default function PortalHeader({
             {line && <span className="hidden sm:inline"> &middot; {line}</span>}
           </p>
           {termEnd && (
-            <p className="text-xs text-muted-foreground/70 mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Access until {formatDate(termEnd)}
             </p>
           )}
         </div>
 
         <form action={subscriberSignOut}>
-          <SubmitButton busy="Signing out…" className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer shrink-0 py-2 inline-flex items-center gap-2">
+          <SubmitButton busy="Signing out…" className="text-xs text-foreground/60 hover:text-foreground transition-colors cursor-pointer shrink-0 py-2 inline-flex items-center gap-2">
             Sign out
           </SubmitButton>
         </form>

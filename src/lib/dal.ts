@@ -3,6 +3,7 @@ import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { getSql } from './db'
 import { readSession } from './session'
+import { staffSecurityState } from './admin-security'
 
 export type CurrentAdmin = {
   id: string
@@ -34,7 +35,17 @@ export const getCurrentAdmin = cache(async (): Promise<CurrentAdmin | null> => {
     limit 1
   `) as CurrentAdmin[]
 
-  return rows[0] ?? null
+  const admin = rows[0]
+  if (!admin) return null
+  const security = await staffSecurityState(admin.id, sql)
+  if (!security) {
+    // Before the additive migration, existing sessions keep their old behaviour.
+    // A security-versioned session can never bypass checks if its tables disappear.
+    return session.securityVersion !== undefined || session.mfaVerified !== undefined ? null : admin
+  }
+  if ((session.securityVersion ?? 0) !== security.version) return null
+  if ((security.enabled || security.required) && session.mfaVerified !== true) return null
+  return admin
 })
 
 /** Use in any admin page, layout, or server action that must not be public. */

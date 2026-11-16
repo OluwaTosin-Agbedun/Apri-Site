@@ -12,6 +12,7 @@ import { hasAssignedDataRoom } from "@/lib/access-policy-dal"
 import PapermarkEmbed from "@/components/PapermarkEmbed"
 import SiteFooter from "@/components/SiteFooter"
 import PortalHeader from "@/components/PortalHeader"
+import {latestPaidPublicationFor,publicationVersions} from '@/lib/publication-versions'
 
 export const dynamic = "force-dynamic"
 
@@ -36,6 +37,8 @@ export default async function PortalDocumentPage({
   if (principal.type === "subscriber") {
     const drResult = await getDataRoomDocumentForSubscriber(principal.id, decodedId)
     if (drResult) {
+      if(drResult.document.publicationId){const latest=await latestPaidPublicationFor(principal.id,drResult.document.publicationId);if(latest&&latest!==drResult.document.publicationId)redirect(`/portal/publication/${latest}`)}
+      const family=drResult.document.publicationId&&(await publicationVersions('paid',[drResult.document.publicationId])).has(drResult.document.publicationId)
       return (
         <DataRoomDocumentView
           principal={principal}
@@ -46,6 +49,7 @@ export default async function PortalDocumentPage({
           papermarkLinkId={drResult.papermarkLinkId}
           allowDownload={drResult.allowDownload}
           documentRowId={decodedId}
+          historyHref={family?`/portal/publication/${drResult.document.publicationId}`:null}
         />
       )
     }
@@ -82,7 +86,7 @@ export default async function PortalDocumentPage({
         termEnd={principal.termEnd}
       />
 
-      <main className={`flex-1 ${SHELL} py-8 sm:py-10`}>
+      <main id="main-content" tabIndex={-1} className={`flex-1 ${SHELL} py-8 sm:py-10`}>
         <Link
           href="/portal"
           className="text-sm text-foreground/60 hover:text-foreground transition-colors"
@@ -161,6 +165,7 @@ async function DataRoomDocumentView({
   papermarkLinkId,
   allowDownload,
   documentRowId,
+  historyHref,
 }: {
   principal: Awaited<ReturnType<typeof requirePortalPrincipal>>
   title: string
@@ -170,6 +175,7 @@ async function DataRoomDocumentView({
   papermarkLinkId: string | null
   allowDownload: boolean
   documentRowId: string
+  historyHref: string | null
 }) {
   try {
     await recordClientEvent(
@@ -190,13 +196,14 @@ async function DataRoomDocumentView({
         termEnd={principal.termEnd}
       />
 
-      <main className={`flex-1 ${SHELL} py-8 sm:py-10`}>
+      <main id="main-content" tabIndex={-1} className={`flex-1 ${SHELL} py-8 sm:py-10`}>
         <Link
           href="/portal"
           className="text-sm text-foreground/60 hover:text-foreground transition-colors"
         >
           <span aria-hidden>&larr;</span> Back to your library
         </Link>
+        {historyHref && <Link href={historyHref} className="inline-flex min-h-11 items-center ml-5 text-sm underline">Version history</Link>}
 
         <div className="mt-5 mb-6 flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">

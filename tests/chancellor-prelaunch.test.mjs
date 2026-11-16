@@ -44,7 +44,7 @@ test('S2: hero uses approved headline and sub-copy', () => {
   const page = read('src/app/page.tsx')
   assert.match(page, /Athena Political &amp; Regulatory Intelligence/)
   assert.match(page, /Independent political, regulatory and political-economy intelligence/)
-  assert.match(page, /operating, investing and making strategic decisions in Nigeria/)
+  assert.match(read('src/lib/seo.ts'), /operating, investing and making strategic decisions in Nigeria/)
 })
 
 // ---------------------------------------------------------------------------
@@ -413,7 +413,7 @@ test('S16: access form has labels for every input', () => {
 test('S16: header toggle has aria-expanded and aria-label', () => {
   const header = read('src/components/SiteHeader.tsx')
   assert.match(header, /aria-expanded=/)
-  assert.match(header, /aria-label="Toggle navigation"/)
+  assert.match(header, /aria-label=\{isOpen \? "Close navigation menu" : "Menu"\}/)
 })
 
 test('S16: homepage heading hierarchy starts with h1 before h2', () => {

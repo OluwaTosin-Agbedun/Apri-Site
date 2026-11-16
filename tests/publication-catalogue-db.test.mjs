@@ -602,8 +602,9 @@ describe("records, publishing and reports follow the catalogue", () => {
     assert.match(refused.message, /Add the edition date before publishing/)
     assert.equal((await sql`select status from documents where id = ${board}::uuid`)[0].status, "draft")
     await sql`update documents set edition_date = '2026-07-01' where id = ${board}::uuid`
-    assert.equal((await docs.setDocumentStatus(board, "published")).ok, true)
-    await docs.setDocumentStatus(board, "draft")
+    const held=await docs.setDocumentStatus(board, "published")
+    assert.match(held.message,/editorial record|approval/)
+    assert.equal((await sql`select status from documents where id=${board}::uuid`)[0].status,'draft', 'a date alone is no longer an editorial approval')
   })
 
   it("the readiness report compares a record's series with its folder's category as the portal places it today, not the stored snapshot", async () => {

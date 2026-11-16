@@ -16,6 +16,11 @@ function papermarkFrameSources(): string {
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  images: {
+    formats: ['image/avif','image/webp'],
+    qualities: [90],
+    remotePatterns: [{protocol:'https',hostname:'*.public.blob.vercel-storage.com',pathname:'/team/**'}],
+  },
 
   experimental: {
     serverActions: {
@@ -25,6 +30,10 @@ const nextConfig: NextConfig = {
 
   async headers() {
     return [
+      ...['/admin/:path*','/portal/:path*','/api/:path*','/review/library/:path*','/review/read/:path*','/review/verify','/review/access','/review/confirmed','/review/subscribe/:path*'].map(source=>({source,headers:[
+        {key:'Cache-Control',value:'private, no-store, max-age=0'},
+        {key:'X-Robots-Tag',value:'noindex, nofollow, nosnippet'},
+      ]})),
       {
         source: '/:path*',
         headers: [

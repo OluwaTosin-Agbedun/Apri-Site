@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto"
 import { Resend } from "resend"
 import { seriesLabel, tierDisplayName } from "./entitlements"
 import { emailNotice } from "./delivery"
-import { APRI_PRODUCTION_URL, portalSignInUrl, portalVerificationUrl } from "./app-url"
+import { portalSignInUrl, portalVerificationUrl } from "./app-url"
+import { siteOrigin } from "./site-config"
 import { recordClientEvent, type ClientPrincipal } from "./client-engagement"
 import { deliverEmail, fingerprint, type EmailOutcome } from "./email-delivery"
 import { signInCodeFor } from "./magic-link"
@@ -38,11 +39,12 @@ function getResend(): Resend | null {
 type Message = Parameters<Resend["emails"]["send"]>[0]
 
 /** Hands one message to the provider under an idempotency key and reports what happened. */
-function send(message: Message, idempotencyKey: string): Promise<EmailOutcome> {
+function send(message: Message, idempotencyKey: string, options?: {timeoutMs?:number}): Promise<EmailOutcome> {
   const resend = getResend()
   return deliverEmail(
     resend ? (key) => resend.emails.send(message, { idempotencyKey: key }) : null,
     idempotencyKey,
+    options,
   )
 }
 
@@ -259,22 +261,26 @@ export type EditionAlert = {
   series: string
   editionDate: string | null
   summary: string
-  /** Direct document link, or null to send them to the portal instead. */
+  /** Legacy input retained for compatibility; alerts always return to /portal. */
   linkUrl: string | null
+  /** Optional identity for an audited correction, not a public document link. */
+  notificationKind?: "publication" | "correction"
 }
 
-export async function sendEditionAlert(alert: EditionAlert, idempotencyKey?: string): Promise<EmailOutcome> {
-  const target = alert.linkUrl ?? `${APRI_PRODUCTION_URL}/portal`
-  const label = alert.linkUrl ? "Read it now" : "Open my library"
+export async function sendEditionAlert(alert: EditionAlert, idempotencyKey?: string, options?: {timeoutMs?:number}): Promise<EmailOutcome> {
+  // Always return to authenticated first-party access; never email a vendor
+  // bearer URL or a reader's personalised copy.
+  const target = `${siteOrigin()}/portal`
+  const label = "Open my library"
   const kicker = [seriesLabel(alert.series), formatDate(alert.editionDate)]
     .filter(Boolean)
     .join(" · ")
 
-  return send({
+  const message: Message = {
     from: `APRI <${FROM}>`,
     to: alert.email,
     replyTo: CONTACT,
-    subject: `New: ${alert.title}`,
+    subject: `${alert.notificationKind === "correction" ? "Updated" : "New"}: ${alert.title}`,
     html: shell(`
       ${
         kicker
@@ -292,11 +298,19 @@ export async function sendEditionAlert(alert: EditionAlert, idempotencyKey?: str
 
       ${button(label, target)}
 
+      <p style="margin:20px 0 0;font-size:13px;"><a href="${esc(`${siteOrigin()}/portal/preferences`)}" style="color:#78652f;">Manage publication emails</a></p>
+
       <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#888888;">
         ${esc(emailNotice())}
       </p>
     `),
-  }, idempotencyKey ?? `alert:${randomUUID()}`)
+  }
+  // Only known refusals are eligible for a queue retry. If approved public
+  // metadata or the launch domain changes in between, the provider must not
+  // reject a changed body under an earlier key. Accepted and unknown jobs are
+  // never automatically retried by the outbox.
+  const key = `${idempotencyKey ?? `alert:${randomUUID()}`}:${fingerprint(JSON.stringify(message))}`
+  return send(message, key, options)
 }
 
 // ---------------------------------------------------------------------------

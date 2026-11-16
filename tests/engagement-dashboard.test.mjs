@@ -175,48 +175,42 @@ test("follow-up migration is idempotent via column-existence check", () => {
   assert.doesNotMatch(migration, /drop table|drop column|truncate/i)
 })
 
-test("notification query requires notification_eligible = true", () => {
-  const service = read("src/lib/dataroom-notifications.ts")
-  assert.match(service, /notification_eligible = true/)
+test("new-release capture is separate from a raw upload and requires an approved baseline", () => {
+  const migration = read("db/migrations/20261115_stage5_publication_notifications.sql")
+  assert.match(migration,/baseline_time is null/)
+  assert.match(migration,/new\.paid_release_state='released'/)
+  assert.match(migration,/publication_notice_seen/)
 })
-
-test("notification query has a time window (first_seen_at within 1 hour)", () => {
-  const service = read("src/lib/dataroom-notifications.ts")
-  assert.match(service, /first_seen_at > now\(\) - interval '1 hour'/)
+test("delayed notification jobs have no one-hour expiry", () => {
+  const worker=read("src/lib/publication-notifications.ts")
+  assert.doesNotMatch(worker,/first_seen_at\s*>/)
+  assert.match(worker,/next_attempt_at/)
+  assert.match(worker,/notificationEligibility/)
 })
-
 test("notification query has no broken document-level not-exists filter", () => {
-  const service = read("src/lib/dataroom-notifications.ts")
-  assert.doesNotMatch(service, /not exists\s*\(\s*select 1 from papermark_document_notifications/)
+  assert.doesNotMatch(read("src/lib/dataroom-notifications.ts"),/not exists\s*\(\s*select 1 from papermark_document_notifications/)
 })
-
-test("insert-before-send: notification record is claimed before email", () => {
-  const service = read("src/lib/dataroom-notifications.ts")
-  const claimedPos = service.indexOf("returning id")
-  const sendPos = service.indexOf("await sendEditionAlert")
-  assert.ok(claimedPos > 0, "returning id not found")
-  assert.ok(sendPos > 0, "sendEditionAlert not found")
-  assert.ok(claimedPos < sendPos, "notification record must be inserted before email is sent")
-  assert.match(service, /claimed\.length === 0/)
+test("the durable job is claimed before the provider is called", () => {
+  const worker=read("src/lib/publication-notifications.ts")
+  assert.ok(worker.search(/const claimed\s*=/)<worker.search(/const outcome\s*=\s*await send\(/))
+  assert.match(worker,/lease_token/)
+  assert.match(worker,/if\s*\(!claimed\.length\)\s*continue/)
 })
-
-test("notification dedup uses the unique index on (subscriber, document, version)", () => {
-  const service = read("src/lib/dataroom-notifications.ts")
-  assert.match(service, /on conflict \(subscriber_id, dataroom_document_id, version_key\)/)
-  assert.match(service, /do nothing/)
+test("one edition revision and one recipient job are enforced by database uniqueness", () => {
+  const migration=read("db/migrations/20261115_stage5_publication_notifications.sql")
+  assert.match(migration,/unique\(publication_id,revision_key\)/)
+  assert.match(migration,/unique\(event_id,subscriber_id\)/)
 })
-
-test("notification service checks level-room mapping", () => {
-  const service = read("src/lib/dataroom-notifications.ts")
-  assert.match(service, /papermark_level_rooms/)
-  assert.match(service, /public_tier/)
-  assert.match(service, /papermark_dataroom_override/)
+test("notification eligibility uses the same room assignment and access policy as the portal", () => {
+  const worker=read("src/lib/publication-notifications.ts")
+  assert.match(worker,/loadSubscriberAccess\(subscriberId\)/)
+  assert.match(worker,/loadLegacyPublicationAccess\(subscriberId\)/)
+  assert.match(worker,/document\.decision\.outcome/)
 })
-
 test("reconciliation sweeps all mapped rooms", () => {
-  const service = read("src/lib/dataroom-notifications.ts")
-  assert.match(service, /reconcileAllDataRooms/)
-  assert.match(service, /select papermark_dataroom_id from papermark_level_rooms/)
+  const service=read("src/lib/dataroom-notifications.ts")
+  assert.match(service,/reconcileAllDataRooms/)
+  assert.match(service,/select distinct papermark_dataroom_id from papermark_level_rooms/)
 })
 
 // ---------------------------------------------------------------------------

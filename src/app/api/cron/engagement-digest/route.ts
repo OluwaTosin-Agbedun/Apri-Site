@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { APRI_PRODUCTION_URL } from '@/lib/app-url'
+import { siteOrigin } from '@/lib/site-config'
 import { getDigestData, type DigestPerson } from '@/lib/reader-monitoring'
 
 export const dynamic = 'force-dynamic'
@@ -136,7 +136,7 @@ function digestHtml(data: Awaited<ReturnType<typeof getDigestData>>): string {
 
           <table cellpadding="0" cellspacing="0"><tr>
             <td style="background:#1a1a1a;">
-              <a href="${esc(APRI_PRODUCTION_URL)}/admin/engagement" style="display:inline-block;padding:12px 26px;font-size:14px;color:#ffffff;text-decoration:none;">Open Engagement</a>
+              <a href="${esc(siteOrigin())}/admin/engagement" style="display:inline-block;padding:12px 26px;font-size:14px;color:#ffffff;text-decoration:none;">Open Engagement</a>
             </td>
           </tr></table>
         </td></tr>

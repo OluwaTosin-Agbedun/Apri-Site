@@ -8,6 +8,7 @@ import { DocumentSchema, fieldErrors, type FormState } from '@/lib/definitions'
 import { portalTitleOverrideReady } from '@/lib/portal-title-schema'
 import { catalogueSchemaReady } from '@/lib/publication-catalogue-dal'
 import { hasWrittenSummary } from '@/lib/publication-metadata-dal'
+import { publishingGate, releasePreconditions, recordWorkflowRelease, workflowSchemaReady, loadWorkflow } from '@/lib/publication-workflow'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const STATUSES = ['draft', 'published', 'archived'] as const
@@ -38,7 +39,7 @@ export async function setDocumentStatus(
   id: string,
   status: string
 ): Promise<FormState> {
-  await requireAdmin()
+  const admin = await requireAdmin()
 
   if (!UUID.test(id)) return { message: 'Unknown publication.' }
   if (!STATUSES.includes(status as Status)) {
@@ -76,15 +77,22 @@ export async function setDocumentStatus(
     if (row.visibility !== 'OPEN' && !row.edition_date) {
       return { message: 'Add the edition date before publishing this subscriber edition.' }
     }
+    const gate = await publishingGate('paid', id, admin, sql)
+    if (!gate.ok) return { message: gate.message }
 
-    await sql`
+    const commands = (await workflowSchemaReady(sql)) ? releasePreconditions(sql,'paid',id,admin,gate.workflow) : []
+    commands.push(sql`
       update documents
       set status = 'published',
           is_published = true,
           published_at = coalesce(published_at, now()),
           updated_at = now()
       where id = ${id}
-    `
+    `)
+    if (gate.workflow) commands.push(recordWorkflowRelease(sql,'paid',id,admin,gate.workflow))
+    try { await sql.transaction(commands) } catch {
+      return { message: 'Publication not released: its review or source changed. Reload and check editorial approval.' }
+    }
   } else {
     await sql`
       update documents
@@ -118,12 +126,14 @@ export async function deleteDocument(id: string): Promise<FormState> {
   `) as { dataroom: boolean; review: boolean; access: boolean; views: boolean; downloads: boolean }[]
   // A written protected summary would be deleted with the record (cascade).
   const summary = await hasWrittenSummary(sql, id)
+  const workflow = await loadWorkflow('paid',id,sql)
   const uses = [
     refs?.dataroom && 'a Data Room document',
     refs?.review && 'a review slot',
     refs?.access && 'subscriber access records',
     (refs?.views || refs?.downloads) && 'reading history',
     summary && 'a protected summary (clear its text in the editor first if it is not needed)',
+    workflow && 'editorial/version history',
   ].filter(Boolean)
   if (uses.length > 0) {
     return { message: `This publication record is used by ${uses.join(', ')}, so it was not deleted. Archive it instead.` }
@@ -226,8 +236,10 @@ export async function saveDocument(
         )
       `
     }
-  } catch {
-    return { message: 'That web address (slug) is already in use.' }
+  } catch (error) {
+    if(error instanceof Error&&/released issue date|released PDF source/i.test(error.message))return {message:'This released version’s original issue date and PDF source are preserved. Use the correction workflow for a separately reviewed version.'}
+    if(typeof error==='object'&&error!==null&&'code' in error&&error.code==='23505')return {message:'That web address (slug) is already in use.'}
+    return { message: 'That could not be saved. Check the web address and publication details, then try again.' }
   }
 
   // Whether subscribers see this title instead of the Papermark name. Only an
@@ -294,26 +306,38 @@ export async function saveEditionAvailability(_prev: FormState, formData: FormDa
   const { publicationPlansReady } = await import('@/lib/access-policy-dal')
   if (!(await accessHealthSchemaReady(sql))) return { message: ACCESS_HEALTH_MIGRATION_PENDING }
   if (!(await publicationPlansReady(sql))) return { message: 'Plan ticks are not available until db/migrations/20261005_publication_plans.sql is applied.' }
+  const [paid]=await sql`select id from documents where id=${id}::uuid and visibility<>'OPEN'`
+  if(!paid)return {message:'Only a paid (not public) publication record can be given to subscribers.'}
 
   const before = (await sql`select public_tier from publication_plans where publication_id = ${id}::uuid`) as { public_tier: string }[]
-  const rows = (await sql`
+  const gate = state === 'released' ? await publishingGate('paid',id,admin,sql) : null
+  if (gate && !gate.ok) return {message:gate.message}
+  const pre = gate && await workflowSchemaReady(sql) ? releasePreconditions(sql,'paid',id,admin,gate.workflow) : []
+  const commands = [...pre,sql`
     update documents
     set paid_release_state = ${state === 'undecided' ? null : state},
         paid_release_changed_at = now(), paid_release_changed_by = ${admin.id}::uuid,
         paid_release_reason = ${reason}, updated_at = now()
     where id = ${id}::uuid and visibility <> 'OPEN'
     returning id
-  `) as { id: string }[]
-  if (!rows[0]) return { message: 'Only a paid (not public) publication record can be given to subscribers.' }
-  await sql`delete from publication_plans where publication_id = ${id}::uuid and not (public_tier = any(${plans}::text[]))`
+  `,sql`delete from publication_plans where publication_id = ${id}::uuid and not (public_tier = any(${plans}::text[])) and exists(select 1 from documents where id=${id}::uuid and visibility<>'OPEN')`]
   for (const plan of plans) {
-    await sql`insert into publication_plans (publication_id, public_tier, source) values (${id}::uuid, ${plan}, 'admin') on conflict do nothing`
+    commands.push(sql`insert into publication_plans (publication_id, public_tier, source) select ${id}::uuid, ${plan}, 'admin' where exists(select 1 from documents where id=${id}::uuid and visibility<>'OPEN') on conflict do nothing`)
   }
   const planNames = plans.length ? plans.join(', ') : 'no plan'
-  await sql`
+  commands.push(sql`
     insert into publication_release_events (publication_id, state, reason, administrator_id)
-    values (${id}::uuid, ${state}, ${`${reason} (plans: ${planNames})`}, ${admin.id}::uuid)
-  `
+    select ${id}::uuid, ${state}, ${`${reason} (plans: ${planNames})`}, ${admin.id}::uuid where exists(select 1 from documents where id=${id}::uuid and visibility<>'OPEN')
+  `)
+  if(gate?.workflow){
+    // Plan edits in this same form must not silently widen a correction's
+    // explicitly inherited audience after its initial precondition check.
+    commands.push(sql`select assert_publication_editorial_approval('paid',${id}::uuid,${admin.id}::uuid,${gate.workflow.revision}::bigint)`)
+    commands.push(recordWorkflowRelease(sql,'paid',id,admin,gate.workflow))
+  }
+  let result
+  try { result=await sql.transaction(commands) } catch { return {message:'Nothing released: the editorial review changed or is not approved. Reload the record.'} }
+  if (!result[pre.length]?.[0]) return { message: 'Only a paid (not public) publication record can be given to subscribers.' }
 
   // Saved now; every affected subscriber's links are updated straight after
   // the response, so the page answers at once. No email is sent.

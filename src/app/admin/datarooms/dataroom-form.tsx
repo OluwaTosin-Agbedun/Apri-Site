@@ -146,7 +146,7 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
 
   async function handleSyncAndNotify() {
     if (!tier) return
-    if (!window.confirm(`Sync documents and notify all ${tier} subscribers of new publications?`)) return
+    if (!window.confirm(`Sync documents and check saved publication alerts for ${tier}?`)) return
     setNotifying(tier)
     setNotifyMsg("")
     const result = await syncAndNotify(tier)
@@ -224,7 +224,7 @@ export function MappingActions({ mappedTiers }: { mappedTiers: string[] }) {
           disabled={!tier || notifying !== ""}
           className={btnSecondary}
         >
-          {notifying ? "Syncing & notifying..." : "Sync and notify"}
+          {notifying ? "Syncing…" : "Sync and check alerts"}
         </button>
         <button
           type="button"

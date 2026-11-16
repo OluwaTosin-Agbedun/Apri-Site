@@ -1,4 +1,11 @@
-# pnpm 11 ignores dependency build scripts unless explicitly approved here.
-# sharp needs its native postinstall step for next/image optimisation.
+packages:
+  - '.'
+
 allowBuilds:
   sharp: true
+
+# Same-major security patches for transitive dependencies. This location is
+# supported by the pinned pnpm 10 and pnpm 11; package.json's pnpm field is not.
+overrides:
+  'source-map-js@<1.2.2': '1.2.2'
+  'zod@>=4.0.0 <4.6.6': '4.6.7'

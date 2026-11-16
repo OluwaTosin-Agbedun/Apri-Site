@@ -37,6 +37,7 @@ type Edition = {
   series: string | null
   title: string
   editionLabel: string
+  editionDate: string | null
   editionSortKey: string
   papermarkFilename: string
   numPages: number | null
@@ -362,6 +363,7 @@ function EditionCard({
           <h3 className="font-serif text-xl mt-1">
             {e.title || e.papermarkFilename}
           </h3>
+          <a href={`/admin/review-library/${e.id}/workflow`} className="inline-flex min-h-11 items-center text-sm underline mt-1">Editorial review and versions</a>
           <p className="text-sm text-muted-foreground mt-1">
             {e.editionLabel || "Edition label needed"}
             </p>
@@ -454,6 +456,7 @@ function EditionCard({
             updateEditionDetails(e.id, {
               series: String(f.get("series")),
               editionLabel: String(f.get("editionLabel")),
+              editionDate: String(f.get('editionDate')??''),
               title: String(f.get("title")),
               publicationType: String(f.get("publicationType")),
               description: String(f.get("description")),
@@ -485,6 +488,9 @@ function EditionCard({
         </Field>
         <Field title="Public publication title">
           <input name="title" defaultValue={e.title} className={field} />
+        </Field>
+        <Field title="Original issue date">
+          <input name="editionDate" type="date" defaultValue={e.editionDate??''} className={field}/>
         </Field>
         <Field title="Publication type">
           <input

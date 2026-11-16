@@ -37,7 +37,7 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-4xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-4xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-14">
           <h1 className="font-serif text-3xl sm:text-4xl text-foreground mb-4 leading-tight tracking-tight">
             Privacy
@@ -324,7 +324,7 @@ export default function PrivacyPage() {
         <div className="mt-14">
           <SiteFooter />
         </div>
-      </div>
+      </main>
     </div>
   )
 }

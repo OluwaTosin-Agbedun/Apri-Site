@@ -60,6 +60,7 @@ const EVENT_COLUMN: Record<string, "delivered_at" | "bounced_at" | "complained_a
   "email.complained": "complained_at",
   "email.delivery_delayed": "delayed_at",
   "email.failed": "bounced_at",
+  "email.suppressed": "bounced_at",
   "email.sent": null,
   "email.opened": null,
   "email.clicked": null,
@@ -77,8 +78,8 @@ export async function applyReviewEmailEvent(providerMessageId: string, eventType
     const sql = getSql()
     const rows = (await sql`
       update review_email_attempts set
-        last_event = ${eventType.replace(/^email\./, "")},
-        last_event_at = ${occurredAt},
+        last_event = case when last_event_at is null or last_event_at <= ${occurredAt} then ${eventType.replace(/^email\./, "")} else last_event end,
+        last_event_at = greatest(last_event_at, ${occurredAt}),
         delivered_at = case when ${column === "delivered_at"} then coalesce(delivered_at, ${occurredAt}) else delivered_at end,
         bounced_at = case when ${column === "bounced_at"} then coalesce(bounced_at, ${occurredAt}) else bounced_at end,
         complained_at = case when ${column === "complained_at"} then coalesce(complained_at, ${occurredAt}) else complained_at end,

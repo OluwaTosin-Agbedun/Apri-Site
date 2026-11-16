@@ -277,6 +277,11 @@ The full write-up is in [`docs/subscriber-sign-in.md`](docs/subscriber-sign-in.m
 
 - Individual owner and editor accounts, with an 8-hour session (`apri_session`).
 - The first visit to `/admin` with no accounts offers one-time setup.
+- **Staff Security:** optional authenticator enrolment, one-use recovery codes,
+  server-checked session revocation, and an owner-controlled requirement once
+  active staff have enrolled. Reader sign-ins are unchanged. Keep `SESSION_SECRET`
+  securely backed up: it also encrypts staff factors. Rollout and recovery:
+  [`docs/stage4-operations-security.md`](docs/stage4-operations-security.md).
 
 ---
 
@@ -304,7 +309,8 @@ shows. Buttons show a spinner while they work.
 ## Code map
 
 ```
-proxy.ts                     Next 16 proxy: optimistic admin gate; renews subscriber sessions
+src/proxy.ts                 Next 16-discovered proxy beside src/app; calls the tested root proxy.ts implementation
+proxy.ts                     Shared request policy: optimistic admin gate, session renewal, indexing and opt-in migration
 src/app/                     Routes (public site, /portal, /review, /admin, /api)
 src/app/actions/             Server actions — each authorises itself
 src/lib/                     Server logic (server-only), including:
@@ -357,7 +363,7 @@ The rules are written for an attacker who can read this whole repository:
   - tests use invented data only.
 - **Before every commit**, run the type check, tests, production build, the secret scan
   (`pnpm check:secrets`) and a scan of the built client bundle. CI runs the first four on every
-  push to `main`.
+  push to `main`; Stage 5 adds ESLint and isolated production browser checks to pull requests.
 
 ---
 
@@ -387,7 +393,11 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 |---|---|
 | `DATABASE_URL` | Neon Postgres connection string |
 | `SESSION_SECRET` | Signs all sessions and keys sign-in codes (32+ characters) |
-| `APP_URL` | Optional. The origin used in review emails when set (for a sandbox). Unset, review and subscriber emails both use `https://apri.athenacentre.org` |
+| `APP_URL` | Legacy/sandbox email origin fallback. `PUBLIC_SITE_URL`, when set, takes precedence; otherwise subscriber links default to the existing production host |
+| `PUBLIC_SITE_URL` | Trusted public origin for metadata, sitemap and first-party emails: only `https://apri.athenacentre.org` or `https://athenaadvisory.ng`; unset keeps the existing domain |
+| `SITE_REDIRECTS_ENABLED` | Default disabled. Only `enabled` plus the new trusted origin activates safe GET/HEAD domain redirects; no cross-domain API/POST/token forwarding |
+| `GOOGLE_SITE_VERIFICATION` | Optional public Search Console verification token; owner login and sitemap submission remain manual |
+| `DATAROOM_NEW_DOCUMENT_EMAILS` | Default disabled. `enabled` permits publication sending only after an owner separately approves a baseline in Publication Alerts; migration and configured Resend sender also required |
 | `PAPERMARK_API_TOKEN` | Papermark API (server-only) |
 | `PAPERMARK_API_BASE` | Optional, for self-hosted Papermark |
 | `PAPERMARK_CUSTOM_DOMAIN` | Optional verified custom domain for links |
@@ -454,6 +464,9 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 | 32 | `20261012_papermark_work_queue.sql` | Shared Papermark pacing, saved reader repair jobs, owned leases and resumable paid verification |
 | 33 | `20261114_publication_catalogue.sql` | One publication catalogue: owner-edited category labels, order and active flag, exact Papermark folder mappings (seeded once from the defaults); `documents.series` may be OTHER; review editions may use any catalogue code but BP. Changes no existing row. Sets a 5-second lock timeout: if it fails on a lock, re-run it |
 | 34 | `20261114_publication_editorial_metadata.sql` | Optional reader details on publication records (author/editor, covered period, information cut-off, reading time), the subject/sector/geography tag vocabulary and assignments (an assigned tag cannot be deleted), and approved protected summaries with revisions. Additive, no backfill. Sets a 5-second lock timeout: if it fails on a lock, re-run it |
+| 35 | `20261115_stage3_publishing_workflow.sql` | Explicit editorial review, immutable released snapshots, correction families and exact audience inheritance, embedded notice proof and honest saved raw-link retirement. No migration backfill, provider mutation or email. |
+| 36 | `20261115_stage4_operations_security.sql` | Staff authenticator/session-version controls, durable signed delivery evidence, owner-only operations/incident records and explicitly approved bounded retention. No emails, cleanup or provider mutations on migration. Rollback refuses after use. |
+| 37 | `20261115_stage5_publication_notifications.sql` | Disabled-by-default durable release/update events, leased per-subscriber email jobs, publication email preferences and approval audit; first-release capture is transactional and no historical email is sent by the migration |
 
 A read-only check on 2 October 2026 found every migration through `20261010` applied in
 production. `20261011` is new: until it is applied, the library sends readers to each edition's
@@ -580,22 +593,80 @@ remains supported. Daily Data Room sync is also a retry opportunity. Scheduled A
 can be delayed; the saved jobs and leases remain recoverable. See
 [`docs/papermark-repair-stability.md`](docs/papermark-repair-stability.md) for exact steps.
 
+**Publication email jobs:** `/api/cron/publication-notifications` uses the same header-only
+`CRON_SECRET`, an owner baseline and `DATAROOM_NEW_DOCUMENT_EMAILS=enabled`. The source
+workflow `.github/workflows/publication-notifications.yml` runs hourly at minute 31; the
+optional repository variable `APRI_SITE_URL` selects an approved old/new origin. It never
+follows redirects with the secret. It checks up to 20 candidate subscribers for one event
+and sends up to 10 due jobs per run. Admin → Publication Alerts can advance the same bounded
+queue. See [Stage 5 rollout](docs/stage5-quality-and-notifications.md).
+
 **Scripts** (`scripts/`):
 
 | Script | Use |
 |---|---|
 | `run-tests.mjs` | The test runner |
+| `check-browser.mjs` | Isolated production build, public HTTP/anchor checks, desktop/mobile keyboard and axe checks, five paid plans, review assignment removal and lab responsiveness; no live services |
 | `check-secrets.mjs`, `install-hooks.mjs` | Secret scan and its pre-commit hook |
 | `migrate.mjs`, `seed.mjs` | Schema and seed for a database (`lib/sql-statements.mjs` splits SQL as psql does; the test database uses it too) |
 | `access-recovery-preview.mjs` | Read-only preview of subscriber access; `--apply-release` backfill |
 | `reconcile-subscriber-document-links.mjs` | Batch reconciliation of personal links (dry run by default) |
 | `subscription-access-rollout-report.mjs` | Every subscriber's access state, with no link ids |
+| `verify-restored-access.mjs` | Read-only comparison of frozen source/restored access tables; set `RECOVERY_SOURCE_DATABASE_URL` and `RECOVERY_RESTORED_DATABASE_URL` privately with read-only credentials. Counts and match results only; no provider or PDF verification. |
+
+**Operations:** `/api/cron/operations` matches saved signed delivery events,
+checks database health evidence and sends bounded internal alerts only after
+owner opt-in. The source `.github/workflows/operations-worker.yml` runs hourly
+with the existing `CRON_SECRET`; no new Vercel cron is added. **Admin → Operations**
+has masked email diagnostics, incident owner/deputy, evidence references and
+retention previews. No deletion runs automatically and no Papermark call is made
+by these health checks. See the Stage 4 guide below for limits and rollout.
 
 ---
 
 ## Current status and what still needs a live check
 
-Last updated **15 November 2026**.
+Last updated **16 November 2026**.
+
+**Stage 4:** staff authenticator enrolment and server-side revocation, durable
+delivery-event replay, owner-only Operations, incident contacts and bounded
+owner-approved cleanup. No reader permissions are changed; alert emails default
+off and no retention period/deletion is seeded. New security/delivery/retention
+tests, the fresh/upgrade/rollback test, and rendered staff-page checks use isolated
+data. Live authenticator usability, real email delivery and a real Neon recovery
+rehearsal still need controlled acceptance. Rollout and limitations are in
+[`docs/stage4-operations-security.md`](docs/stage4-operations-security.md).
+
+**Stage 5 (separate branch):** durable subscriber publication alerts replace the first-hour
+new-file sweep and the old Sync and notify ledger. Existing releases are baselined without
+a historical email blast; new releases and explicitly approved corrections use saved jobs,
+current permissions and preferences, confirmed personal access and actual provider outcomes.
+No email sends merely because this code or migration is deployed.
+
+Public metadata, sitemap, robots, sharing image and a restrained llms.txt are added; private
+content stays noindex/no-store. Existing paths/design/fonts remain. `src/proxy.ts` makes
+Next actually discover the request policy beside `src/app`. The new domain and permanent
+redirects are prepared but off. A domain move requires one fresh sign-in on the new domain;
+browser cookies cannot transfer between unrelated domains.
+
+Local combined validation: 2,642 tests, 2,640 pass, 0 fail and the same two pre-existing
+wording todos; lint/type-check/production build and the public HTTP/anchor crawl pass.
+The send claim also checks the current Lagos day to catch a term ending between
+policy evaluation and provider submission, and a changed saved provider confirmation
+invalidates an older ready decision even when its generation is unchanged. The production dependency audit reports zero known vulnerabilities after the supported
+Next.js/Blob/Zod and transitive security updates. Browser CI evidence is recorded separately. The first browser pass found and corrected
+brass-button contrast, the mobile menu accessible name and inline link identification;
+CI saves invented-data reports and screenshots for seven days.
+The complete browser run also checks the labelled team portrait placeholders as images.
+The recipient-removal browser check waits for the resolved library after reload;
+the loading skeleton is not mistaken for a finished, empty library.
+
+This Stage 5 branch is stacked on Stage 4 for combined verification; Stage 4 remains
+a separate pull request. Integrate the final Stage 3 changes and test the exact result
+before launch. Browser checks run on an invented-data production build in CI;
+real inbox receipt, real Papermark/watermarks, Search Console and field Core Web Vitals need
+controlled live acceptance. See the [rollout and impact tables](docs/stage5-quality-and-notifications.md)
+and [domain migration plan](docs/athena-advisory-domain-migration.md).
 
 **Loading placeholders (Stage 2):** the portal and the Complimentary Review library show a
 data-free placeholder while their server work runs. Public pages and Admin deliberately have
@@ -641,7 +712,7 @@ Development checks use invented data and a mock Papermark, not the live provider
 confirmation, the Admin access email and the reader sign-in email all required `APP_URL`,
 which the live deployment does not set, and threw before anything was sent. Subscriber
 emails never read it, so they kept arriving. Review emails now use the same production
-origin unless `APP_URL` names another. Evidence (read-only, counts only): after the new code
+origin unless the trusted `PUBLIC_SITE_URL` or legacy sandbox `APP_URL` names another. Evidence (read-only, counts only): after the new code
 was deployed, four reader sign-in requests from the network that had earlier requested a sign-in for an
 approved address left no sign-in token and no email attempt. The new code reads the origin
 before it creates a token, so the failure came before the database step and before any send.
@@ -710,4 +781,42 @@ coverage uses the isolated database and a mock provider.
   summaries.
 - [`docs/skeleton-loading.md`](docs/skeleton-loading.md): the portal and review-library
   loading placeholders, why public and Admin pages have none, and the no-JavaScript behaviour.
+- [`docs/stage4-operations-security.md`](docs/stage4-operations-security.md): staff
+  security, delivery races, health alerts, owner-approved retention, migration,
+  backup/restore responsibilities and manual acceptance checks.
 - `AGENTS.md` / `CLAUDE.md`: instructions for coding assistants working in this repository.
+
+- [Stage 5 quality and notifications](docs/stage5-quality-and-notifications.md): alert enablement, worker, SEO checks, compatibility impacts and repeatable acceptance.
+- [Athena Advisory domain migration](docs/athena-advisory-domain-migration.md): preserved data, safe redirects, fresh sign-in, email/provider settings, rollback and manual launch checks.
+
+
+## Stage 3 editorial release and migration checklist
+
+New draft releases require an editorial record, complete source/details, submission and
+owner approval, rechecked transactionally. Existing live editions remain available without
+bulk adoption or fabricated historic approvals. Corrections use distinct PDFs and the original
+issue date, explicit fingerprinted audience inheritance, immutable master history, embedded
+superseded notices and honest saved retirement checks. Existing search, categories, summaries,
+sessions, entitlement policy, Papermark pacing and download settings remain in place.
+
+Read [the publishing and correction guide](docs/stage3-publishing-and-versions.md) before
+preparing a correction. The PDF notice CLI embeds the licensed font in `assets/pdf-notice` (license included)
+and creates a separate file; website fonts are unchanged. Papermark upload and
+independent file/watermark inspection are explicit manual steps, not claimed API proof.
+Previously downloaded copies cannot be recalled. No new circulation or summary-coverage
+policy is chosen. Used history cannot be destructively rolled back.
+
+Use [the detailed morning migration checklist](docs/morning-migration-runbook.md) for merge
+order, correct Neon project/migrations, source/mirror deployment, DNS, Vercel origins, reader
+checks, workers, Search Console and rollback. All three source workflows now accept the same
+allowlisted repository variable `APRI_SITE_URL` (old origin by default) and the existing
+`CRON_SECRET`; they do not follow redirects with that secret. A new domain requires one
+fresh sign-in per browser; it does not change accounts or subscription terms. Branding and
+Zoho remain deferred. No live migration, DNS cutover or provider test is implied by code checks.
+
+Database-backed publication and review dates are converted to calendar-day strings before
+rendering. This preserves the stored day when the database driver returns a local-midnight
+Date and prevents the public archive from failing when an edition has no display label.
+The regression test exercises the real database driver and public/assigned-reader reads.
+Browser audits set and assert their actual viewport before each page, including the
+Admin editorial flow at 375 px and the approved state at 1440 px.

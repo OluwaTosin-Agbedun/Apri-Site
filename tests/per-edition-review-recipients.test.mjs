@@ -921,11 +921,15 @@ describe("/review/library", () => {
 // ===========================================================================
 
 describe("scope and exposure", () => {
-  it("only review-edition-access.ts writes review_edition_recipients", () => {
+  it("only the recipient actions and the explicit owner correction copy write review_edition_recipients", () => {
     const writers = walk("src").filter((f) => /\.(ts|tsx)$/.test(f)).filter((f) =>
       /(insert into|update|delete from)\s+review_edition_recipients/.test(read(f)),
     )
-    assert.deepEqual(writers, [ACCESS])
+    assert.deepEqual(writers.sort(), [ACCESS,'src/lib/publication-corrections.ts'].sort())
+    const correction=read('src/lib/publication-corrections.ts')
+    assert.match(correction,/actor\.role!=='owner'/)
+    assert.match(correction,/preview\.fingerprint!==expected/)
+    assert.match(correction,/assert_correction_inputs/)
   })
 
   it("every action in the access module authorises first and validates its ids", () => {

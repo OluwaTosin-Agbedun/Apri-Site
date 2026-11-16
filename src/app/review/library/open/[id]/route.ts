@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { currentReviewReader, recordReaderEvent } from "@/lib/review-reader"
-import { getReviewEditionForEmail } from "@/lib/publications"
+import { getReviewEditionForEmail, getReviewLibraryForEmail } from "@/lib/publications"
+import {publicationVersions,familyHistory,latestEntitledVersions} from '@/lib/publication-versions'
 import { readerDocumentFor } from "@/lib/review-reader-rooms"
 import { enforceReviewRateLimit } from "@/lib/review-security"
 
@@ -34,8 +35,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   } catch {
     return to(UUID.test(id) ? `/review/library?busy=1&edition=${id}` : "/review/library?busy=1")
   }
-  const edition = UUID.test(id) ? await getReviewEditionForEmail(reader.email, id) : null
+  let edition = UUID.test(id) ? await getReviewEditionForEmail(reader.email, id) : null
   if (!edition) return to("/review/library?unavailable=1")
+  const permitted=await getReviewLibraryForEmail(reader.email)
+  const versions=await publicationVersions('review',permitted.map(e=>e.id))
+  const history=familyHistory(permitted,e=>e.id,id,versions)
+  const latest=latestEntitledVersions(history,e=>e.id,versions)[0]
+  if(new URL(request.url).searchParams.get('history')==='1'){
+    if(latest&&latest.id!==id&&!versions.get(id)?.noticeReady)return to(`/review/library?preparing=1&edition=${id}`)
+  }else if(latest)edition=latest
 
   // "via=edition": the reader chose the edition's own link (Papermark's code)
   // because their personal link needs repair. Still only after both checks.

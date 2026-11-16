@@ -1,4 +1,5 @@
 import 'server-only'
+import { emailOrigin } from './app-url'
 import { Resend } from 'resend'
 import { findingLabel, type LinkFinding } from './link-verification'
 
@@ -20,7 +21,7 @@ export async function sendFindingAlert(findings: LinkFinding[]): Promise<boolean
   const from = process.env.RESEND_FROM_EMAIL
   if (!key || !to || !from) return false
 
-  const appUrl = (process.env.APP_URL ?? 'https://apri.athenacentre.org').replace(/\/$/, '')
+  const appUrl = emailOrigin()
 
   try {
     const resend = new Resend(key)

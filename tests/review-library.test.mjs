@@ -293,10 +293,10 @@ test('publications page: secure area has confidentiality notice', () => {
 // 12. Legacy OPEN edition detail URLs redirect
 // ---------------------------------------------------------------------------
 
-test('publication detail: OPEN visibility redirects to #complimentary-review', () => {
+test('publication detail: OPEN visibility redirects to the existing review-publications anchor', () => {
   const src = read('src/app/publications/[slug]/page.tsx')
   assert.match(src, /visibility === 'OPEN'/)
-  assert.match(src, /redirect.*\/publications#complimentary-review/)
+  assert.match(src, /redirect.*\/publications#review-publications/)
 })
 
 test('publication detail: non-OPEN publications render normally', () => {

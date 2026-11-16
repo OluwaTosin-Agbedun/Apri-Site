@@ -1,5 +1,6 @@
 import SubmitButton from "@/components/SubmitButton"
 import Link from "next/link"
+import {publicationVersions,latestEntitledVersions} from '@/lib/publication-versions'
 import { after } from "next/server"
 import { reconcileIfDue } from "@/lib/subscriber-access-reconciliation"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
@@ -115,7 +116,8 @@ async function DataRoomPortal({
   // Every edition the access policy lists, each in its catalogue section (the
   // owner's catalogue the documents were placed with). A category only places
   // a card; it never decides whether one is listed.
-  const editions = documents
+  const versions=await publicationVersions('paid',documents.flatMap(d=>d.publicationId?[d.publicationId]:[]))
+  const editions = latestEntitledVersions(documents,d=>d.publicationId??d.id,versions)
   const { sections, entries: searchEntries, types, latest } = dataRoomLibraryView(editions, categories)
   const total = editions.length
 
@@ -129,7 +131,7 @@ async function DataRoomPortal({
         termEnd={principal.termEnd}
       />
 
-      <main className={`flex-1 ${SHELL} py-10 sm:py-14`}>
+      <main id="main-content" tabIndex={-1} className={`flex-1 ${SHELL} py-10 sm:py-14`}>
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-2 leading-tight tracking-tight">
           Your library
         </h1>
@@ -172,6 +174,7 @@ async function DataRoomPortal({
       </main>
 
       <div className={`${SHELL} pb-10`}>
+        <p className="my-6 text-sm"><Link className="inline-flex min-h-11 items-center underline" href="/portal/preferences">Publication email preferences</Link></p>
         <SiteFooter />
       </div>
     </div>
@@ -202,7 +205,8 @@ async function LegacyPortal({
   // own series; none yet means "Publications awaiting a category"), in the
   // owner's catalogue.
   const { categories } = await getPublicationCatalogue()
-  const portalLibrary = library
+  const versions=await publicationVersions('paid',library.map(d=>d.id))
+  const portalLibrary = latestEntitledVersions(library,d=>d.id,versions).map(item=>versions.has(item.id)?{...item,linkUrl:item.linkUrl?`/portal/publication/${item.id}`:null}:item)
   const { sections, entries: searchEntries, types, latest } = legacyLibraryView(portalLibrary, categories)
   const total = portalLibrary.length
 
@@ -216,7 +220,7 @@ async function LegacyPortal({
         termEnd={principal.termEnd}
       />
 
-      <main className={`flex-1 ${SHELL} py-10 sm:py-14`}>
+      <main id="main-content" tabIndex={-1} className={`flex-1 ${SHELL} py-10 sm:py-14`}>
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-2 leading-tight tracking-tight">
           Your library
         </h1>
@@ -264,6 +268,7 @@ async function LegacyPortal({
       </main>
 
       <div className={`${SHELL} pb-10`}>
+        <p className="my-6 text-sm"><Link className="inline-flex min-h-11 items-center underline" href="/portal/preferences">Publication email preferences</Link></p>
         <SiteFooter />
       </div>
     </div>
@@ -366,7 +371,7 @@ function DataRoomCard({ document, featured = false }: { document: DataRoomDocume
             )}
             {document.numPages && (
               <>
-                {date && <span className="text-xs text-border">&middot;</span>}
+                {date && <span aria-hidden="true" className="text-xs text-border">&middot;</span>}
                 <span className="text-xs text-muted-foreground">
                   {document.numPages} {document.numPages === 1 ? "page" : "pages"}
                 </span>
@@ -556,7 +561,7 @@ function PublicationRow({ item }: { item: Item }) {
             {meta && <span>{meta}</span>}
             {item.pageCount && (
               <>
-                {meta && <span className="text-border">|</span>}
+                {meta && <span aria-hidden="true" className="text-border">|</span>}
                 <span>{item.pageCount} pages</span>
               </>
             )}
@@ -661,17 +666,18 @@ function NoticeShell({ title, children }: { title: string; children: React.React
             APRI
           </Link>
           <form action={subscriberSignOut}>
-            <SubmitButton busy="Signing out…" className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
+            <SubmitButton busy="Signing out…" className="text-xs text-foreground/60 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
               Sign out
             </SubmitButton>
           </form>
         </div>
       </header>
-      <main className="flex-1 max-w-md w-full mx-auto px-4 sm:px-6 py-16">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-md w-full mx-auto px-4 sm:px-6 py-16">
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-4 leading-tight tracking-tight">{title}</h1>
         {children}
       </main>
       <div className="max-w-md w-full mx-auto px-4 sm:px-6 pb-10">
+        <p className="my-6 text-sm"><Link className="inline-flex min-h-11 items-center underline" href="/portal/preferences">Publication email preferences</Link></p>
         <SiteFooter />
       </div>
     </div>
@@ -688,14 +694,14 @@ function LockedLibrary({ name }: { name: string }) {
             APRI
           </Link>
           <form action={subscriberSignOut}>
-            <SubmitButton busy="Signing out…" className="text-xs text-foreground/50 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
+            <SubmitButton busy="Signing out…" className="text-xs text-foreground/60 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
               Sign out
             </SubmitButton>
           </form>
         </div>
       </header>
 
-      <main className="flex-1 max-w-md w-full mx-auto px-4 sm:px-6 py-16">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-md w-full mx-auto px-4 sm:px-6 py-16">
         <h1 className="font-serif text-2xl sm:text-3xl text-foreground mb-4 leading-tight tracking-tight">
           Your access has ended
         </h1>
@@ -716,6 +722,7 @@ function LockedLibrary({ name }: { name: string }) {
       </main>
 
       <div className="max-w-md w-full mx-auto px-4 sm:px-6 pb-10">
+        <p className="my-6 text-sm"><Link className="inline-flex min-h-11 items-center underline" href="/portal/preferences">Publication email preferences</Link></p>
         <SiteFooter />
       </div>
     </div>

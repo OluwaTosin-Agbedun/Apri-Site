@@ -11,6 +11,7 @@ type Split = {
   entitled: number
   withCopies: number
   held: number
+  blockedReason?: string
 }
 
 /**
@@ -39,6 +40,7 @@ export default function AlertPanel({
     setResult(null)
     startTransition(async () => {
       const preview = await getAlertPreview(id)
+      if (preview?.blockedReason) {setError(preview.blockedReason);return}
       if (!preview) {
         setError(
           'This edition has no subscriber audience — open editions are read publicly.'
@@ -80,7 +82,7 @@ export default function AlertPanel({
           disabled={pending}
           className="text-xs font-medium text-accent hover:text-accent-hover cursor-pointer disabled:opacity-40"
         >
-          <Busy pending={pending} idle={"Alert subscribers"} busy={"Checking…"} />
+          <Busy pending={pending} idle={"Preview publication alert"} busy={"Checking…"} />
         </button>
         {error && (
           <p className="mt-2 text-xs text-red-700 max-w-[18rem] text-right">{error}</p>
@@ -99,7 +101,7 @@ export default function AlertPanel({
 
       {/* The split, stated plainly. */}
       <p className="text-sm text-foreground/80 tabular-nums">
-        {split.entitled} entitled · {split.withCopies} have copies ·{' '}
+        {split.entitled} eligible or awaiting a decision · {split.withCopies} ready ·{' '}
         <span className={split.held > 0 ? 'text-red-700 font-medium' : ''}>
           {split.held} will be held
         </span>
@@ -122,7 +124,7 @@ export default function AlertPanel({
           disabled={pending}
           className="bg-foreground text-background px-4 py-2 text-xs font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {pending ? 'Sending…' : `Send to ${split.withCopies}`}
+          {pending ? 'Saving…' : `Queue alert for ${split.withCopies} ready readers`}
         </button>
         <button
           type="button"

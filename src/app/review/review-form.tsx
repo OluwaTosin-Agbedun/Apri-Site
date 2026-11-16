@@ -1,6 +1,7 @@
 "use client"
 import { Busy } from "@/components/Spinner"
-import { useActionState, useEffect, useState } from "react"
+import { useActionState } from "react"
+import { useReferrerHost } from "@/lib/use-referrer-host"
 import {
   requestReview,
   type ReviewFormState,
@@ -11,14 +12,7 @@ export default function ReviewForm({ utm }: { utm: Record<string, string> }) {
     requestReview,
     {},
   )
-  const [referrerHost, setReferrerHost] = useState("")
-  useEffect(() => {
-    try {
-      setReferrerHost(
-        document.referrer ? new URL(document.referrer).hostname : "",
-      )
-    } catch {}
-  }, [])
+  const referrerHost = useReferrerHost()
   if (state.ok)
     return (
       <div

@@ -9,19 +9,24 @@ export default function PapermarkEmbed({
   src: string
   title?: string
 }) {
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [attempt, setAttempt] = useState(0)
+  return <EmbedAttempt key={`${src}-${attempt}`} src={src} title={title} retry={()=>setAttempt(value=>value+1)} />
+}
+
+function EmbedAttempt({src,title,retry}:{src:string;title:string;retry:()=>void}) {
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const timeoutRef = useRef<number | null>(null)
+  const loadedRef = useRef(false)
 
   useEffect(() => {
-    setState('loading')
-    timeoutRef.current = window.setTimeout(() => setState('error'), 15_000)
+    if (!loadedRef.current) timeoutRef.current = window.setTimeout(() => setState('error'), 15_000)
     return () => {
       if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
     }
-  }, [src, attempt])
+  }, [])
 
   function loaded() {
+    loadedRef.current = true
     if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
     setState('ready')
   }
@@ -42,7 +47,7 @@ export default function PapermarkEmbed({
               </p>
               <button
                 type="button"
-                onClick={() => setAttempt((value) => value + 1)}
+                onClick={retry}
                 className="mt-5 border border-border px-5 py-2 text-sm font-medium hover:border-accent"
               >
                 Try again
@@ -52,7 +57,6 @@ export default function PapermarkEmbed({
         </div>
       )}
       <iframe
-        key={`${src}-${attempt}`}
         src={src}
         title={title}
         className="absolute inset-0 h-full w-full border-0"

@@ -221,12 +221,16 @@ describe("where search terms may and may not go", () => {
     assert.match(page, /const \{ sections, entries: searchEntries, types, latest \} = dataRoomLibraryView\(editions, categories\)/)
     assert.match(page, /const \{ sections, entries: searchEntries, types, latest \} = legacyLibraryView\(portalLibrary, categories\)/)
     assert.equal((page.match(/<LibrarySearch entries=\{searchEntries\} types=\{types\}>/g) ?? []).length, 2)
-    assert.match(page, /const editions = documents\r?\n/)
-    assert.match(page, /const portalLibrary = library\r?\n/)
+    assert.match(page, /const editions = latestEntitledVersions\(documents/)
+    assert.match(page, /const portalLibrary = latestEntitledVersions\(library/)
     assert.doesNotMatch(page, /PORTAL_SERIES|isPortalSeries/)
     const helpers = read("src/lib/portal-library.ts")
     assert.match(helpers, /const entries = items\.map\(entryOf\)/)
     assert.match(helpers, /types: searchTypeOptions\(entries, categories\)/)
+    // Versions only narrow the already authorised list; they never add family
+    // members to search. Behaviour is also covered by publication-workflow-db.
+    const versions = read('src/lib/publication-versions.ts')
+    assert.match(versions,/return items\.filter/)
   })
 
   it("keeps the single Latest card outside the searchable archive on both paths", () => {

@@ -13,15 +13,19 @@ export default function SubmitButton({
   busy,
   className,
   disabled,
+  name,
+  value,
 }: {
   children: React.ReactNode
   busy: string
   className?: string
   disabled?: boolean
+  name?: string
+  value?: string
 }) {
   const { pending } = useFormStatus()
   return (
-    <button type="submit" className={className} disabled={disabled || pending} aria-busy={pending}>
+    <button type="submit" name={name} value={value} className={className} disabled={disabled || pending} aria-busy={pending}>
       <Busy pending={pending} idle={children} busy={busy} />
     </button>
   )

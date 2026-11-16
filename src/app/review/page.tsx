@@ -1,12 +1,10 @@
+import { publicMetadata } from "@/lib/seo"
 import type { Metadata } from "next"
 import SiteHeader from "@/components/SiteHeader"
 import SiteFooter from "@/components/SiteFooter"
 import ReviewForm from "./review-form"
 
-export const metadata: Metadata = {
-  title: "Complimentary Review | APRI",
-  description: "Request complimentary access to selected APRI publications.",
-}
+export const metadata: Metadata = publicMetadata("/review")
 export default async function ReviewPage({
   searchParams,
 }: {
@@ -24,7 +22,7 @@ export default async function ReviewPage({
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <div className="grid lg:grid-cols-[1.1fr_.9fr] gap-16">
           <section>
             <p className="eyebrow mb-5">Complimentary Review</p>

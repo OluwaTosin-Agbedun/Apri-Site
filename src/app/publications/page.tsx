@@ -1,3 +1,4 @@
+import { publicMetadata } from "@/lib/seo"
 import Link from "next/link"
 import SiteHeader from "@/components/SiteHeader"
 import SiteFooter from "@/components/SiteFooter"
@@ -12,11 +13,7 @@ import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 
 export const revalidate = 300
 
-export const metadata = {
-  title: "Publications | Athena Political & Regulatory Intelligence (APRI)",
-  description:
-    "Explore APRI publications and analytical products for subscribers, authorised readers and prospective subscribers using the complimentary review library.",
-}
+export const metadata = publicMetadata("/publications")
 
 export default async function PublicationsPage() {
   const [publications, archive, entryMode, catalogue] = await Promise.all([
@@ -38,7 +35,7 @@ export default async function PublicationsPage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
           <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Publications
@@ -85,9 +82,9 @@ export default async function PublicationsPage() {
                           {card.publicationType}
                         </span>
 
-                        <h3 className="font-serif text-lg text-foreground break-words">
+                        <h4 className="font-serif text-lg text-foreground break-words">
                           {card.pubTitle}
-                        </h3>
+                        </h4>
                         {(card.editionLabel || card.editionDate) && (
                           <p className="text-xs text-muted-foreground mt-2">
                             {card.editionLabel || card.editionDate}
@@ -102,7 +99,7 @@ export default async function PublicationsPage() {
                           <span>{card.frequency}</span>
                           {card.audience && (
                             <>
-                              <span className="text-border">|</span>
+                              <span aria-hidden="true" className="text-border">|</span>
                               <span>{card.audience}</span>
                             </>
                           )}
@@ -194,7 +191,7 @@ export default async function PublicationsPage() {
 
               <div className="mt-6 flex items-center gap-6 text-xs text-muted-foreground">
                 <span>{doc.frequency}</span>
-                <span className="text-border">|</span>
+                <span aria-hidden="true" className="text-border">|</span>
                 <span>{doc.section}</span>
               </div>
 
@@ -208,7 +205,7 @@ export default async function PublicationsPage() {
         <div className="mt-16">
           <SiteFooter />
         </div>
-      </div>
+      </main>
     </div>
   )
 }

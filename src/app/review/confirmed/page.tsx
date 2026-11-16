@@ -14,7 +14,7 @@ export default async function Confirmed({
   return (
     <div className="min-h-screen">
       <SiteHeader />
-      <main className="max-w-3xl mx-auto px-6 py-24">
+      <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 py-24">
         {result === "subscription" ? (
           <div className="space-y-5">
             <h1 className="font-serif text-4xl">

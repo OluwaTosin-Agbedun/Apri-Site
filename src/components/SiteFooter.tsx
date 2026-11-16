@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { siteOrigin } from "@/lib/site-config"
 
 export default function SiteFooter() {
   return (
@@ -12,10 +13,10 @@ export default function SiteFooter() {
           <p>
             APRI:{" "}
             <a
-              href="https://apri.athenacentre.org/"
+              href={siteOrigin()}
               className="text-foreground hover:text-accent transition-colors"
             >
-              apri.athenacentre.org
+              {new URL(siteOrigin()).hostname}
             </a>
           </p>
           <p>

@@ -11,6 +11,7 @@ import SiteHeader from "@/components/SiteHeader"
 import SubmitButton from "@/components/SubmitButton"
 import { categorySingularLabel } from "@/lib/publication-catalogue"
 import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
+import {publicationVersions,latestEntitledVersions,familyHistory} from '@/lib/publication-versions'
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -51,7 +52,9 @@ export default async function Library({
   const job = await readerRoomJob(reader.email)
   const waiting = Boolean(job && ["pending", "running"].includes(job.state))
   if (waiting) kickReviewRoomWorker(reader.email)
-  const editions = await getReviewLibraryForEmail(reader.email)
+  const allEditions = await getReviewLibraryForEmail(reader.email)
+  const versions=await publicationVersions('review',allEditions.map(e=>e.id))
+  const editions = latestEntitledVersions(allEditions,e=>e.id,versions)
   // Labels only: which editions are listed is decided above, by assignment.
   const { categories } = await getPublicationCatalogue()
   const direct = Boolean(reader.sid) && (await openWindowReady())
@@ -69,7 +72,7 @@ export default async function Library({
     <div className="min-h-screen">
       <AccessJobRefresh active={waiting} />
       <SiteHeader />
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-14 sm:py-20">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl mx-auto px-4 sm:px-6 py-14 sm:py-20">
         <header className="mb-10 sm:mb-12">
           <p className="eyebrow">Complimentary Review</p>
           <div className="flex flex-wrap items-end justify-between gap-4 mt-3">
@@ -118,6 +121,8 @@ export default async function Library({
                       {[c.editionLabel, date].filter(Boolean).join(" · ")}
                     </p>
                     {c.description && <p className="text-sm text-foreground/75 mt-3 max-w-2xl leading-relaxed">{c.description}</p>}
+                    {versions.has(c.id)&&<p className="text-xs mt-2 text-muted-foreground">Version {versions.get(c.id)!.label}</p>}
+                    {familyHistory(allEditions,e=>e.id,c.id,versions).length>1&&<details className="mt-4 text-sm"><summary className="cursor-pointer">Earlier versions</summary><ul className="mt-3 space-y-3">{familyHistory(allEditions,e=>e.id,c.id,versions).filter(e=>e.id!==c.id).map(e=><li key={e.id}>{versions.get(e.id)?.noticeReady?<a className="underline" href={`/review/library/open/${e.id}?history=1`} target="_blank" rel="noopener noreferrer">{e.pubTitle} · {versions.get(e.id)?.label} · Superseded</a>:<span>{e.pubTitle} · Earlier protected copy being prepared</span>}</li>)}</ul></details>}
                   </div>
                   <a
                     href={`/review/library/open/${c.id}`}

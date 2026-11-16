@@ -1,3 +1,4 @@
+import { publicMetadata } from "@/lib/seo"
 import SiteHeader from "@/components/SiteHeader"
 import SiteFooter from "@/components/SiteFooter"
 import AccessForm from "@/app/access-form"
@@ -5,12 +6,7 @@ import { accessNotice, BRIEFINGS_SEPARATE_NOTICE } from "@/lib/delivery"
 import { TIER_DESCRIPTIONS, tierDisplayName } from "@/lib/entitlements"
 import { SUBSCRIPTION_CATALOGUE } from "@/lib/subscription-catalogue"
 
-export const metadata = {
-  title:
-    "Subscription Access | Athena Political & Regulatory Intelligence (APRI)",
-  description:
-    "Subscription levels for APRI political, regulatory and political-economy intelligence, including the quarterly Subscriber Intelligence Briefing.",
-}
+export const metadata = publicMetadata("/access")
 
 /**
  * The five public tier names and their descriptions.
@@ -67,7 +63,7 @@ export default async function AccessPage({
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
           <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Subscription Access
@@ -162,7 +158,7 @@ export default async function AccessPage({
         </section>
 
         <SiteFooter />
-      </div>
+      </main>
     </div>
   )
 }

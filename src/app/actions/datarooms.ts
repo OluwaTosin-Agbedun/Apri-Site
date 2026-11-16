@@ -808,75 +808,15 @@ export async function recordPortalDownloadClick(
 export async function syncAndNotify(publicTier: string): Promise<FormState> {
   await requireOwner()
   if (!publicTier) return { message: "Missing level." }
-
   const synced = await syncRoomForLevel(publicTier)
   if (!synced.ok) return { message: synced.message }
-  const syncMessage = `${synced.message} ${describeRoomLinks(synced.links)}`
-
-  const sql = getSql()
-
-  const newDocs = (await sql`
-    select dd.id as doc_id, dd.papermark_document_id, dd.title, dd.version_key
-    from papermark_dataroom_documents dd
-    where dd.papermark_dataroom_id = ${synced.dataroomId}
-      and dd.is_present = true
-      and dd.first_seen_at > now() - interval '7 days'
-  `) as { doc_id: string; papermark_document_id: string; title: string; version_key: string }[]
-
-  if (newDocs.length === 0) {
-    return { ok: synced.links.complete, message: `${syncMessage} No new documents to notify about.` }
-  }
-
-  const subscribers = (await sql`
-    select s.id, s.full_name, s.email,
-           exists (
-             select 1 from papermark_dataroom_links l
-             where l.subscriber_id = s.id
-               and l.papermark_dataroom_id = ${synced.dataroomId}
-               and l.revoke_state = 'live'
-           ) as has_room_link
-    from subscribers s
-    where s.client_type = 'subscriber'
-      and lower(s.status) = 'active'
-      and s.public_tier = ${publicTier}
-  `) as { id: string; full_name: string; email: string; has_room_link: boolean }[]
-
-  // A notification for a document the subscriber cannot open yet would send
-  // them to a card that says the viewer is unavailable, so it waits for the
-  // link. Nothing is marked as notified for a pair that waits, so a later run
-  // can still notify it once the link exists.
-  const ready = await getLivePersonalLinkKeys(newDocs.map((d) => d.papermark_document_id))
-
-  let notified = 0
-  let held = 0
-  for (const sub of subscribers) {
-    for (const doc of newDocs) {
-      if (sub.has_room_link && !ready.has(`${sub.id}:${doc.papermark_document_id}`)) {
-        held++
-        continue
-      }
-      try {
-        await sql`
-          insert into papermark_document_notifications
-            (subscriber_id, dataroom_document_id, version_key)
-          values (${sub.id}::uuid, ${doc.doc_id}::uuid, ${doc.version_key})
-        `
-        notified++
-      } catch {
-        // Unique constraint: already notified for this version.
-      }
-    }
-  }
-
+  const { notifyNewDataRoomDocuments } = await import("@/lib/dataroom-notifications")
+  const queue = await notifyNewDataRoomDocuments(synced.dataroomId)
   refresh()
-  const heldNote =
-    held > 0
-      ? ` ${held} held back until the subscriber's personal link is ready; run this again after preparing the links.`
-      : ""
-  return {
-    ok: synced.links.complete && held === 0,
-    message: `${syncMessage} ${notified} notification${notified === 1 ? "" : "s"} queued for ${subscribers.length} subscriber${subscribers.length === 1 ? "" : "s"}.${heldNote}`,
-  }
+  const detail = queue.mode === "migration_required" ? "Apply the publication notification migration before queue processing."
+    : queue.mode === "sending_paused" ? "Publication emails are paused; an owner can review the baseline in Publication Alerts."
+    : `${queue.queued} approved announcement(s) have saved work. The notification worker rechecks access before sending; no email is reported as delivered here.`
+  return { ok: synced.links.complete, message: `${synced.message} ${describeRoomLinks(synced.links)} ${detail}` }
 }
 
 // ---------------------------------------------------------------------------

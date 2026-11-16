@@ -129,7 +129,6 @@ export function reviewCodes(categories: readonly CatalogueCategory[] = DEFAULT_C
 /** A label tidied for storage, or null when it cannot be one. */
 export function cleanLabel(value: unknown): string | null {
   if (typeof value !== "string") return null
-  // eslint-disable-next-line no-control-regex
   const text = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim()
   return text.length >= 1 && text.length <= MAX_LABEL_LENGTH ? text : null
 }

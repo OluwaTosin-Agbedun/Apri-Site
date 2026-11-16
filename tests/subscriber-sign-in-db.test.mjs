@@ -65,13 +65,13 @@ const adminSession = await import("../src/lib/session.ts")
 const { resetSignInSchemaCache } = await import("../src/lib/sign-in-schema.ts")
 
 const tag = makeTag("signin")
-const use = (name) => { globalThis.__browser = name }
+const setBrowser = (name) => { globalThis.__browser = name }
 const cookieIn = (name, cookie) => globalThis.__jars.get(name)?.get(cookie)?.value
 const sha = (v) => createHash("sha256").update(v).digest("hex")
 
 /** What the sign-in page does for the browser that asks: a marker cookie, its hash on the link. */
 async function askFor(seat, browser) {
-  use(browser)
+  setBrowser(browser)
   const pending = randomBytes(32).toString("base64url")
   globalThis.__jars.get(browser)?.clear()
   const store = await (await import("next/headers")).cookies()
@@ -82,7 +82,7 @@ async function askFor(seat, browser) {
 
 /** The portal's own check for the browser now in use. */
 async function portalSees(browser) {
-  use(browser)
+  setBrowser(browser)
   const claims = await session.readSubscriberSession()
   if (!claims) return null
   return principal.loadSessionSubscriber(claims.principalId, { sid: claims.sid, iat: claims.iat })
@@ -143,7 +143,7 @@ describe("signing in lands in the browser that is used, and stays", () => {
 
   it("a link sets a recorded session in that browser, which the next visit accepts", async () => {
     const { link } = await askFor(seat, "laptop")
-    use("laptop")
+    setBrowser("laptop")
     assert.deepEqual(await magic.signInWithToken(link), { ok: true, principalType: "subscriber" })
     const cookie = cookieIn("laptop", "apri_subscriber")
     assert.ok(cookie, "the browser that used the link holds the session cookie")
@@ -163,19 +163,19 @@ describe("signing in lands in the browser that is used, and stays", () => {
     // A different browser has nothing.
     assert.equal(await portalSees("private-window"), null)
     // The link works once.
-    use("laptop")
+    setBrowser("laptop")
     assert.deepEqual(await magic.signInWithToken(link), { ok: false, reason: "used" })
   })
 
   it("the code signs in the browser it is typed into, even when the email app opened the link elsewhere", async () => {
     const { link, code } = await askFor(seat, "phone-safari")
     assert.match(code, /^\d{8}$/)
-    use("phone-safari")
+    setBrowser("phone-safari")
     const result = await magic.signInWithCode(seat.email.toUpperCase(), token.formatSignInCode(code))
     assert.deepEqual(result, { ok: true, principalType: "subscriber" })
     assert.equal((await portalSees("phone-safari"))?.id, seat.id, "Safari now returns straight to the library")
     assert.equal(await portalSees("gmail-in-app"), null)
-    use("gmail-in-app")
+    setBrowser("gmail-in-app")
     assert.deepEqual(await magic.signInWithToken(link), { ok: false, reason: "used" }, "a code and its link open one session between them")
     const claims = await sessionToken.verifySubscriberSession(cookieIn("phone-safari", "apri_subscriber"))
     const [rec] = await sql`select method from subscriber_sessions where id = ${claims.sid}::uuid`
@@ -185,7 +185,7 @@ describe("signing in lands in the browser that is used, and stays", () => {
   it("a wrong code never signs in, counts against the link, and five wrong tries end the code", async () => {
     const { code } = await askFor(seat, "tablet")
     const wrong = code === "00000000" ? "11111111" : "00000000"
-    use("tablet")
+    setBrowser("tablet")
     for (let i = 0; i < 5; i++) assert.deepEqual(await magic.signInWithCode(seat.email, wrong), { ok: false, reason: "invalid" })
     assert.deepEqual(await magic.signInWithCode(seat.email, code), { ok: false, reason: "invalid" }, "the right code no longer works")
     assert.equal(cookieIn("tablet", "apri_subscriber"), undefined)
@@ -193,7 +193,7 @@ describe("signing in lands in the browser that is used, and stays", () => {
 
   it("a code works only for its own address, and never for an unknown one", async () => {
     const { code } = await askFor(seat, "desk")
-    use("desk")
+    setBrowser("desk")
     assert.deepEqual(await magic.signInWithCode(other.email, code), { ok: false, reason: "invalid" })
     assert.deepEqual(await magic.signInWithCode(`${tag}_nobody@example.invalid`, code), { ok: false, reason: "invalid" })
     assert.deepEqual(await magic.signInWithCode(seat.email, code), { ok: true, principalType: "subscriber" })
@@ -203,14 +203,14 @@ describe("signing in lands in the browser that is used, and stays", () => {
     const { link, code } = await askFor(seat, "old")
     await sql`update auth_tokens set expires_at = now() - interval '1 minute' where token_hash = ${sha(link)}`
     assert.deepEqual(await magic.inspectToken(link, null), { usable: false, reason: "expired" })
-    use("old")
+    setBrowser("old")
     assert.deepEqual(await magic.signInWithCode(seat.email, code), { ok: false, reason: "invalid" })
     assert.deepEqual(await magic.signInWithToken(link), { ok: false, reason: "expired" })
   })
 
   it("if the session cannot be opened after the link is spent, the link is put back and says so", async () => {
     const { link, code } = await askFor(seat, "flaky")
-    use("flaky")
+    setBrowser("flaky")
     globalThis.__cookiesFail = true
     assert.deepEqual(await magic.signInWithToken(link), { ok: false, reason: "session-failed" })
     globalThis.__cookiesFail = false
@@ -223,13 +223,13 @@ describe("signing in lands in the browser that is used, and stays", () => {
 
   it("signing out ends that browser's session on the server, and only that one", async () => {
     const a = await askFor(seat, "home")
-    use("home")
+    setBrowser("home")
     await magic.signInWithToken(a.link)
     const b = await askFor(seat, "office")
-    use("office")
+    setBrowser("office")
     await magic.signInWithToken(b.link)
     const copied = cookieIn("home", "apri_subscriber")
-    use("home")
+    setBrowser("home")
     await session.destroySubscriberSession()
     assert.equal(cookieIn("home", "apri_subscriber"), undefined)
     assert.equal(await portalSees("home"), null)
@@ -241,7 +241,7 @@ describe("signing in lands in the browser that is used, and stays", () => {
 
   it("Admin's sign-out of all browsers ends recorded and older cookies alike", async () => {
     const a = await askFor(other, "o1")
-    use("o1")
+    setBrowser("o1")
     await magic.signInWithToken(a.link)
     // A cookie from before sessions were recorded: no session id.
     const legacy = await sessionToken.signSubscriberSession({ principalId: other.id })
@@ -255,14 +255,14 @@ describe("signing in lands in the browser that is used, and stays", () => {
     assert.equal((await admin.loadSessionSummary(other.id)).open, 0)
     // Signing in again afterwards works.
     const again = await askFor(other, "o1")
-    use("o1")
+    setBrowser("o1")
     await magic.signInWithToken(again.link)
     assert.equal((await portalSees("o1"))?.id, other.id)
   })
 
   it("suspension and an ended term deny the library on the very next request", async () => {
     const { link } = await askFor(seat, "susp")
-    use("susp")
+    setBrowser("susp")
     await magic.signInWithToken(link)
     await sql`update subscribers set status = 'suspended' where id = ${seat.id}::uuid`
     assert.equal((await portalSees("susp")).hasAccess, false)
@@ -274,7 +274,7 @@ describe("signing in lands in the browser that is used, and stays", () => {
     // A suspended seat cannot sign in with a code either.
     const fresh = await askFor(seat, "susp2")
     await sql`update subscribers set status = 'suspended' where id = ${seat.id}::uuid`
-    use("susp2")
+    setBrowser("susp2")
     assert.deepEqual(await magic.signInWithCode(seat.email, fresh.code), { ok: false, reason: "suspended" })
     await sql`update subscribers set status = 'active' where id = ${seat.id}::uuid`
   })
@@ -316,6 +316,7 @@ describe("the wiring", () => {
     const proxy = read("proxy.ts")
     assert.match(proxy, /req\.method !== 'GET'/)
     assert.match(proxy, /startsWith\('\/portal\/verify'\)/)
-    assert.match(proxy, /matcher: \['\/admin', '\/admin\/:path\*', '\/portal', '\/portal\/:path\*'\]/)
+    assert.match(proxy, /matcher: \[.*_next\/static.*_next\/image/)
+    assert.match(proxy, /pathname === '\/portal' \|\| pathname\.startsWith\('\/portal\/'\)/)
   })
 })

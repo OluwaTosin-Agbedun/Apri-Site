@@ -713,11 +713,11 @@ describe("documents arriving in a room", () => {
     assert.doesNotMatch(src, /export async function syncRoomForLevel/)
   })
 
-  it("sync and notify queues nothing for a document whose link does not exist yet", () => {
+  it("sync and check alerts reports saved work without pretending an email was sent", () => {
     const fn = body(src, "syncAndNotify")
-    const gate = fn.indexOf("ready.has(")
-    assert.ok(gate > 0 && gate < fn.indexOf("insert into papermark_document_notifications"))
-    assert.match(fn, /held\+\+/)
+    assert.match(fn, /notifyNewDataRoomDocuments/)
+    assert.doesNotMatch(fn, /insert into papermark_document_notifications|sent_at|sendEditionAlert/)
+    assert.match(fn, /queued/)
   })
 
   it("the webhook prepares links for the new document before notifying, and fails the event until they are ready", () => {
@@ -734,23 +734,27 @@ describe("documents arriving in a room", () => {
   })
 
   it("an automatic new-document email waits for the subscriber's link", () => {
-    const fn = body(read(NOTIFY), "notifyNewDataRoomDocuments")
-    const gate = fn.indexOf("personalLinkReady(")
-    assert.ok(gate > 0 && gate < fn.indexOf("insert into papermark_document_notifications"))
+    const queue = read("src/lib/publication-notifications.ts")
+    assert.match(queue, /notificationEligibility/)
+    assert.match(queue, /verification_generation=r\.generation/)
+    assert.match(queue, /verification_result->>'state'='found'/)
+    assert.ok(queue.search(/const eligibility\s*=\s*event/) < queue.search(/const outcome\s*=\s*await send\(/))
   })
 
   it("automatic new-document emails stay off unless explicitly enabled", () => {
     const src = read(NOTIFY)
     assert.match(src, /process\.env\.DATAROOM_NEW_DOCUMENT_EMAILS === "enabled"/)
-    assert.match(body(src, "notifyNewDataRoomDocuments"), /if \(!newDocumentEmailsEnabled\(\)\) return/)
+    assert.match(body(src, "notifyNewDataRoomDocuments"), /if \(!newDocumentEmailsEnabled\(\)\)\s*return/)
     assert.match(body(src, "reconcileAllDataRooms"), /if \(!newDocumentEmailsEnabled\(\)\)/)
   })
 
-  it("the sender reads the columns its queries return", () => {
+  it("the sync adapter cannot issue a link or send a message inline", () => {
     const fn = body(read(NOTIFY), "notifyNewDataRoomDocuments")
-    for (const alias of ['"dataroomDocumentId"', '"papermarkDocumentId"', '"versionKey"', '"subscriberId"', '"fullName"', '"linkUrl"', '"hasRoomLink"']) {
-      assert.ok(fn.includes(alias), `${alias} is selected under the name the code reads`)
-    }
+    assert.match(fn,/sent:\s*0/)
+    assert.doesNotMatch(fn,/sendEditionAlert|personalLinkReady|insert into papermark_document_notifications/)
+    // Real database behaviour (both library paths, delayed confirmation and
+    // private-summary leakage) is covered in publication-notifications-db
+    // and publication-summaries-leak-db, not a second hard-coded row shape.
   })
 })
 

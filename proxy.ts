@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { decrypt, COOKIE_NAME } from '@/lib/session'
+import { mayIndexRequest, migrationDestination } from '@/lib/site-config'
 import {
   SUBSCRIBER_COOKIE_NAME,
   verifySubscriberSession,
@@ -23,6 +24,27 @@ import {
  * subscriber's status and their term against the database.
  */
 export default async function proxy(req: NextRequest) {
+  // Host only selects a known route/indexing policy; canonical URLs always
+  // come from trusted deployment configuration, never this header.
+  const requestedHost=(req.headers.get('host')??req.nextUrl.hostname).toLowerCase().replace(/:\d+$/,'')
+  const incoming=new URL(req.nextUrl.href)
+  if (['apri.athenacentre.org','athenaadvisory.ng','www.athenaadvisory.ng'].includes(requestedHost)) {incoming.hostname=requestedHost;incoming.port=''}
+  const destination=['apri.athenacentre.org','athenaadvisory.ng','www.athenaadvisory.ng'].includes(requestedHost)?migrationDestination(incoming,req.method):null
+  if (destination) {
+    const response=NextResponse.redirect(destination,308)
+    response.headers.set('Cache-Control','private, no-store')
+    response.headers.set('X-Robots-Tag','noindex, nofollow')
+    return response
+  }
+  const response=await routeRequest(req)
+  if (!mayIndexRequest(req.nextUrl.pathname,requestedHost)) response.headers.set('X-Robots-Tag','noindex, nofollow, nosnippet')
+  if (/^\/(?:admin|portal|api)(?:\/|$)/.test(req.nextUrl.pathname)||/^\/review\//.test(req.nextUrl.pathname)) {
+    response.headers.set('Cache-Control','private, no-store, max-age=0')
+  }
+  return response
+}
+
+async function routeRequest(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   if (pathname === '/portal' || pathname.startsWith('/portal/')) {
@@ -30,7 +52,7 @@ export default async function proxy(req: NextRequest) {
   }
 
   // Public entry points to the admin area.
-  if (pathname === '/admin/setup' || pathname === '/admin/login') {
+  if (pathname === '/admin/setup' || pathname === '/admin/login' || pathname === '/admin/mfa') {
     return NextResponse.next()
   }
 
@@ -67,5 +89,5 @@ async function renewSubscriberSession(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin', '/admin/:path*', '/portal', '/portal/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|opengraph-image).*)'],
 }

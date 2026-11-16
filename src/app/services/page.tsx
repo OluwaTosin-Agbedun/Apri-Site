@@ -1,15 +1,11 @@
+import { publicMetadata } from "@/lib/seo"
 import Link from "next/link"
 import { SERVICES, type ServiceItem } from "@/data/services"
 import { BRIEFING_FORM_URL } from "@/config"
 import SiteHeader from "@/components/SiteHeader"
 import SiteFooter from "@/components/SiteFooter"
 
-export const metadata = {
-  title:
-    "Services & Briefings | Athena Political & Regulatory Intelligence (APRI)",
-  description:
-    "Private political and regulatory intelligence briefings for boards, executives, diplomatic missions and institutional decision-makers.",
-}
+export const metadata = publicMetadata("/services")
 
 /**
  * Where a briefing request button leads. Once the external Microsoft Forms or
@@ -120,7 +116,7 @@ export default function ServicesPage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-24">
           <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Services &amp; Briefings
@@ -154,6 +150,7 @@ export default function ServicesPage() {
         </header>
 
         <section className="mb-24">
+          <h2 className="sr-only">Briefing options</h2>
           <div className="space-y-6">
             {SERVICES.map((service, index) => (
               <ServiceCard key={service.id} service={service} index={index} />
@@ -173,7 +170,7 @@ export default function ServicesPage() {
         </section>
 
         <SiteFooter />
-      </div>
+      </main>
     </div>
   )
 }

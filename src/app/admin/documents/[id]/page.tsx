@@ -14,6 +14,7 @@ import SummaryForm from './summary-form'
 import { loadEditorPanel } from '@/lib/publication-metadata-dal'
 import { EDITORIAL_METADATA_PENDING, EMPTY_METADATA, EMPTY_SUMMARY, formatDay } from '@/lib/publication-metadata'
 import type { StoredSummary } from '@/lib/publication-summaries'
+import PublicationWorkflowPanel from '@/components/PublicationWorkflowPanel'
 
 /** Who did what to a protected summary, for the editor (Admin only). */
 function summaryNotes(summary: StoredSummary | null): string[] {
@@ -208,6 +209,7 @@ export default async function EditDocumentPage({
       title={row.title || 'Publication record'}
       description={`Status: ${row.status}. Editorial fields here are never overwritten by a Papermark sync.`}
     >
+      <PublicationWorkflowPanel kind="paid" id={row.id} owner={admin.role==='owner'} />
       {row.visibility !== 'OPEN' && (
         <section className="mb-6 border border-border bg-card/30 p-6">
           <h2 className="font-serif text-xl mb-1">Who gets this edition</h2>

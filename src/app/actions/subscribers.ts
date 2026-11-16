@@ -656,10 +656,10 @@ export async function setPublicationAccess(
 export async function sendPublishAlert(
   publicationId: string,
 ): Promise<FormState> {
-  await requireAdmin()
+  const admin = await requireAdmin()
   if (!UUID.test(publicationId)) return { message: "Unknown publication." }
 
-  const outcome = await sendAlert(publicationId)
+  const outcome = await sendAlert(publicationId, admin.id)
   return { ok: outcome.ok, message: outcome.message }
 }
 export async function getAlertPreview(publicationId: string) {

@@ -1,14 +1,10 @@
+import { publicMetadata } from "@/lib/seo"
 import Link from "next/link"
 import SiteHeader from "@/components/SiteHeader"
 import SiteFooter from "@/components/SiteFooter"
 import BriefingForm from "./briefing-form"
 
-export const metadata = {
-  title:
-    "Request a Briefing | Athena Political & Regulatory Intelligence (APRI)",
-  description:
-    "Request a private political and regulatory intelligence briefing from APRI.",
-}
+export const metadata = publicMetadata("/request-briefing")
 
 export default async function RequestBriefingPage({
   searchParams,
@@ -22,7 +18,7 @@ export default async function RequestBriefingPage({
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <div className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
           <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
             Request a Briefing
@@ -61,7 +57,7 @@ export default async function RequestBriefingPage({
         <div className="mt-24">
           <SiteFooter />
         </div>
-      </div>
+      </main>
     </div>
   )
 }

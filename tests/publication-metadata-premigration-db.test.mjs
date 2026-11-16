@@ -60,6 +60,7 @@ const run = async (script) => {
   for (const statement of statements(script)) await sql.query(statement)
 }
 // As an existing database is before the migration runs.
+await run(read('db/rollback/20261115_stage3_publishing_workflow.rollback.sql'))
 await run(ROLLBACK)
 
 const metadataActions = await import("../src/app/actions/publication-metadata.ts")
