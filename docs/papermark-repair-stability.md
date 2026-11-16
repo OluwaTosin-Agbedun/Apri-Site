@@ -74,8 +74,8 @@ Use a controlled approved reader and a controlled subscriber first:
 - Repair the reader once. Confirm Ready, then Check again with unchanged assignments:
   the URL/group identity stays the same and the access remains usable.
 - Read two assigned PDFs in the same signed-in browser; downloads and watermark still work.
-- Return within the same 24-hour session. No new APRI code or manual repair is expected.
-- Add/remove an assignment on the test reader. The current APRI assignment is enforced on
+- Return within the same 24-hour session. No new APRA code or manual repair is expected.
+- Add/remove an assignment on the test reader. The current APRA assignment is enforced on
   every open; the job remains pending until Papermark confirms its permissions.
 - A withdrawal/removal that Papermark cannot confirm is not described as complete. Its
   existing external link may remain usable until Papermark closes it. An urgent failure

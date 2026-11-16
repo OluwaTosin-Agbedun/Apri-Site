@@ -79,7 +79,7 @@ export function accessStatus(status: string | null | undefined, termEnd: string 
 export type SessionInput = {
   viewId: string
   papermarkViewId: string
-  /** Identifies the exact edition: its Papermark document, else its APRI publication. */
+  /** Identifies the exact edition: its Papermark document, else its APRA publication. */
   editionKey: string
   title: string
   editionLabel: string

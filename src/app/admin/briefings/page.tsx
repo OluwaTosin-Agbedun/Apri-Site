@@ -4,7 +4,7 @@ import AdminShell from "@/components/AdminShell"
 import Link from "next/link"
 import BriefingDeleteControl from "./briefing-delete-control"
 
-export const metadata = { title: "Briefing Requests · APRI" }
+export const metadata = { title: "Briefing Requests · APRA" }
 export const dynamic = "force-dynamic"
 
 type Row = {

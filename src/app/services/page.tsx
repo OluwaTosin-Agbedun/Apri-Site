@@ -127,7 +127,7 @@ export default function ServicesPage() {
           </p>
 
           <p className="text-sm text-foreground/70 leading-relaxed mb-6 max-w-2xl">
-            APRI provides private briefings for organisations that need to
+            APRA provides private briefings for organisations that need to
             interpret Nigeria&rsquo;s political, regulatory and
             political-economy environment in relation to strategy, enterprise
             risk, investment decisions, sector exposure, board oversight,
@@ -142,7 +142,7 @@ export default function ServicesPage() {
 
           <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-              APRI briefings are independent analytical sessions. They are not
+              APRA briefings are independent analytical sessions. They are not
               lobbying, political access brokerage, legal advice or investment
               advice.
             </p>

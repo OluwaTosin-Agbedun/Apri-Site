@@ -6,12 +6,12 @@ export default function SiteFooter() {
     <footer className="pt-10 border-t border-hairline text-xs text-muted-foreground">
       <div className="mb-8 max-w-3xl">
         <p className="text-sm text-foreground/70 leading-relaxed mb-4">
-          Athena Political &amp; Regulatory Intelligence is a service of the
+          Athena Political &amp; Regulatory Advisory is a service of the
           Athena Centre for Policy and Leadership.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-7">
           <p>
-            APRI:{" "}
+            APRA:{" "}
             <a
               href={siteOrigin()}
               className="text-foreground hover:text-accent transition-colors"

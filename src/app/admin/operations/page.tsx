@@ -11,7 +11,7 @@ import { checkOperations, acknowledgeOperation } from "@/app/actions/operations"
 import { CheckpointForm, OperationsSettingsForm, RetentionForms } from "./operations-forms"
 
 export const dynamic = "force-dynamic"
-export const metadata = {title:"Operations",robots:{index:false,follow:false}}
+export const metadata = {title:"Operations · APRA",robots:{index:false,follow:false}}
 const date = (value:unknown) => value ? new Date(String(value)).toLocaleString("en-GB",{timeZone:"Africa/Lagos"}) : "Not recorded"
 
 export default async function OperationsPage() {

@@ -409,18 +409,18 @@ describe('Chancellor copy', () => {
   it('the Publications heading sentence is the approved wording', () => {
     assert.match(
       pubs,
-      /Publications and analytical products available to APRI subscribers\s*\n?\s*and authorised readers\./,
+      /Publications and analytical products available to APRA subscribers\s*\n?\s*and authorised readers\./,
     )
   })
 
   it('the old Publications wording is gone', () => {
-    assert.doesNotMatch(pubs, /APRI intelligence products for subscribers and authorised readers/)
+    assert.doesNotMatch(pubs, /APRA intelligence products for subscribers and authorised readers/)
   })
 
   it('the Complimentary Review introduction is the approved wording', { todo: "The Chancellor-approved introduction was removed from the site in 61cd5ee (PR #28, versioned library). Restore it, or confirm the current wording is approved, then update this test." }, () => {
     assert.match(
       pubs,
-      /This complimentary review provides prospective subscribers with\s*\n?\s*selected examples of publications and analytical products\s*\n?\s*available through APRI\./,
+      /This complimentary review provides prospective subscribers with\s*\n?\s*selected examples of publications and analytical products\s*\n?\s*available through APRA\./,
     )
   })
 
@@ -449,7 +449,7 @@ describe('Chancellor copy', () => {
     // this work did not introduce the publications sentence into it.
     assert.doesNotMatch(
       home,
-      /Publications and analytical products available to APRI subscribers/,
+      /Publications and analytical products available to APRA subscribers/,
     )
   })
 })
@@ -473,7 +473,7 @@ describe('PLM review card', () => {
       card.description,
       'A monthly monitoring publication from the Athena Election Observatory covering ' +
         'Nigeria’s democratic, electoral and political landscape. The Political Landscape ' +
-        'Monitor is made available to APRI subscribers as part of their subscription.',
+        'Monitor is made available to APRA subscribers as part of their subscription.',
     )
   })
 
@@ -481,8 +481,8 @@ describe('PLM review card', () => {
     assert.equal(card.frequency, 'Monthly')
   })
 
-  it('audience is APRI subscribers and prospective readers', () => {
-    assert.equal(card.audience, 'APRI subscribers and prospective readers')
+  it('audience is APRA subscribers and prospective readers', () => {
+    assert.equal(card.audience, 'APRA subscribers and prospective readers')
   })
 
   it('the old wording is gone', () => {
@@ -845,7 +845,7 @@ describe('restrictions enforce protected settings', () => {
     assert.equal(s.watermark_config.text, prospectWatermarkConfig().text)
     assert.equal(s.watermark_config.opacity, 0.15)
     assert.equal(s.watermark_config.font_size, 18)
-    assert.match(s.watermark_config.text, /APRI Complimentary Review Copy/)
+    assert.match(s.watermark_config.text, /APRA Complimentary Review Copy/)
   })
 
   it('the download setting is enabled', () => {

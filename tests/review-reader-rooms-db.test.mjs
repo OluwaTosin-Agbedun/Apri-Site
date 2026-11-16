@@ -185,7 +185,7 @@ async function edition(key, state = "published") {
   store.docs.push({ id: `dd_${key}`, object: "dataroom_document", document_id: DOC(key), document_name: key })
 }
 const grant = (key, email) => sql`insert into review_edition_recipients (edition_id, email, source) values (${ed[key]}::uuid, ${email}, 'owner')`
-/** An APRI reader session (the reader typed APRI's one-time code); their code-free link is open only while one exists. */
+/** An APRA reader session (the reader typed APRA's one-time code); their code-free link is open only while one exists. */
 const signIn = async (email, hoursAgo = 0) =>
   (await sql`insert into review_reader_sessions (email, method, created_at) values (${email}, 'code', now() - (${hoursAgo} || ' hours')::interval) returning id`)[0].id
 const room = async (email) => (await sql`select * from review_reader_rooms where email = ${email}`)[0]
@@ -356,7 +356,7 @@ describe("the room rules", () => {
     assert.match(policy.roomLinkProblem({ ...good, enable_screenshot_protection: false }, expected), /Screenshot/)
     assert.match(policy.roomLinkProblem({ ...good, expires_at: policy.closedAt() }, expected), /closed/)
   })
-  it("a code-free link (APRI checked the email) must still be email-protected, and must always close", () => {
+  it("a code-free link (APRA checked the email) must still be email-protected, and must always close", () => {
     const until = new Date(Date.now() + 3_600_000).toISOString()
     const expected = { roomId: "r", groupId: "g", email: "x@example.invalid", codeFree: true }
     const good = { ...policy.roomLinkSettings({ roomId: "r", groupId: "g", email: "x@example.invalid", openUntil: until }), url: "https://docs.example.invalid/view/1" }
@@ -414,7 +414,7 @@ describe("two readers, different editions, one room each", () => {
     const link = store.links.get(a.papermark_link_id)
     assert.equal(link.audience_type, "group")
     assert.equal(link.email_protected, true)
-    assert.equal(link.email_authenticated, false, "APRI checked the email with its code: Papermark asks for no second code")
+    assert.equal(link.email_authenticated, false, "APRA checked the email with its code: Papermark asks for no second code")
     assert.ok(link.expires_at && new Date(link.expires_at) > new Date(), "open while the reader is signed in")
     assert.ok(new Date(link.expires_at) <= new Date(Date.now() + 24 * 3_600_000 + 60_000), "and closes when their 24-hour session ends")
     assert.equal(link.allow_download, true)
@@ -516,7 +516,7 @@ describe("the reading entry path", () => {
     assert.equal(existsSync(new URL("../src/lib/review-room-entry.ts", import.meta.url)), false)
     assert.match(read("src/lib/review-reader.ts"), /store\.set\("apri_review_room", "", \{ \.\.\.readerCookieOptions\(\), maxAge: 0 \}\)/, "sign-out still clears an old one")
   })
-  it("every way in needs an APRI session: the routing cookie can no longer reach a room", () => {
+  it("every way in needs an APRA session: the routing cookie can no longer reach a room", () => {
     const route = read("src/app/review/read/route.ts")
     assert.doesNotMatch(route, /readRoomHint|roomEntryFor|link_url|redirect\(entry/, "/review/read hands out nothing")
     assert.match(route, /new URL\("\/review\/library", request\.url\)/)
@@ -699,7 +699,7 @@ describe("opening access re-checks approval and the room's editions every time",
   })
 })
 
-describe("the APRI-verified library: one APRI code, then every assigned PDF opens directly", () => {
+describe("the APRA-verified library: one APRA code, then every assigned PDF opens directly", () => {
   const R = `${tag}_rhoda@example.invalid`
   const S = `${tag}_sade@example.invalid`
   const linkOf = async (email) => store.links.get((await room(email)).papermark_link_id)
@@ -714,7 +714,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     await signIn(S)
   })
 
-  it("Read opens that one PDF inside the reader's own link, open only until their APRI session ends", async () => {
+  it("Read opens that one PDF inside the reader's own link, open only until their APRA session ends", async () => {
     const until = await reader.readerAccessUntil(R)
     assert.ok(until, "the reader holds a session")
     const d1 = await readDocument(R, ed.r1, until)
@@ -728,7 +728,7 @@ describe("the APRI-verified library: one APRI code, then every assigned PDF open
     assert.equal(link.allow_download, true)
     assert.equal(link.enable_watermark, true)
     assert.equal(link.enable_screenshot_protection, true)
-    assert.ok(policy.closesAt(link, until), "closes exactly when the APRI session ends")
+    assert.ok(policy.closesAt(link, until), "closes exactly when the APRA session ends")
     assert.deepEqual(viewerSees(link.id, R), [DOC("r1"), DOC("r2")].sort())
   })
 

@@ -248,7 +248,7 @@ describe("one edition's category", () => {
     assert.equal(derivePublicationMetadata({ filename: "x 2026 05.pdf", category: null, otherStorable: true }).series, "")
     const other = derivePublicationMetadata({ filename: "Assigned paper 2026 05.pdf", category: "OTHER", otherStorable: true })
     assert.deepEqual([other.series, other.editionCode], ["OTHER", ""], "no edition code is invented for the mixed Other group")
-    assert.equal(derivePublicationMetadata({ filename: "Brief 2026 05.pdf", category: "QIB" }).editionCode, "APRI-QIB-2026-05")
+    assert.equal(derivePublicationMetadata({ filename: "Brief 2026 05.pdf", category: "QIB" }).editionCode, "APRA-QIB-2026-05")
   })
 })
 

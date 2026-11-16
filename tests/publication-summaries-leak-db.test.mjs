@@ -127,7 +127,7 @@ describe("notification emails carry no protected summary", () => {
     for (const message of messages) {
       const all=`${message.subject}\n${message.html}\n${message.text}`
       for (const word of WORDS) assert.equal(all.includes(word),false,word)
-      assert.match(all,/https:\/\/apri\.athenacentre\.org\/portal/)
+      assert.match(all,/https:\/\/athenaadvisory\.ng\/portal/)
       assert.doesNotMatch(all,/docs\.example|papermark|token=/i)
     }
   })

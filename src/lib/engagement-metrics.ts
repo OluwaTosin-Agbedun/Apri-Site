@@ -6,7 +6,7 @@
  * use these same helpers, so a definition cannot drift between the dashboard
  * and its tests.
  *
- * The distinction this module exists to enforce: an APRI click is an intent
+ * The distinction this module exists to enforce: an APRA click is an intent
  * signal recorded by our own site, and a Papermark view session is a
  * confirmation that a document was actually opened. They measure different
  * things, they disagree routinely, and adding them together produces a
@@ -92,7 +92,7 @@ export function formatMetric(
 // Shapes the definitions operate on
 // ---------------------------------------------------------------------------
 
-/** One APRI publication-card click. */
+/** One APRA publication-card click. */
 export type AccessEventRow = {
   eventId: string
   visitorId: string
@@ -346,7 +346,7 @@ export function enrichmentCoverage(total: number, enriched: number): Maybe<numbe
 // ---------------------------------------------------------------------------
 
 /**
- * Why APRI clicks and Papermark sessions are never summed.
+ * Why APRA clicks and Papermark sessions are never summed.
  *
  * A click is intent recorded on our side; a session is confirmation from
  * Papermark. One click can produce no session (the reader abandoned the email
@@ -355,7 +355,7 @@ export function enrichmentCoverage(total: number, enriched: number): Maybe<numbe
  * did both and invents readers who did neither.
  */
 export const NEVER_COMBINE =
-  'APRI access clicks and Papermark view sessions measure different things and are never added together.'
+  'APRA access clicks and Papermark view sessions measure different things and are never added together.'
 
 /** Present so a test can assert the rule is honoured rather than assumed. */
 export function combinedViewsAreForbidden(): true {

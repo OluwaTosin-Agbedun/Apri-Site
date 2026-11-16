@@ -156,7 +156,7 @@ async function existingLink(subscriber, docKey) {
   links.set(id, {
     id, url: `https://docs.example.invalid/view/${id}`, document_id: `${tag}_doc_${docKey}`, dataroom_id: null, target_type: "document",
     expires_at: `${day(60)}T23:59:59.999Z`, allow_download: true, enable_watermark: true,
-    watermark_config: { text: `APRI Subscriber Edition · ${subscriber.email} · {{date}}` }, enable_screenshot_protection: true, live: true,
+    watermark_config: { text: `APRA Subscriber Edition · ${subscriber.email} · {{date}}` }, enable_screenshot_protection: true, live: true,
   })
   await sql`
     insert into papermark_subscriber_document_links (subscriber_id, papermark_document_id, papermark_link_id, link_url, assigned_name, assigned_email, watermark_text, allow_download, screenshot_protection, expires_at)

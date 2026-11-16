@@ -154,7 +154,7 @@ describe('prospect watermark policy', () => {
   })
 
   it('subscriber watermark uses Subscriber Edition format', () => {
-    assert.match(contract, /APRI Subscriber Edition/)
+    assert.match(contract, /APRA Subscriber Edition/)
   })
 
   it('subscriberWatermarkText does not include IP address', () => {

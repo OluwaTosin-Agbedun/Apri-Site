@@ -57,7 +57,7 @@ import { scheduleRoomReconcile } from "@/lib/review-reader-rooms"
  * Shows what applying the restrictions would change, without changing it.
  *
  * Reads each link's live allow list from Papermark rather than assuming what
- * APRI last set, so the owner compares against what is genuinely in force.
+ * APRA last set, so the owner compares against what is genuinely in force.
  */
 
 /**

@@ -26,7 +26,7 @@ export type StampSubject = {
 }
 
 export type StampPublication = {
-  /** Edition code, e.g. APRI-MIN-2026-08. Falls back to the title. */
+  /** Edition code, e.g. APRA-MIN-2026-08. Falls back to the title. */
   code: string | null
   title: string
 }

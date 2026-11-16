@@ -47,7 +47,7 @@ export function accessNotice(): string {
   return (
     "Access is restricted to named individuals. Email verification is required " +
     "before a document opens, every copy is individually identified to the " +
-    "person it was issued to, and every view is logged. APRI intelligence is " +
+    "person it was issued to, and every view is logged. APRA intelligence is " +
     "issued for the exclusive use of authorised readers and may not be redistributed."
   )
 }
@@ -71,7 +71,7 @@ export function portalNotice(): string {
   return (
     watermark +
     "Your access is personal to you, verified by your email address, and every " +
-    "view is logged. APRI intelligence is issued for the exclusive use of " +
+    "view is logged. APRA intelligence is issued for the exclusive use of " +
     "authorised readers and may not be redistributed."
   )
 }
@@ -79,10 +79,10 @@ export function portalNotice(): string {
 /** The one-line note in a subscriber email. */
 export function emailNotice(): string {
   return WATERMARKING_ENABLED
-    ? "Issued to you as part of your APRI subscription and marked with your name. " +
-        "APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed."
-    : "Issued to you as part of your APRI subscription. " +
-        "APRI intelligence is issued for the exclusive use of authorised readers and may not be redistributed."
+    ? "Issued to you as part of your APRA subscription and marked with your name. " +
+        "APRA intelligence is issued for the exclusive use of authorised readers and may not be redistributed."
+    : "Issued to you as part of your APRA subscription. " +
+        "APRA intelligence is issued for the exclusive use of authorised readers and may not be redistributed."
 }
 
 /** A short label for the admin's delivery panel. */

@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import SiteHeader from "@/components/SiteHeader"
 export const metadata: Metadata = {
-  title: "Email confirmation | APRI",
+  title: "Email confirmation | APRA",
   robots: { index: false, follow: false },
 }
 export default async function Confirmed({
@@ -21,7 +21,7 @@ export default async function Confirmed({
               Your email has been confirmed.
             </h1>
             <p>
-              Thank you for your APRI subscription request. We will send your
+              Thank you for your APRA subscription request. We will send your
               subscription agreement and payment details shortly. Your secure
               subscriber access will be activated once the agreement has been
               completed and payment confirmed.
@@ -34,11 +34,11 @@ export default async function Confirmed({
             </h1>
             <p>
               Thank you for your interest in Athena Political &amp; Regulatory
-              Intelligence.
+              Advisory.
             </p>
             <p>
               We are preparing your complimentary review access. You will
-              receive a separate email shortly with a secure link to the APRI
+              receive a separate email shortly with a secure link to the APRA
               Review Library.
             </p>
             <p>
@@ -46,7 +46,7 @@ export default async function Confirmed({
               review materials are provided on a confidential,
               non-redistribution basis.
             </p>
-            <p>Please look out for an email from APRI.</p>
+            <p>Please look out for an email from APRA.</p>
           </div>
         ) : (
           <div>

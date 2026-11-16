@@ -119,7 +119,7 @@ export default function ApprovedReadersPanel() {
             {repaired?.message && <p className={repaired.ok ? "" : "text-red-700"}>{repaired.message}</p>}
             {view.emails && view.emails.length > 0 && (
               <details className="mt-2">
-                <summary className="cursor-pointer">Recent APRI emails to this address</summary>
+                <summary className="cursor-pointer">Recent APRA emails to this address</summary>
                 <ul className="mt-1 space-y-1">
                   {view.emails.map((m, i) => (
                     <li key={i}>

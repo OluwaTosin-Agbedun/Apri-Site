@@ -45,7 +45,7 @@ const T = {}
 const versionOf = async (id) => (await dal.loadEditorPanel(sql, id)).detailsVersion
 /** Saves as the editor's form does: with the version of the page just loaded, unless the test gives one. */
 const details = async (id, fields) => act(actions.savePublicationDetails, { detailsVersion: await versionOf(id), ...fields }, id)
-const FULL = { authorEditor: "APRI Research Team", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: "14" }
+const FULL = { authorEditor: "APRA Research Team", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: "14" }
 const metadataRow = async (id) => (await sql`
   select author_editor, to_char(covered_period_start, 'YYYY-MM-DD') as cs, to_char(covered_period_end, 'YYYY-MM-DD') as ce,
          to_char(information_cutoff, 'YYYY-MM-DD') as ic, reading_time_minutes as rt
@@ -96,7 +96,7 @@ describe("saving a publication's reader details", () => {
     await signIn(session, editor, "editor")
     const saved = await details(ed.tagged.id, { ...FULL, tags: [T.tariffs.id, T.power.id, T.lagos.id] })
     assert.equal(saved.ok, true, saved.message)
-    assert.deepEqual(await metadataRow(ed.tagged.id), { author_editor: "APRI Research Team", cs: "2026-09-01", ce: "2026-09-30", ic: "2026-09-28", rt: 14 })
+    assert.deepEqual(await metadataRow(ed.tagged.id), { author_editor: "APRA Research Team", cs: "2026-09-01", ce: "2026-09-30", ic: "2026-09-28", rt: 14 })
     assert.deepEqual(await assignedLabels(ed.tagged.id), [T.lagos.label, T.power.label, T.tariffs.label].sort())
     assert.ok(globalThis.__revalidated.includes("/portal"))
 
@@ -293,7 +293,7 @@ describe("what readers see", () => {
     assert.equal((await details(ed.legacy.id, { readingMinutes: "6", tags: [T.lagos.id] })).ok, true)
     const reader = await dataRoom(R.reader)
     const tagged = card(reader, ed.tagged).details
-    assert.equal(tagged.authorEditor, "APRI Research Team")
+    assert.equal(tagged.authorEditor, "APRA Research Team")
     assert.deepEqual(tagged.coveredPeriod, { start: "2026-09-01", end: "2026-09-30" })
     assert.equal(tagged.informationCutoff, "2026-09-28")
     assert.equal(tagged.readingMinutes, 14)
@@ -320,7 +320,7 @@ describe("what readers see", () => {
     // Another plan's reader: neither the edition nor its details.
     const other = await dataRoom(R.other)
     assert.equal(card(other, ed.tagged), undefined)
-    assert.ok(!JSON.stringify(other.documents).includes("APRI Research Team"))
+    assert.ok(!JSON.stringify(other.documents).includes("APRA Research Team"))
     // The bare edition, with nothing stated, still lists and opens; the tagged one is listed exactly as before.
     const reader = await dataRoom(R.reader)
     assert.ok(card(reader, ed.bare))

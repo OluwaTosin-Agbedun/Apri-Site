@@ -69,7 +69,7 @@ export default async function AccessPage({
             Subscription Access
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            Access to APRI intelligence products is available through tiered
+            Access to APRA intelligence products is available through tiered
             subscriptions designed for individuals, teams and organisations that
             require regular political and regulatory intelligence on Nigeria.
           </p>
@@ -125,7 +125,7 @@ export default async function AccessPage({
             Quarterly Subscriber Intelligence Briefing
           </h2>
           <p className="text-base text-foreground/70 leading-relaxed max-w-4xl">
-            APRI subscribers are invited to a quarterly virtual briefing on the
+            APRA subscribers are invited to a quarterly virtual briefing on the
             political and regulatory outlook, with an opportunity to engage the
             intelligence team in Q&amp;A. Private or bespoke institutional
             briefings may be arranged separately.

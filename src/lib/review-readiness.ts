@@ -69,7 +69,7 @@ export async function schemaProblems(): Promise<ReadinessProblem[]> {
   }))
 }
 
-/** Published editions whose Papermark link does not carry the reader list APRI holds. */
+/** Published editions whose Papermark link does not carry the reader list APRA holds. */
 export async function editionProblems(): Promise<ReadinessProblem[]> {
   const sql = getSql()
   const rows = (await sql`
@@ -90,7 +90,7 @@ export async function editionProblems(): Promise<ReadinessProblem[]> {
     if (!r.link_ok) {
       out.push({ key: `edition_link:${r.id}`, level: "attention", message: `${name(r)} is published but has no verified Papermark link, so no reader can open it. Prepare its secure link.` })
     } else if (r.recipient_mode === "edition" && r.recipients_verified_hash !== recipientListHash(r.active)) {
-      out.push({ key: `edition_sync:${r.id}`, level: "attention", message: `${name(r)}: its reader list changed in APRI but has not been applied to Papermark. Open the edition and use Preview, then Apply.` })
+      out.push({ key: `edition_sync:${r.id}`, level: "attention", message: `${name(r)}: its reader list changed in APRA but has not been applied to Papermark. Open the edition and use Preview, then Apply.` })
     }
   }
   return out

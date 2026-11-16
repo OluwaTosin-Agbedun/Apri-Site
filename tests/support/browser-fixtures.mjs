@@ -11,6 +11,8 @@ export async function seedBrowserData(database, secret) {
     await sql`insert into admins(email,name,password_hash,role) values('browser-owner@example.invalid','Test Owner','unused','owner') returning id`
   const staffPassword=randomBytes(20).toString('hex')
   await sql`update admins set password_hash=${await bcrypt.hash(staffPassword,4)} where id=${owner.id}::uuid`
+  // Match a deployed installation: creating an owner also closes one-time setup.
+  await sql`insert into app_settings(key,value) values('setup_completed','true') on conflict(key) do nothing`
   const [workflowPublication]=await sql`insert into documents(slug,title,series,visibility,status,is_published,paid_release_state,edition_date,papermark_document_id,author_editor,covered_period_start,covered_period_end,information_cutoff,reading_time_minutes)
     values('browser-editorial-draft','Test editorial workflow','MIN','L1','draft',false,'withheld','2026-08-01','browser-workflow-pdf','Test editor','2026-07-01','2026-07-31','2026-08-01',10) returning id`
   const categories = DEFAULT_CATALOGUE.filter((c) => c.active)
@@ -31,7 +33,7 @@ export async function seedBrowserData(database, secret) {
   for (const [i, category] of categories.entries()) {
     const [pub] =
       await sql`insert into documents(slug,title,series,visibility,status,is_published,paid_release_state,edition_date,summary,description,papermark_document_id)
-      values(${`browser-edition-${i + 1}`},${`Test ${category.singularLabel} (2026)`},${category.code},'L1','published',true,'released',${`2026-08-${String(i + 1).padStart(2, "0")}`}::date,'Public test teaser.','Invented public description.',${`browser-pdf-${i}`}) returning id`
+      values(${`browser-edition-${i + 1}`},${`Test ${category.singularLabel} (2026)`},${category.code},'L1','published',true,'released',${`2026-08-${String(i + 1).padStart(2, "0")}`}::date,'Public test teaser.','Saved APRI promotional description.',${`browser-pdf-${i}`}) returning id`
     for (const reader of readers) {
       await sql`insert into publication_plans(publication_id,public_tier,source) values(${pub.id}::uuid,${reader.plan.storedName},'test')`
       await sql`insert into publication_access(subscriber_id,publication_id,link_url) values(${reader.id}::uuid,${pub.id}::uuid,${`https://docs.athenacentre.org/browsercopy${i + 1}`})`
@@ -47,8 +49,8 @@ export async function seedBrowserData(database, secret) {
   const editions = []
   for (const [i, category] of categories.entries()) {
     const [edition] =
-      await sql`insert into review_publication_editions(series,title,edition_date,papermark_document_id,secure_link_id,secure_link_url,secure_link_document_id,secure_link_verified_at,publication_state,recipient_mode)
-      values(${category.code},${`Review ${category.singularLabel}`},'2026-08-01',${`browser-review-pdf-${i}`},${`browserreview${i}`},${`https://docs.athenacentre.org/browserreview${i}`},${`browser-review-pdf-${i}`},now(),'published','edition') returning id`
+      await sql`insert into review_publication_editions(series,title,description,edition_date,papermark_document_id,secure_link_id,secure_link_url,secure_link_document_id,secure_link_verified_at,publication_state,recipient_mode)
+      values(${category.code},${`Review ${category.singularLabel}`},'APRI review access.','2026-08-01',${`browser-review-pdf-${i}`},${`browserreview${i}`},${`https://docs.athenacentre.org/browserreview${i}`},${`browser-review-pdf-${i}`},now(),'published','edition') returning id`
     await sql`insert into review_edition_recipients(edition_id,email,source) values(${edition.id}::uuid,${email},'owner')`
     editions.push(edition.id)
   }

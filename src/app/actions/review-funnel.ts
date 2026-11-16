@@ -139,7 +139,7 @@ export async function requestReview(
   }
   return {
     ok: true,
-    message: "Please check your email to confirm your APRI review request.",
+    message: "Please check your email to confirm your APRA review request.",
   }
 }
 

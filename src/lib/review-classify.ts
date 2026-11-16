@@ -66,7 +66,7 @@ const SERIES_META: Partial<Record<CatalogueCode, {
     displayTitle: "Political Landscape Monitor",
     publicationType: "Monthly Strategic Assessment",
     description:
-      "A monthly monitoring product covering Nigeria’s democratic, electoral and political landscape. Although public-facing, it should appear here as part of the broader monthly intelligence bouquet available to APRI readers.",
+      "A monthly monitoring product covering Nigeria’s democratic, electoral and political landscape. Although public-facing, it should appear here as part of the broader monthly intelligence bouquet available to APRA readers.",
     frequency: "Monthly",
   },
 }
@@ -307,7 +307,7 @@ export function generateReviewMetadata(
     publicationType: meta.publicationType,
     description: meta.description,
     frequency: meta.frequency,
-    audience: approved ? "APRI subscribers and prospective readers" : "",
+    audience: approved ? "APRA subscribers and prospective readers" : "",
     editionLabel,
   }
 }

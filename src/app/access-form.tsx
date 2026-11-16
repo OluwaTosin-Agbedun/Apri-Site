@@ -249,7 +249,7 @@ export default function AccessForm({
             <input key={k} type="hidden" name={`utm_${k}`} value={v} />
           ))}
           <div>
-            <label htmlFor="source" className={labelClass}>How did you hear about APRI?</label>
+            <label htmlFor="source" className={labelClass}>How did you hear about APRA?</label>
             <select id="source" name="source" required defaultValue="" className={`${field} appearance-none cursor-pointer`}>
               <option value="" disabled>Select one</option>
               {SOURCES.map((v) => <option key={v}>{v}</option>)}

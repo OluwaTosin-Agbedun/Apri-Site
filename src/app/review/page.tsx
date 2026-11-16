@@ -27,10 +27,10 @@ export default async function ReviewPage({
           <section>
             <p className="eyebrow mb-5">Complimentary Review</p>
             <h1 className="font-serif text-4xl sm:text-5xl leading-tight mb-7">
-              Review Athena Political &amp; Regulatory Intelligence
+              Review Athena Political &amp; Regulatory Advisory
             </h1>
             <p className="text-lg text-foreground/70 leading-relaxed">
-              Complimentary access to selected APRI publications for
+              Complimentary access to selected APRA publications for
               professionals who want a clearer view of the political and
               regulatory signals shaping Nigeria.
             </p>

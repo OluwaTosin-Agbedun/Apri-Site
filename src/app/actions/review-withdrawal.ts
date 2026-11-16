@@ -35,7 +35,7 @@ import { scheduleRoomReconcile } from "@/lib/review-reader-rooms"
  *
  * A withdrawal only ever revokes the one Papermark link recorded for that
  * edition, after reading it back as a document link to that edition's own
- * PDF and confirming APRI does not also record it as paid access. It never
+ * PDF and confirming APRA does not also record it as paid access. It never
  * writes a recipient, subscriber, Data Room or paid-access record, and never
  * deletes or moves a PDF.
  */
@@ -139,7 +139,7 @@ async function scanAccessPaths(
   )
   if (!known.complete) {
     complete = false
-    notes.push("some of APRI's own link records could not be read")
+    notes.push("some of APRA's own link records could not be read")
   }
   return buildAccessPathReport({
     links,
@@ -199,7 +199,7 @@ const EMPTY_PREVIEW = {
 
 /**
  * What withdrawing one edition would do, read-only: the exact edition, its
- * Papermark document and its APRI-managed complimentary link, what Papermark
+ * Papermark document and its APRA-managed complimentary link, what Papermark
  * says about that link, what else can open the same PDF, and -- for the
  * edition its series offers -- which editions could be offered instead.
  */
@@ -251,7 +251,7 @@ export async function previewReviewEditionWithdrawal(editionId: string): Promise
       : live.state === "active"
         ? live.targetType === "document" && live.documentId === edition.papermarkDocumentId
           ? "Active in Papermark, and it opens exactly this edition's document."
-          : "Active in Papermark, but it does NOT target this edition's document. APRI will refuse to revoke it; manual review is required."
+          : "Active in Papermark, but it does NOT target this edition's document. APRA will refuse to revoke it; manual review is required."
         : `Papermark could not be read (${live.message}).`
 
   const candidates = edition.featured ? await loadReplacementCandidates(sql, edition) : []
@@ -369,7 +369,7 @@ export async function offerReviewEdition(editionId: string): Promise<OfferResult
   try {
     await featureEdition(sql, { editionId, adminId: admin.id })
   } catch {
-    return { ok: false, message: "APRI could not record the change. Nothing was changed." }
+    return { ok: false, message: "APRA could not record the change. Nothing was changed." }
   }
   refreshReviewPages()
   return { ok: true, message: `${edition.label} is now the edition its series offers on the homepage.` }
@@ -409,7 +409,7 @@ export async function reofferWithdrawnEdition(editionId: string): Promise<OfferR
   } catch {
     changed = false
   }
-  if (!changed) return { ok: false, message: "APRI could not record the change. Nothing was changed." }
+  if (!changed) return { ok: false, message: "APRA could not record the change. Nothing was changed." }
   refreshReviewPages()
   return {
     ok: true,

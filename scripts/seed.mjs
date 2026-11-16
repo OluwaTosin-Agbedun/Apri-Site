@@ -1,5 +1,5 @@
 /**
- * Loads the four APRI publications from the chancellor's brief.
+ * Loads the four APRA publications from the chancellor's brief.
  *
  * Idempotent: upserts on `slug`, so running it twice does not duplicate rows,
  * and it never clears editorial text an administrator has since changed except
@@ -85,12 +85,12 @@ const PUBLICATIONS = [
     title: 'Political Landscape Monitor',
     strapline: 'Monitoring Nigeria’s Democratic and Electoral Landscape',
     description:
-      'A monthly Athena Election Observatory assessment of Nigeria’s democratic, electoral and political landscape, included in APRI subscriber access.',
+      'A monthly Athena Election Observatory assessment of Nigeria’s democratic, electoral and political landscape, included in APRA subscriber access.',
     frequency: 'Monthly',
     audience:
-      'APRI subscribers, democratic governance stakeholders, election observers, diplomats, policy actors, civil society, media and political-risk teams',
+      'APRA subscribers, democratic governance stakeholders, election observers, diplomats, policy actors, civil society, media and political-risk teams',
     attribution:
-      'An Athena Election Observatory publication included in APRI subscriber access.',
+      'An Athena Election Observatory publication included in APRA subscriber access.',
     ctaLabel: 'Access Secure Monitor',
     ctaMode: 'link',
     // No link supplied yet. Left empty on purpose rather than guessed: a wrong

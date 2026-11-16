@@ -7,7 +7,7 @@ import { formatLagos } from "@/lib/engagement-metrics"
 import { loadSubscriberAccess, accessCounts } from "@/lib/access-policy-dal"
 import { loadReconciliationHealth, type ReconciliationHealth } from "@/lib/subscriber-access-reconciliation"
 
-export const metadata = { title: "Access Health · APRI" }
+export const metadata = { title: "Access Health · APRA" }
 export const dynamic = "force-dynamic"
 
 const STATE_LABEL: Record<string, string> = {

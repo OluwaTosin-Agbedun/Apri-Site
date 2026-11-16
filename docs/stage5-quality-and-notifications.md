@@ -114,7 +114,7 @@ approval and event identity when integrated.
    bounded batch now** can advance the same saved queue. Held jobs retry after
    15 minutes when a worker runs. Large audiences take several runs; this is
    explicitly reported rather than promised as instant delivery.
-8. The source repository variable `APRI_SITE_URL`, if set, must be exactly
+8. The source preferred repository variable `APRA_SITE_URL` (legacy `APRI_SITE_URL` remains supported), if set, must be exactly
    `https://apri.athenacentre.org` or `https://athenaadvisory.ng`. Curl does not
    follow redirects with the worker's secret. Leave the default until the
    domain cutover is approved.

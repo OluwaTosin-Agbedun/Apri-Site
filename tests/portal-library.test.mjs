@@ -150,7 +150,7 @@ test('the data layer has no briefing branches', () => {
   assert.doesNotMatch(dataLayer, /principal\.type === "briefing"/)
 })
 
-test('the folders APRI must never expose stay excluded', () => {
+test('the folders APRA must never expose stay excluded', () => {
   const action = read('src/app/actions/papermark-client-library.ts')
   assert.match(action, /"00 Masters"/)
   assert.match(action, /"07 Open Editions"/)
@@ -180,11 +180,11 @@ test('a verified device goes straight to the library, whichever kind of client i
   assert.match(home, /href="\/portal"\s*\n?\s*className="btn-primary"/)
 })
 
-test('the portal explains the Papermark check rather than adding an APRI one', () => {
+test('the portal explains the Papermark check rather than adding an APRA one', () => {
   // Both legacy and DR viewer paths explain the Papermark check.
   assert.match(viewer, /Papermark/)
   assert.match(viewer, /document-security check/)
-  // No second APRI verification screen is introduced.
+  // No second APRA verification screen is introduced.
   assert.doesNotMatch(viewer, /Verify your email|Confirm your identity/i)
 })
 

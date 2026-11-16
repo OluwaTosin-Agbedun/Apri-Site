@@ -6,7 +6,7 @@ import SecurityFindings from '@/components/SecurityFindings'
 import Link from 'next/link'
 import { getDataRoomStats } from '@/lib/dataroom-dal'
 
-export const metadata = { title: 'Overview · APRI' }
+export const metadata = { title: 'Overview · APRA' }
 export const dynamic = 'force-dynamic'
 
 export default async function AdminDashboardPage() {

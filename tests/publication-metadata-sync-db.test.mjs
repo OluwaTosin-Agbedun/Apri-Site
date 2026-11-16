@@ -66,7 +66,7 @@ const SUMMARY = {
 }
 // An incomplete draft, its own words, so finding any of them is a leak.
 const DRAFT = { whatChanged: "Unapproved sync draft obsidian.", whyItMatters: "", implications: "", watchNext: "", sourceDate: "", uncertainty: "" }
-const FULL = { authorEditor: "APRI Research Team", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: "14" }
+const FULL = { authorEditor: "APRA Research Team", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: "14" }
 
 let owner, editor, plan, reader, legacyReader
 const ed = {}
@@ -235,7 +235,7 @@ describe("Papermark sync keeps editorial metadata, tags and summaries", () => {
     assert.equal(library.state, "ready")
     const card = library.documents.find((d) => d.papermarkDocumentId === ed.edited.papermarkDocumentId)
     assert.equal(card.displayTitle, "Grid tariff reset: what changes", "the editor's title override, not the Papermark name")
-    assert.equal(card.details.authorEditor, "APRI Research Team")
+    assert.equal(card.details.authorEditor, "APRA Research Team")
     assert.deepEqual(card.details.coveredPeriod, { start: "2026-09-01", end: "2026-09-30" })
     assert.equal(card.details.readingMinutes, 15)
     assert.deepEqual(card.details.tags, { subject: [T.retiring.label, T.subject.label].sort((a, b) => a.localeCompare(b, "en-GB", { sensitivity: "base" })), sector: [T.sector.label], geography: [T.geography.label] })

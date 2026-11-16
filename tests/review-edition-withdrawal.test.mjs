@@ -12,7 +12,7 @@
  *    (direct-link denial), never merely because the card is hidden;
  *  - a failure at any step leaves a state the same action finishes, without
  *    creating or restoring any access;
- *  - only the edition's own link is ever revoked, and never one APRI records as
+ *  - only the edition's own link is ever revoked, and never one APRA records as
  *    paid access;
  *  - public pages are refreshed at each change;
  *  - each series is chosen independently on the homepage.
@@ -64,7 +64,7 @@ function body(src, name) {
 }
 
 // ---------------------------------------------------------------------------
-// A fake APRI and Papermark
+// A fake APRA and Papermark
 // ---------------------------------------------------------------------------
 
 const uuid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
@@ -273,7 +273,7 @@ describe("deciding a withdrawal", () => {
     const noLink = edition({ secureLinkId: null })
     const d = decideWithdrawal({ edition: noLink, previewKey: withdrawalPreviewKey(noLink), choice: { kind: "none" }, candidates })
     assert.equal(d.ok, false)
-    assert.match(d.message, /no APRI-managed Papermark link on record/)
+    assert.match(d.message, /no APRA-managed Papermark link on record/)
   })
 
   it("an unfinished withdrawal is resumed with its recorded link, whatever is posted", () => {
@@ -423,7 +423,7 @@ describe("the direct link must stop working", () => {
     assert.equal(r.ok, true)
     assert.match(r.message, /Papermark confirmed its complimentary link no longer opens/)
     const lines = r.accessPaths.join("\n")
-    assert.match(lines, /Still open and not managed by APRI -- review in Papermark: "Board copy" \(document link, id lnk-manual\)/)
+    assert.match(lines, /Still open and not managed by APRA -- review in Papermark: "Board copy" \(document link, id lnk-manual\)/)
     assert.match(lines, /Paid subscriber access to this PDF, left unchanged: 1 link\./)
     assert.doesNotMatch(lines, /Jane Subscriber/, "paid access is counted, never named")
   })
@@ -434,7 +434,7 @@ describe("the direct link must stop working", () => {
 // ---------------------------------------------------------------------------
 
 describe("failures part-way, and finishing afterwards", () => {
-  it("if APRI cannot record the start, Papermark is never touched", async () => {
+  it("if APRA cannot record the start, Papermark is never touched", async () => {
     const e = edition()
     const w = world([e], { beginFails: true })
     const r = await runWithdrawal(w.deps, input(e))
@@ -444,13 +444,13 @@ describe("failures part-way, and finishing afterwards", () => {
     assert.equal(w.links.get("lnk-min-sept").alive, true)
   })
 
-  it("if Papermark revoked the link but APRI could not record it, Complete withdrawal finishes without recreating access", async () => {
+  it("if Papermark revoked the link but APRA could not record it, Complete withdrawal finishes without recreating access", async () => {
     const e = edition()
     const w = world([e], { completeFailsOnce: true })
     const first = await runWithdrawal(w.deps, input(e))
     assert.equal(first.ok, false)
     assert.equal(first.status, "record_failed")
-    assert.match(first.message, /Papermark confirms .* no longer opens, but APRI could not record the withdrawal as complete/)
+    assert.match(first.message, /Papermark confirms .* no longer opens, but APRA could not record the withdrawal as complete/)
     assert.match(first.message, /it does not create or restore any access/)
     assert.equal(w.links.get("lnk-min-sept").alive, false)
 
@@ -495,7 +495,7 @@ describe("failures part-way, and finishing afterwards", () => {
 // ---------------------------------------------------------------------------
 
 describe("isolation from paid access", () => {
-  it("never revokes a link APRI records as paid subscriber access", async () => {
+  it("never revokes a link APRA records as paid subscriber access", async () => {
     const e = edition()
     const w = world([e], { paidLinks: ["lnk-min-sept"] })
     const r = await runWithdrawal(w.deps, input(e))
@@ -600,7 +600,7 @@ describe("reporting other ways to open the same PDF", () => {
   it("leaves out the edition's own link, which is reported from reading it directly", () => {
     const report = buildAccessPathReport({ links: [link("lnk-self")], withdrawnLinkId: "lnk-self", knownIds: new Map(), knownUrls: new Map(), complete: true, notes: [] })
     assert.deepEqual(report.paths, [])
-    assert.deepEqual(describeAccessPaths(report), ["No other Papermark link outside APRI's paid access opens this PDF."])
+    assert.deepEqual(describeAccessPaths(report), ["No other Papermark link outside APRA's paid access opens this PDF."])
   })
 
   it("lists Data Room links and manual links as still open, and never claims they were closed", () => {
@@ -618,7 +618,7 @@ describe("reporting other ways to open the same PDF", () => {
     })
     const lines = describeAccessPaths(report).join("\n")
     assert.match(lines, /"All partners" \(Data Room link for room "Partners", id lnk-room\)/)
-    assert.match(lines, /Other APRI Complimentary Review records also point at this PDF: link lnk-legacy/)
+    assert.match(lines, /Other APRA Complimentary Review records also point at this PDF: link lnk-legacy/)
     assert.match(lines, /Briefing client access to this PDF, left unchanged: 1 link/)
     assert.doesNotMatch(lines, /No other Papermark link/)
   })

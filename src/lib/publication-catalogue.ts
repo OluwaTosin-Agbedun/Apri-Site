@@ -62,7 +62,7 @@ export type FolderMapping = { folderSlug: string; code: CatalogueCode }
 
 /**
  * The built-in folder mappings (also the migration's seed): only the folder
- * labels in APRI's Papermark Data Rooms and the folder slugs already observed
+ * labels in APRA's Papermark Data Rooms and the folder slugs already observed
  * there. A folder is never guessed from a code or label inside its name: it
  * files a document into a category only when it is listed here, exactly.
  * `election-watch` is the one older name kept, as an explicit mapping the

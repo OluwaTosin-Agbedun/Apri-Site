@@ -94,7 +94,7 @@ export default function ReviewForm({ utm }: { utm: Record<string, string> }) {
         </select>
       </label>
       <label className="block text-sm">
-        How did you hear about APRI?
+        How did you hear about APRA?
         <select className={input} name="source" required defaultValue="">
           <option value="" disabled>
             Select one
@@ -121,7 +121,7 @@ export default function ReviewForm({ utm }: { utm: Record<string, string> }) {
         <a href="/privacy" className="underline">
           privacy notice
         </a>
-        . Confirmation is required before APRI prepares access.
+        . Confirmation is required before APRA prepares access.
       </p>
       {state.message && (
         <p className="text-sm text-red-700" role="alert">

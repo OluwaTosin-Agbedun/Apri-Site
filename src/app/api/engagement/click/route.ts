@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 /**
  * POST /api/engagement/click
  *
- * Records one click on an APRI publication card.
+ * Records one click on an APRA publication card.
  *
  * A click is an intent signal recorded by our own site. It is not a view: only
  * Papermark can confirm a document was opened, so these rows are reported
@@ -36,9 +36,9 @@ const Body = z.object({
   publicationId: z.string().regex(UUID_RE).nullish(),
   // A Complimentary Review category: any catalogue code a review edition may carry.
   slotKey: z.enum(REVIEW_SERIES as [string, ...string[]]).nullish(),
-  // The portal identifies a document by its Papermark id rather than an APRI
+  // The portal identifies a document by its Papermark id rather than an APRA
   // publication uuid. Resolved and validated server-side like the others, so
-  // an id APRI does not know about is still refused.
+  // an id APRA does not know about is still refused.
   papermarkDocumentId: z.string().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/).nullish(),
   originPath: z.string().max(200).nullish(),
   occurredAt: z.string().datetime().nullish(),
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   try {
     const sql = getSql()
 
-    // Only a publication or slot APRI actually knows about is accepted, and the
+    // Only a publication or slot APRA actually knows about is accepted, and the
     // Papermark ids come from our own tables rather than the request. This is
     // both a validation step and the reason the browser needs no Papermark
     // knowledge at all.
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
 }
 
 /**
- * Resolves the click target from APRI's own tables.
+ * Resolves the click target from APRA's own tables.
  *
  * A review click (a series key) resolves to the published edition the card
  * showed -- the card sends that edition's id -- and records the edition's
@@ -286,7 +286,7 @@ function isSameOrigin(request: Request): boolean {
   }
 }
 
-/** Keeps only an APRI-looking path, with no query string. */
+/** Keeps only an APRA-looking path, with no query string. */
 function sanitizePath(value: string | null | undefined): string {
   if (!value) return ''
   const path = value.split('?')[0]!.split('#')[0]!

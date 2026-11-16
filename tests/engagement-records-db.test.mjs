@@ -151,7 +151,7 @@ describe("attribution", () => {
     assert.equal(row.reader_type, "complimentary_review")
   })
 
-  it("leaves a read on a link APRI does not know unmatched rather than guessed", async () => {
+  it("leaves a read on a link APRA does not know unmatched rather than guessed", async () => {
     const result = await attribute({
       papermarkViewId: id("stranger"),
       papermarkLinkId: id("link-nobody"),

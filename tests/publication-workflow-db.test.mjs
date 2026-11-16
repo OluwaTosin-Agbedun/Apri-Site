@@ -151,7 +151,7 @@ test('corrections require a distinct PDF and original issue date; exact inherita
 test('one owner cannot self-verify a notice; a verified copy is selected without changing the original source history',async()=>{
   const w=await wf(old.id)
   await sql`insert into papermark_dataroom_documents(papermark_dataroom_id,papermark_document_id,title,category,version_key) values(${plan.dataroom},'wf_notice_old','Superseded original.pdf','MIN','notice-v1')`
-  const proof={documentId:'wf_notice_old',sourceHash:'a'.repeat(64),noticeHash:'b'.repeat(64),pages:4,currentUrl:'https://apri.athenacentre.org/portal/publication/'+old.id}
+  const proof={documentId:'wf_notice_old',sourceHash:'a'.repeat(64),noticeHash:'b'.repeat(64),pages:4,currentUrl:'https://athenaadvisory.ng/portal/publication/'+old.id}
   await corrections.recordNoticeProof('paid',old.id,actor(owner),proof,'Inspected the uploaded embedded notice proof',sql)
   let prepared=await wf(old.id)
   await assert.rejects(corrections.verifyNoticeProof('paid',old.id,actor(owner),prepared.revision,'Attempt to verify my own PDF preparation',sql),/different active owner/i)
@@ -280,7 +280,7 @@ test('review correction preserves exact recipients, its own latest/homepage plac
   assert.deepEqual((await sql`select email from review_edition_recipients where edition_id=${target.id}::uuid and revoked_at is null`).map(r=>r.email),[email])
   await approve(target.id,'review')
   let w=await wf(source.id,'review')
-  await corrections.recordNoticeProof('review',source.id,actor(owner),{documentId:'wf_review_notice',sourceHash:'c'.repeat(64),noticeHash:'d'.repeat(64),pages:3,currentUrl:'https://apri.athenacentre.org/review/library/current/'+source.id},'Checked the uploaded review notice PDF and its personal protection',sql)
+  await corrections.recordNoticeProof('review',source.id,actor(owner),{documentId:'wf_review_notice',sourceHash:'c'.repeat(64),noticeHash:'d'.repeat(64),pages:3,currentUrl:'https://athenaadvisory.ng/review/library/current/'+source.id},'Checked the uploaded review notice PDF and its personal protection',sql)
   w=await wf(source.id,'review')
   await corrections.verifyNoticeProof('review',source.id,actor(owner2),w.revision,'Independently verified every page, current link and download watermark',sql)
   w=await wf(source.id,'review')

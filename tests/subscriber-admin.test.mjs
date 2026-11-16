@@ -36,7 +36,7 @@ test('admin displays one access-level field, read-only status and enforced Indiv
   assert.doesNotMatch(actions, /status = \$\{d\.status\}/)
 })
 
-test('Papermark and APRI custom-domain links are normalized and validated', () => {
+test('Papermark and APRA custom-domain links are normalized and validated', () => {
   assert.equal(normalisePapermarkUrl('docs.athenacentre.org/client/a'), 'https://docs.athenacentre.org/client/a')
   assert.ok(papermarkShareUrl('https://docs.athenacentre.org/client/a'))
   assert.ok(papermarkShareUrl('https://www.papermark.com/view/client-a'))

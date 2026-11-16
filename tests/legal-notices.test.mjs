@@ -124,7 +124,7 @@ describe('watermark disclosure', () => {
   it('the subscriber watermark carries no name', () => {
     // Phase 4 removed the name deliberately; the notices must not re-promise it.
     assert.doesNotMatch(subscriber, /Reader Name/)
-    assert.match(subscriber, /APRI Subscriber Edition/)
+    assert.match(subscriber, /APRA Subscriber Edition/)
   })
 
   it('no watermark carries an IP address', () => {

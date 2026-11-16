@@ -27,7 +27,8 @@ test.after(() => {
     else process.env[key] = restore[key]
 })
 test("the canonical origin is an exact configured HTTPS origin, never a visitor's host", () => {
-  assert.equal(site.siteOrigin({}), site.LEGACY_SITE_ORIGIN)
+  assert.equal(site.siteOrigin({}), site.ADVISORY_SITE_ORIGIN)
+  assert.equal(site.siteOrigin({ PUBLIC_SITE_URL: site.LEGACY_SITE_ORIGIN }), site.LEGACY_SITE_ORIGIN, "explicit legacy origin remains available for rollback")
   for (const raw of [
     "http://athenaadvisory.ng",
     "https://attacker.invalid",
@@ -61,19 +62,19 @@ test("public metadata and sitemap are unique and contain only the explicit publi
   for (const [index, page] of pages.entries()) {
     assert.equal(
       page.alternates.canonical,
-      new URL(site.INDEXABLE_PATHS[index], site.LEGACY_SITE_ORIGIN).href,
+      new URL(site.INDEXABLE_PATHS[index], site.ADVISORY_SITE_ORIGIN).href,
     )
     assert.equal(page.robots.index, true)
     assert.equal(page.robots.follow, true)
     assert.equal(
       page.openGraph.images[0].url,
-      `${site.LEGACY_SITE_ORIGIN}/opengraph-image`,
+      `${site.ADVISORY_SITE_ORIGIN}/opengraph-image`,
     )
     assert.equal(page.twitter.card, "summary_large_image")
   }
   assert.deepEqual(
     sitemap.default().map((p) => p.url),
-    site.INDEXABLE_PATHS.map((p) => new URL(p, site.LEGACY_SITE_ORIGIN).href),
+    site.INDEXABLE_PATHS.map((p) => new URL(p, site.ADVISORY_SITE_ORIGIN).href),
   )
   assert.ok(
     !sitemap.default().some((p) => /portal|admin|library|token=/.test(p.url)),
@@ -118,7 +119,7 @@ test("all private routes and unknown hosts are noindex and protected responses a
   )
   assert.match(hostile.headers.get("X-Robots-Tag"), /noindex/)
   const publicPage = await proxy(
-    new NextRequest(`${site.LEGACY_SITE_ORIGIN}/publications`),
+    new NextRequest(`${site.ADVISORY_SITE_ORIGIN}/publications`),
   )
   assert.equal(publicPage.headers.get("X-Robots-Tag"), null)
 })
@@ -218,7 +219,7 @@ test("structured data and llms.txt describe public information only and escape s
     graph.map((p) => p["@type"]),
     ["Organization", "WebSite"],
   )
-  assert.ok(graph.every((p) => p.url.startsWith(site.LEGACY_SITE_ORIGIN)))
+  assert.ok(graph.every((p) => p.url.startsWith(site.ADVISORY_SITE_ORIGIN)))
   const response = llms.GET()
   assert.match(response.headers.get("content-type"), /text\/plain/)
   const content = await response.text()

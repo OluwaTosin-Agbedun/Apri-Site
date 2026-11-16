@@ -8,7 +8,7 @@ import PapermarkEmbed from '@/components/PapermarkEmbed'
 import {papermarkEmbedUrl,papermarkShareUrl} from '@/lib/papermark-embed'
 import {getDataRoomDocumentForSubscriber} from '@/lib/papermark-client-library'
 export const dynamic='force-dynamic'
-export const metadata={title:'Publication versions | APRI',robots:{index:false,follow:false}}
+export const metadata={title:'Publication versions | APRA',robots:{index:false,follow:false}}
 export default async function PublicationVersionPage({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<{version?:string}>}){
   const reader=await requireSubscriber()
   if(!reader.hasAccess)redirect('/portal')

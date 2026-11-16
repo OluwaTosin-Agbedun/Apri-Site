@@ -78,8 +78,8 @@ describe("editorial metadata validation", () => {
   })
 
   it("keeps what an editor entered, cleaned to one line, and nothing else", () => {
-    const result = valid({ authorEditor: "  APRI   Research\nTeam ", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: "12" })
-    assert.deepEqual(result, { ok: true, value: { authorEditor: "APRI Research Team", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: 12 } })
+    const result = valid({ authorEditor: "  APRA   Research\nTeam ", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: "12" })
+    assert.deepEqual(result, { ok: true, value: { authorEditor: "APRA Research Team", coveredPeriodStart: "2026-09-01", coveredPeriodEnd: "2026-09-30", informationCutoff: "2026-09-28", readingMinutes: 12 } })
   })
 
   it("needs both ends of a covered period, ending on or after its start (a single day is allowed)", () => {
@@ -228,13 +228,13 @@ describe("what a subscriber card shows", () => {
 
   it("shows every entered detail and tag label", () => {
     const html = facts(details({
-      authorEditor: "APRI Research Team",
+      authorEditor: "APRA Research Team",
       coveredPeriod: { start: "2026-09-01", end: "2026-09-30" },
       informationCutoff: "2026-09-28",
       readingMinutes: 1,
       tags: { subject: ["Elections", "Tariffs"], sector: ["Power"], geography: ["Lagos"] },
     }))
-    for (const text of ["1 minute", "1–30 September 2026", "28 September 2026", "APRI Research Team", "Elections, Tariffs", "Power", "Lagos", "Subjects:", "Sectors:", "Geography:"]) {
+    for (const text of ["1 minute", "1–30 September 2026", "28 September 2026", "APRA Research Team", "Elections, Tariffs", "Power", "Lagos", "Subjects:", "Sectors:", "Geography:"]) {
       assert.ok(html.includes(text), text)
     }
   })

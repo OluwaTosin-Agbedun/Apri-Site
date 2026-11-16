@@ -7,7 +7,7 @@ import { noticeSchemaReady } from "@/lib/publication-notifications"
 import PreferenceForm from "./preference-form"
 export const dynamic = "force-dynamic"
 export const metadata = {
-  title: "Publication email preferences | APRI",
+  title: "Publication email preferences | APRA",
   robots: { index: false, follow: false },
 }
 export default async function PreferencePage() {

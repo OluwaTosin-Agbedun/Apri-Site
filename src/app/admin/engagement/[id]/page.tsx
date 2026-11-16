@@ -82,7 +82,7 @@ export default async function SubscriberEngagementPage({
     >
       <div className="border border-border p-4 mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
-          <Info label="Email" value={s.email} extra={s.isAdministrator ? <Badge>APRI admin</Badge> : null} />
+          <Info label="Email" value={s.email} extra={s.isAdministrator ? <Badge>APRA admin</Badge> : null} />
           <Info label="Level" value={s.level} />
           <Info label="Access" value={s.status.label} />
           <Info label="Term ends" value={s.termEnd ?? "—"} />

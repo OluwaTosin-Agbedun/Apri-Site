@@ -142,7 +142,7 @@ export async function deleteDocument(id: string): Promise<FormState> {
   const rows = await sql`delete from documents where id=${id} returning id`
   if (!rows[0]) return { message: 'That publication no longer exists.' }
   refreshDocumentAdminPaths()
-  return { ok:true, message:'Publication deleted from APRI. The Papermark original was not changed.' }
+  return { ok:true, message:'Publication deleted from APRA. The Papermark original was not changed.' }
 }
 
 /** Save the editable CMS fields for one publication. */

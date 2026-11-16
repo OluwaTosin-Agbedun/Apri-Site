@@ -122,7 +122,7 @@ function Cell({ label, value, muted = false }: { label: string; value: string; m
   )
 }
 
-/** A small label beside a name, e.g. for an APRI administrator's own record. */
+/** A small label beside a name, e.g. for an APRA administrator's own record. */
 export function Badge({ children }: { children: React.ReactNode }) {
   return (
     <span className="ml-2 inline-block text-[0.65rem] uppercase tracking-wider border border-border px-1.5 py-0.5 text-muted-foreground align-middle">

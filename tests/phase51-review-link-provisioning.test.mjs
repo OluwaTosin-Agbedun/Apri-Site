@@ -179,7 +179,7 @@ describe('link security settings', () => {
   it('watermark text is exactly the approved wording', () => {
     assert.equal(
       s.watermark_config.text,
-      'APRI Complimentary Review Copy · {{email}} · {{date}} {{time}} · Confidential · Not for redistribution',
+      'APRA Complimentary Review Copy · {{email}} · {{date}} {{time}} · Confidential · Not for redistribution',
     )
   })
 
@@ -362,8 +362,8 @@ describe('subscriber isolation', () => {
   it('the review watermark is distinct from the subscriber watermark', () => {
     const sub = subscriberWatermarkConfig('someone@example.org').text
     assert.notEqual(sub, PROSPECT_WATERMARK_TEXT)
-    assert.match(sub, /APRI Subscriber Edition/)
-    assert.match(PROSPECT_WATERMARK_TEXT, /APRI Complimentary Review Copy/)
+    assert.match(sub, /APRA Subscriber Edition/)
+    assert.match(PROSPECT_WATERMARK_TEXT, /APRA Complimentary Review Copy/)
     assert.doesNotMatch(sub, /Complimentary/)
   })
 })
@@ -509,7 +509,7 @@ describe('public library gating', () => {
     const start = page.indexOf('<section id="review-publications"')
     const archive = page.slice(start, page.indexOf('</section>', start))
     // Papermark mode uses the verified link directly; library mode leads to the
-    // Review Library (APRI's code first) and never to a Papermark address.
+    // Review Library (APRA's code first) and never to a Papermark address.
     assert.match(archive, /href=\{entryMode === "library" \? `\/review\/library\?edition=\$\{card\.id\}` : card\.secureUrl\}/)
     assert.doesNotMatch(archive, /"rooms"|\/review\/read/)
     assert.doesNotMatch(archive, /href="\/review"/, 'the /review journey is a separate call to action')

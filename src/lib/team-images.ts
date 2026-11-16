@@ -59,7 +59,7 @@ async function assertPublicHost(host: string) {
 export class TeamImageUploadError extends Error {
   constructor() {
     super(
-      "The image could not be uploaded. Verify the APRI Blob store connection or use a public HTTPS image URL.",
+      "The image could not be uploaded. Verify the APRA Blob store connection or use a public HTTPS image URL.",
     )
     this.name = "TeamImageUploadError"
   }

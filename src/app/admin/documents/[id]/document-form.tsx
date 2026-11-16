@@ -151,7 +151,7 @@ export default function DocumentForm({
           </div>
           <div>
             <label htmlFor="code" className={label}>Edition code</label>
-            <input id="code" name="code" defaultValue={draft.code} className={field} placeholder="APRI-MIN-2026-08" />
+            <input id="code" name="code" defaultValue={draft.code} className={field} placeholder="APRA-MIN-2026-08" />
             <p className="mt-2 text-xs text-muted-foreground">
               Must be unique. Leave blank if this edition has no code yet.
             </p>
@@ -251,7 +251,7 @@ export default function DocumentForm({
 
       <div>
         <label htmlFor="attribution" className={label}>Attribution note</label>
-        <input id="attribution" name="attribution" defaultValue={draft.attribution} className={field} placeholder="An Athena Election Observatory publication included in APRI subscriber access." />
+        <input id="attribution" name="attribution" defaultValue={draft.attribution} className={field} placeholder="An Athena Election Observatory publication included in APRA subscriber access." />
         {err('attribution')}
       </div>
 

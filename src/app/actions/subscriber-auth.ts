@@ -131,7 +131,7 @@ export async function subscriberSignOut(): Promise<void> {
 
 const CODE_FAILURES_PER_DAY = 10
 const CODE_FAILED: FormState = {
-  message: "That code did not work. Check that it is from your latest APRI email and was sent in the last 15 minutes, or use the link in that email.",
+  message: "That code did not work. Check that it is from your latest APRA email and was sent in the last 15 minutes, or use the link in that email.",
 }
 
 /**
@@ -156,7 +156,7 @@ export async function signInWithEmailCode(_prev: FormState, formData: FormData):
     from login_attempts where successful = false
   `) as { recent: number; fromIp: number }[]
   if (recent >= CODE_FAILURES_PER_DAY || fromIp >= 20) {
-    return { message: "Too many codes were tried. Use the link in your latest APRI email, or try again later." }
+    return { message: "Too many codes were tried. Use the link in your latest APRA email, or try again later." }
   }
 
   const result = await signInWithCode(email, String(formData.get("code") ?? ""))
@@ -164,9 +164,9 @@ export async function signInWithEmailCode(_prev: FormState, formData: FormData):
     if (result.reason === "session-failed") {
       return { message: "Your code was right, but signing in could not be finished just now. Try the same code again in a minute." }
     }
-    if (result.reason === "suspended") return { message: "This APRI subscription is currently suspended. Contact APRI for help." }
-    if (result.reason === "subscription-expired") return { message: "This subscription has expired. Contact APRI to renew access." }
-    if (result.reason === "inactive") return { message: "This APRI account is not active. Contact APRI if you believe this is incorrect." }
+    if (result.reason === "suspended") return { message: "This APRA subscription is currently suspended. Contact APRA for help." }
+    if (result.reason === "subscription-expired") return { message: "This subscription has expired. Contact APRA to renew access." }
+    if (result.reason === "inactive") return { message: "This APRA account is not active. Contact APRA if you believe this is incorrect." }
     await sql`insert into login_attempts (email_key, ip, successful) values (${key}, ${ip}, false)`
     return CODE_FAILED
   }

@@ -1,3 +1,4 @@
+import { currentBrandCopy } from "@/lib/brand"
 import type { Metadata } from "next"
 import AccessJobRefresh from "@/components/AccessJobRefresh"
 import { readerRoomJob, kickReviewRoomWorker } from "@/lib/review-room-jobs"
@@ -16,7 +17,7 @@ import {publicationVersions,latestEntitledVersions,familyHistory} from '@/lib/pu
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 export const metadata: Metadata = {
-  title: "Review Library | APRI",
+  title: "Review Library | APRA",
   robots: { index: false, follow: false },
 }
 
@@ -30,12 +31,12 @@ const NOTICE: Record<string, string> = {
   unavailable: "That edition is not available to your address. The editions available to you are listed below.",
   preparing: "Your copy is being prepared. Please press Read again in a minute.",
   busy: "Too many publications were opened from this network in the last hour. Please try again later.",
-  repair: "That edition could not be opened just now. This is a problem on APRI's side, not with your address, and it is recorded for APRI to repair. Please try again later.",
+  repair: "That edition could not be opened just now. This is a problem on APRA's side, not with your address, and it is recorded for APRA to repair. Please try again later.",
 }
 
 /**
  * The approved reader's Complimentary Review Library: all and only the
- * published editions assigned to the email this browser verified with APRI's
+ * published editions assigned to the email this browser verified with APRA's
  * code, decided afresh on every visit. Each Read goes through
  * /review/library/open/…, which checks the assignment again; no Papermark
  * address is ever on this page.
@@ -120,7 +121,7 @@ export default async function Library({
                     <p className="text-xs text-muted-foreground mt-1">
                       {[c.editionLabel, date].filter(Boolean).join(" · ")}
                     </p>
-                    {c.description && <p className="text-sm text-foreground/75 mt-3 max-w-2xl leading-relaxed">{c.description}</p>}
+                    {c.description && <p className="text-sm text-foreground/75 mt-3 max-w-2xl leading-relaxed">{currentBrandCopy(c.description)}</p>}
                     {versions.has(c.id)&&<p className="text-xs mt-2 text-muted-foreground">Version {versions.get(c.id)!.label}</p>}
                     {familyHistory(allEditions,e=>e.id,c.id,versions).length>1&&<details className="mt-4 text-sm"><summary className="cursor-pointer">Earlier versions</summary><ul className="mt-3 space-y-3">{familyHistory(allEditions,e=>e.id,c.id,versions).filter(e=>e.id!==c.id).map(e=><li key={e.id}>{versions.get(e.id)?.noticeReady?<a className="underline" href={`/review/library/open/${e.id}?history=1`} target="_blank" rel="noopener noreferrer">{e.pubTitle} · {versions.get(e.id)?.label} · Superseded</a>:<span>{e.pubTitle} · Earlier protected copy being prepared</span>}</li>)}</ul></details>}
                   </div>
@@ -140,8 +141,8 @@ export default async function Library({
 
         <p className="text-xs text-muted-foreground mt-6 max-w-2xl leading-relaxed">
           {direct
-            ? "Each publication opens in APRI's secure viewer, hosted by Papermark. The first time you open one on this browser each day, the viewer asks you to confirm your email address; no further code is needed. Use Download in the viewer to save your personally watermarked copy. Copies remain confidential and must not be redistributed."
-            : "Each publication opens in APRI's secure viewer, hosted by Papermark, which asks for a code the first time you open each publication on this browser each day. Use Download in the viewer once APRI has enabled it for that edition. Copies carry your personal watermark and must not be redistributed."}
+            ? "Each publication opens in APRA's secure viewer, hosted by Papermark. The first time you open one on this browser each day, the viewer asks you to confirm your email address; no further code is needed. Use Download in the viewer to save your personally watermarked copy. Copies remain confidential and must not be redistributed."
+            : "Each publication opens in APRA's secure viewer, hosted by Papermark, which asks for a code the first time you open each publication on this browser each day. Use Download in the viewer once APRA has enabled it for that edition. Copies carry your personal watermark and must not be redistributed."}
         </p>
 
         <section className="mt-16 sm:mt-20 grid md:grid-cols-2 gap-6">

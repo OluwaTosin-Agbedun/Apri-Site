@@ -50,9 +50,9 @@ test("subscriber form orders access level before conditional seats and resets In
   assert.match(source, /if \(value === 'Individual Access' \|\| !value\) setSeats\(''\)/)
 })
 
-test("portal emails use only the APRI production callback", () => {
+test("portal emails use only the APRA production callback", () => {
   const url = portalVerificationUrl("safe-test-token")
-  assert.equal(url, "https://apri.athenacentre.org/portal/verify?token=safe-test-token")
+  assert.equal(url, "https://athenaadvisory.ng/portal/verify?token=safe-test-token")
   assert.doesNotMatch(url, /localhost|vercel\.app/)
 })
 

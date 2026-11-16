@@ -53,7 +53,7 @@ function parts(date: string | Date | null): { year: string; month: string; month
 export function editionCode(publication: NamedPublication): string {
   const p = parts(publication.editionDate)
   if (publication.series && p) return `${publication.series}-${p.year}-${p.month}`
-  if (publication.code) return publication.code.replace(/^APRI-/i, '')
+  if (publication.code) return publication.code.replace(/^(?:APRA|APRI)-/i, '')
   return publication.series || 'EDITION'
 }
 

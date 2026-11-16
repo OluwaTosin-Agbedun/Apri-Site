@@ -324,7 +324,7 @@ export async function attribute(view: IncomingView): Promise<Attribution> {
 }
 
 /**
- * Finds the APRI publication behind a Papermark document id.
+ * Finds the APRA publication behind a Papermark document id.
  *
  * Three tables can carry the mapping, checked in order of directness. A
  * document mapped in any of them is the same publication, so all three are

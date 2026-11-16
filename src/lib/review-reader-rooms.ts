@@ -140,7 +140,7 @@ async function routingColumnsReady(): Promise<boolean> {
 /**
  * Whether 20261011 added the open-window columns (link_open_until,
  * room_documents). Only then is a reader's link code-free -- and so open only
- * while they hold an APRI session. Without them the library keeps sending
+ * while they hold an APRA session. Without them the library keeps sending
  * readers to each edition's own Papermark link and no room link is changed.
  */
 let openWindow: { value: boolean; at: number } | null = null
@@ -218,7 +218,7 @@ async function roomDocuments(roomId: string): Promise<RoomDocument[]> {
   return listAll<RoomDocument>(`/v1/datarooms/${enc(roomId)}/documents`)
 }
 
-const groupName = (email: string) => `APRI review reader ${createHash("sha256").update(email).digest("hex").slice(0, 12)}`
+const groupName = (email: string) => `APRA review reader ${createHash("sha256").update(email).digest("hex").slice(0, 12)}`
 
 async function event(email: string, type: string, detail?: string) {
   try {
@@ -360,7 +360,7 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
   let intendedVisible: string[] | null = null
   try {
     // What the reader should see: the published editions assigned to them,
-    // by the same rule as the APRI library. Everything else in the room is
+    // by the same rule as the APRA library. Everything else in the room is
     // hidden -- withdrawn, unassigned and newly added documents alike.
     const editions = await getReviewLibraryForEmail(email)
     intendedEditions = editions.map((e) => e.id)
@@ -459,8 +459,8 @@ async function reconcileLeased(email: string, options: { create?: boolean; docs?
     }
 
     // 4. The one link -- only now, after the permissions are confirmed.
-    // Code-free (APRI-verified) once 20261011 is applied: open only until the
-    // end of the reader's latest APRI session, closed while they have none.
+    // Code-free (APRA-verified) once 20261011 is applied: open only until the
+    // end of the reader's latest APRA session, closed while they have none.
     const codeFree = await openWindowReady()
     const { readerAccessUntil } = await import("./review-reader")
     const openUntil = codeFree ? await readerAccessUntil(email) : null
@@ -785,7 +785,7 @@ export async function roomEntryFor(rawEmail: string, options: { allowCreate: boo
 }
 
 // ---------------------------------------------------------------------------
-// The APRI-verified library: one APRI code, then each edition opens directly
+// The APRA-verified library: one APRA code, then each edition opens directly
 // ---------------------------------------------------------------------------
 
 export type ReaderDocument =
@@ -801,19 +801,19 @@ export type ReaderDocument =
   | { kind: "legacy" }
 
 /**
- * Where one approved, APRI-verified reader goes to read one edition, decided
+ * Where one approved, APRA-verified reader goes to read one edition, decided
  * at the moment they press Read:
  *
  *  1. approval is re-read (published, exact verified link, this edition's own
  *     recipients) -- a removed reader or a withdrawn edition stops here;
  *  2. their room is brought into line with Papermark if what it last
  *     confirmed differs from what is assigned now;
- *  3. their link is opened until the end of their latest APRI session (one
+ *  3. their link is opened until the end of their latest APRA session (one
  *     Papermark call, at most once per session; read back);
  *  4. the address of that one PDF in their room, which Papermark opens
  *     without asking again while its own room session (23 hours) lasts.
  *
- * `sessionUntil` is when the APRI session in this browser ends.
+ * `sessionUntil` is when the APRA session in this browser ends.
  */
 export async function readerDocumentFor(rawEmail: string, editionId: string, sessionUntil: string): Promise<ReaderDocument> {
   const email = rawEmail.trim().toLowerCase()
@@ -863,7 +863,7 @@ async function windowRow(email: string) {
 
 /**
  * Opens (or extends) a ready reader's code-free link until `until`, the end of
- * their latest APRI session, and confirms it from Papermark's read-back. Every
+ * their latest APRA session, and confirms it from Papermark's read-back. Every
  * other restriction on the link is checked first; anything wrong closes it.
  */
 async function openRoomWindow(email: string, until: string): Promise<"open" | "busy" | "failed"> {
@@ -911,7 +911,7 @@ async function openRoomWindow(email: string, until: string): Promise<"open" | "b
 }
 
 /**
- * After a sign-out: the reader's link closes when their last APRI session has
+ * After a sign-out: the reader's link closes when their last APRA session has
  * ended, or is shortened to their remaining latest session. Confirmed from
  * Papermark's read-back; if the close cannot be confirmed the link is closed
  * the hard way (or the room is marked for repair).

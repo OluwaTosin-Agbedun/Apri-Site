@@ -36,9 +36,9 @@ export async function sendBriefingConfirmation(
   if (!resend) return
 
   await resend.emails.send({
-    from: `APRI Briefings <${FROM}>`,
+    from: `APRA Briefings <${FROM}>`,
     to: d.email,
-    subject: "Your Briefing Request Has Been Received — APRI",
+    subject: "Your Briefing Request Has Been Received — APRA",
     html: confirmationHtml(d),
   })
 }
@@ -50,7 +50,7 @@ export async function sendBriefingNotification(
   if (!resend) return
 
   await resend.emails.send({
-    from: `APRI System <${FROM}>`,
+    from: `APRA System <${FROM}>`,
     to: MANAGER,
     subject: `New Briefing Request: ${d.name} — ${d.organization}`,
     replyTo: d.email,
@@ -84,7 +84,7 @@ export async function sendAccessRequestNotification(d: {
   const seatLine = d.seats === 1 ? "1 person" : `${d.seats} people`
 
   await resend.emails.send({
-    from: `APRI System <${FROM}>`,
+    from: `APRA System <${FROM}>`,
     to: MANAGER,
     subject: `Subscription enquiry: ${d.name} — ${d.organization} (${seatLine})`,
     replyTo: d.email,
@@ -154,11 +154,11 @@ export async function sendAccessRequestConfirmation(d: {
   const resend = getResend()
   if (!resend) return
   await resend.emails.send({
-    from: `APRI <${FROM}>`,
+    from: `APRA <${FROM}>`,
     to: d.email,
     replyTo: MANAGER,
-    subject: "Your APRI subscription request has been received",
-    html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><h1 style="font-size:22px">Thank you, ${esc(d.name)}</h1><p>We have received your APRI subscription request. Our team will review it and reply within one business day.</p><p>If you did not submit this request, please ignore this email.</p></body></html>`,
+    subject: "Your APRA subscription request has been received",
+    html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><h1 style="font-size:22px">Thank you, ${esc(d.name)}</h1><p>We have received your APRA subscription request. Our team will review it and reply within one business day.</p><p>If you did not submit this request, please ignore this email.</p></body></html>`,
   })
 }
 
@@ -174,7 +174,7 @@ function confirmationHtml(d: BriefingDetails): string {
 
         <!-- Header -->
         <tr><td style="padding:32px 40px 24px;border-bottom:2px solid #b49f69;">
-          <p style="margin:0;font-size:14px;letter-spacing:2px;color:#b49f69;font-family:Arial,Helvetica,sans-serif;">ATHENA POLITICAL &amp; REGULATORY INTELLIGENCE</p>
+          <p style="margin:0;font-size:14px;letter-spacing:2px;color:#b49f69;font-family:Arial,Helvetica,sans-serif;">ATHENA POLITICAL &amp; REGULATORY ADVISORY</p>
         </td></tr>
 
         <!-- Body -->
@@ -215,7 +215,7 @@ function confirmationHtml(d: BriefingDetails): string {
         <!-- Footer -->
         <tr><td style="padding:24px 40px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:12px;color:#888888;font-family:Arial,Helvetica,sans-serif;line-height:1.6;">
-            Athena Political &amp; Regulatory Intelligence (APRI)<br>
+            Athena Political &amp; Regulatory Advisory (APRA)<br>
             Athena Centre for Policy &amp; Leadership<br>
             This is an automated confirmation. Please do not reply unless you wish to amend your request.
           </p>
@@ -299,7 +299,7 @@ function notificationHtml(d: BriefingDetails): string {
         <!-- Footer -->
         <tr><td style="padding:16px 40px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:11px;color:#aaa;">
-            Sent by APRI System &middot; This request is also stored in the admin CMS.
+            Sent by APRA System &middot; This request is also stored in the admin CMS.
           </p>
         </td></tr>
 

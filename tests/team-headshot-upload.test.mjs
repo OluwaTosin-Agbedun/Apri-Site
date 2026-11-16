@@ -47,7 +47,7 @@ test("Blob failures return an inline result and disable repeat submissions", () 
   assert.match(form, /disabled=\{pending\}/)
   assert.match(
     library,
-    /The image could not be uploaded\. Verify the APRI Blob store connection or use a public HTTPS image URL\./,
+    /The image could not be uploaded\. Verify the APRA Blob store connection or use a public HTTPS image URL\./,
   )
 })
 

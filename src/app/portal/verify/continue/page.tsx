@@ -9,7 +9,7 @@ import SiteFooter from "@/components/SiteFooter"
 export const dynamic = "force-dynamic"
 
 export const metadata = {
-  title: "Continue to your library · APRI",
+  title: "Continue to your library · APRA",
   robots: { index: false, follow: false },
 }
 
@@ -40,7 +40,7 @@ export default async function ContinueSignInPage({
       <header className="border-b border-border">
         <div className="max-w-md mx-auto px-6 h-20 flex items-center">
           <Link href="/" className="font-serif text-base text-foreground tracking-tight">
-            APRI
+            APRA
           </Link>
         </div>
       </header>
@@ -72,9 +72,9 @@ export default async function ContinueSignInPage({
               </SubmitButton>
             </form>
             <div className="border-t border-border pt-6">
-              <p className="text-sm text-foreground font-medium mb-2">Usually read APRI in another browser?</p>
+              <p className="text-sm text-foreground font-medium mb-2">Usually read APRA in another browser?</p>
               <p className="text-sm text-foreground/70 leading-relaxed">
-                Open the APRI sign-in page there, enter your email address and the 8-digit code from the same
+                Open the APRA sign-in page there, enter your email address and the 8-digit code from the same
                 email. You will then stay signed in on that browser, and Access Subscriber Library takes you
                 straight to your library next time.
               </p>

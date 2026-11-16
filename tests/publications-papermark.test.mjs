@@ -42,7 +42,7 @@ test("public list and detail queries require published state and strip non-OPEN 
   assert.match(homePage, /getPublishedPublications/)
 })
 
-test("every admin publication row has a confirmed APRI-only delete control", () => {
+test("every admin publication row has a confirmed APRA-only delete control", () => {
   const page = read("src/app/admin/documents/page.tsx")
   const controls = read("src/app/admin/documents/row-actions.tsx")
   const actions = read("src/app/actions/documents.ts")
@@ -58,7 +58,7 @@ test("every admin publication row has a confirmed APRI-only delete control", () 
   assert.doesNotMatch(actions, /import .*papermark|listDocumentsInFolder|fetch\(/i)
 })
 
-test("publication deletion removes APRI associations without bulk-deleting imports", () => {
+test("publication deletion removes APRA associations without bulk-deleting imports", () => {
   const schema = read("db/schema.sql")
   const action = read("src/app/actions/documents.ts")
 

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic"
  * GET /review/read -- the older reading entry, kept so saved bookmarks still
  * work. Personal reader links no longer ask for Papermark's code, so nothing
  * here may hand one out: every reader goes through the Review Library, which
- * needs an APRI session (its email verified with APRI's one-time code).
+ * needs an APRA session (its email verified with APRA's one-time code).
  */
 export async function GET(request: Request) {
   const response = NextResponse.redirect(new URL("/review/library", request.url), 303)

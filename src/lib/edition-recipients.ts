@@ -13,7 +13,7 @@
  * Two modes exist during the changeover:
  *
  *  - `shared_legacy`: an edition that was already published before
- *    per-edition lists existed. Its live list was written from the shared APRI
+ *    per-edition lists existed. Its live list was written from the shared APRA
  *    list, and every check for it keeps using that shared list, exactly as
  *    before. Nothing about it can be edited until the owner adopts it.
  *  - `edition`: governed only by its own recipient rows. New and synced
@@ -96,7 +96,7 @@ export function normaliseRecipientList(values: readonly string[]): {
 /**
  * A fingerprint of a recipient list.
  *
- * Stored as "the list APRI last read back from Papermark and found to match",
+ * Stored as "the list APRA last read back from Papermark and found to match",
  * so Admin can tell whether an edition is in sync by comparing hashes rather
  * than storing or re-reading addresses.
  */
@@ -185,7 +185,7 @@ const MANUAL_REVIEW = "Manual review is required; nothing was recorded and Paper
  * Whether an edition's live Papermark access can be adopted as its own list.
  *
  * Adoption records exactly who can open the edition today -- read from
- * Papermark, not assumed from the shared APRI list -- so the changeover
+ * Papermark, not assumed from the shared APRA list -- so the changeover
  * neither grants nor removes anyone. Every doubt stops it: a list that cannot
  * be read, is empty (Papermark treats that as unrestricted), holds a domain
  * rule, points at the wrong document, or breaches the review policy is a case
@@ -561,7 +561,7 @@ export function decideProspectGrant(args: {
 }
 
 export type EditionGrantPlan =
-  /** Already on both APRI's list and the live Papermark list: nothing to do. */
+  /** Already on both APRA's list and the live Papermark list: nothing to do. */
   | { kind: "already_live" }
   /**
    * In step and not yet granted: write `next` to Papermark, then record it.
@@ -572,7 +572,7 @@ export type EditionGrantPlan =
   | { kind: "refuse"; reason: string }
 
 /**
- * What granting one edition to one address requires, from what APRI and
+ * What granting one edition to one address requires, from what APRA and
  * Papermark each hold now.
  *
  * A grant is written to Papermark straight away, so it is allowed only when the
@@ -614,13 +614,13 @@ export function planEditionGrant(args: {
   if (onLive) {
     return {
       kind: "refuse",
-      reason: "Papermark already admits this address, but APRI's list for it does not. Preview it in Review Library to reconcile",
+      reason: "Papermark already admits this address, but APRA's list for it does not. Preview it in Review Library to reconcile",
     }
   }
   if (!sameRecipientSet(current, liveList.emails)) {
     return {
       kind: "refuse",
-      reason: "its Papermark list does not match APRI's list for it. Preview and apply it in Review Library first",
+      reason: "its Papermark list does not match APRA's list for it. Preview and apply it in Review Library first",
     }
   }
   if (current.length === 0) {
@@ -652,8 +652,8 @@ export type AddressBookDecision =
  * Whether the shared address book may be changed.
  *
  * While any published edition is still on the shared list, that list is what
- * APRI checks those editions against -- and nothing writes it to Papermark any
- * more. Changing it then would put APRI and Papermark out of step for every one
+ * APRA checks those editions against -- and nothing writes it to Papermark any
+ * more. Changing it then would put APRA and Papermark out of step for every one
  * of those editions at once, with no way to reconcile except adoption. So it is
  * locked until every published edition has been adopted, after which it is an
  * address book only and grants nothing.
@@ -670,7 +670,7 @@ export function decideAddressBookChange(args: {
       ok: false,
       message:
         `Not saved: ${n} published edition${n === 1 ? " is" : "s are"} still checked against this list, ` +
-        "and changing it would put APRI and Papermark out of step for " +
+        "and changing it would put APRA and Papermark out of step for " +
         `${n === 1 ? "it" : "all of them"}. Adopt every published edition in Review Library first; ` +
         "after that this list is an address book only.",
     }

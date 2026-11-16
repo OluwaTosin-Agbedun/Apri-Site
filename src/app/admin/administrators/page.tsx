@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db'
 import AdminShell from '@/components/AdminShell'
 import InviteForm from './invite-form'
 
-export const metadata = { title: 'Administrators · APRI' }
+export const metadata = { title: 'Administrators · APRA' }
 export const dynamic = 'force-dynamic'
 
 type Row = {

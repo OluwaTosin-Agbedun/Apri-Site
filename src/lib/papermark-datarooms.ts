@@ -22,7 +22,7 @@ import type { PapermarkLinkRead } from './personal-links'
 /**
  * The Papermark Data Room service.
  *
- * Read-mostly by design. APRI never creates a room, uploads a document or moves
+ * Read-mostly by design. APRA never creates a room, uploads a document or moves
  * anything: administrators do that inside Papermark, and this integration
  * deliberately needs no `documents.write` or `datarooms.write` scope. The one
  * thing it does write is share links, because a link has to be minted per named
@@ -291,7 +291,7 @@ export async function createDataRoomLink(args: {
 }
 
 /**
- * Brings an existing link back to APRI's required settings.
+ * Brings an existing link back to APRA's required settings.
  *
  * Used when a term is extended, when downloads are switched, or when somebody
  * has changed a setting inside Papermark. The watermark is rewritten from the
@@ -483,7 +483,7 @@ export type ReviewLink = {
 }
 
 const REVIEW_POLICY_MANUAL_STEP =
-  'One-time Papermark step: open this existing Complimentary Review link, enable downloads, verified-email authentication and screenshot protection, apply the approved-recipient allow list, and set the exact APRI Complimentary Review watermark at opacity 0.15 and font size 18; then run Preview and Apply again.'
+  'One-time Papermark step: open this existing Complimentary Review link, enable downloads, verified-email authentication and screenshot protection, apply the approved-recipient allow list, and set the exact APRA Complimentary Review watermark at opacity 0.15 and font size 18; then run Preview and Apply again.'
 
 function reviewPolicyProblem(
   link: DataRoomLink,
@@ -914,7 +914,7 @@ export async function setReviewLinkAllowList(args: {
  * Reads one review link's current settings, for the Preview step.
  *
  * Used so the owner sees what the allow lists actually are in Papermark before
- * changing them, rather than what APRI believes they should be.
+ * changing them, rather than what APRA believes they should be.
  */
 export async function getReviewLinkSettings(
   linkId: string,

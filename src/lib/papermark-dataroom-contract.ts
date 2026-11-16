@@ -24,16 +24,16 @@ import {
  * The Chancellor-approved Subscriber Edition watermark.
  *
  * The subscriber's normalised email is baked in at link-creation time because
- * Papermark email verification is off for paid links (APRI portal auth is the
+ * Papermark email verification is off for paid links (APRA portal auth is the
  * gate). `{{date}}` and `{{time}}` are Papermark dynamic tokens filled at view
  * time.
  *
  * This must never include: subscriber name, IP address, access level,
- * "Assigned to", "APRI CONFIDENTIAL", or prospect review wording.
+ * "Assigned to", "APRA CONFIDENTIAL", or prospect review wording.
  */
 export function subscriberWatermarkText(email: string): string {
   const e = email.trim().toLowerCase()
-  return `APRI Subscriber Edition · ${e} · {{date}} {{time}} · Confidential · Not for redistribution`
+  return `APRA Subscriber Edition · ${e} · {{date}} {{time}} · Confidential · Not for redistribution`
 }
 
 /**
@@ -97,7 +97,7 @@ export function watermarkConfig(
  * own private access logs, never on the page and never on the public site.
  */
 export const PROSPECT_WATERMARK_TEXT =
-  'APRI Complimentary Review Copy · {{email}} · {{date}} {{time}} · Confidential · Not for redistribution'
+  'APRA Complimentary Review Copy · {{email}} · {{date}} {{time}} · Confidential · Not for redistribution'
 
 export function prospectWatermarkText(): string {
   return PROSPECT_WATERMARK_TEXT
@@ -161,7 +161,7 @@ export type DocumentLinkSettings = {
  *
  * Email protection is off deliberately, and that is the trade this design
  * makes: with it on, Papermark asks the reader to prove an address again after
- * APRI has already signed them in, which is the second verification we are
+ * APRA has already signed them in, which is the second verification we are
  * removing. What stands in its place is that the link belongs to one person and
  * every page carries their name — so the link itself is the credential, and it
  * must never be given to anybody else.
@@ -177,7 +177,7 @@ export function dataRoomLinkSettings(args: {
   const who = args.assignedName.trim() || args.assignedEmail.trim() || 'recipient'
   return {
     dataroom_id: args.dataroomId,
-    name: `APRI — ${who}${args.label ? ` — ${args.label}` : ''}`,
+    name: `APRA — ${who}${args.label ? ` — ${args.label}` : ''}`,
     expires_at: args.expiresAt,
     email_protected: false,
     email_authenticated: false,
@@ -212,7 +212,7 @@ export function documentLinkSettings(args: {
   const label = args.documentTitle ? ` — ${args.documentTitle.slice(0, 60)}` : ''
   return {
     document_id: args.documentId,
-    name: `APRI — ${who}${label}`,
+    name: `APRA — ${who}${label}`,
     expires_at: args.expiresAt,
     email_protected: false,
     email_authenticated: false,
@@ -256,7 +256,7 @@ export type ReviewLinkSettings = {
  *
  *  - `email_protected` and `email_authenticated` are both on. A prospect is
  *    anonymous until Papermark verifies their address, and that verification is
- *    the only gate — so unlike a subscriber link, which APRI has already
+ *    the only gate — so unlike a subscriber link, which APRA has already
  *    authenticated, this one must do the checking itself.
  *  - `allow_list` carries the approved recipient list. Papermark then verifies
  *    the address AND checks it against that list, so a review copy reaches only
@@ -282,7 +282,7 @@ export function reviewLinkSettings(args: {
   const label = args.documentTitle ? ` — ${args.documentTitle.slice(0, 60)}` : ''
   const settings: ReviewLinkSettings = {
     document_id: args.documentId,
-    name: `APRI Complimentary Review — ${args.slotKey}${label}`,
+    name: `APRA Complimentary Review — ${args.slotKey}${label}`,
     expires_at: null,
     email_protected: true,
     email_authenticated: true,
@@ -531,7 +531,7 @@ export function generateEditionCode(series: string, editionDate: string | null):
   if (!series || !editionDate) return ''
   const [y, m] = editionDate.split('-')
   if (!y || !m) return ''
-  return `APRI-${series}-${y}-${m}`
+  return `APRA-${series}-${y}-${m}`
 }
 
 type SeriesTemplate = {
@@ -656,7 +656,7 @@ export type DocumentBadge = 'new' | 'updated' | null
 /**
  * Which badge a document has earned, decided from stored timestamps alone.
  *
- * "New" means APRI first saw it after the reader's previous visit. "Updated"
+ * "New" means APRA first saw it after the reader's previous visit. "Updated"
  * means it was already there and its version changed since then. A reader with
  * no previous visit recorded gets neither: on a first sight everything is new,
  * and saying so about every row is noise rather than a signal.

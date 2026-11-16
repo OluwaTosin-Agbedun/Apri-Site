@@ -1,3 +1,4 @@
+import { currentBrandCopy } from "@/lib/brand"
 import { publicMetadata } from "@/lib/seo"
 import Link from "next/link"
 import SiteHeader from "@/components/SiteHeader"
@@ -41,7 +42,7 @@ export default async function PublicationsPage() {
             Publications
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            Publications and analytical products available to APRI subscribers
+            Publications and analytical products available to APRA subscribers
             and authorised readers.
           </p>
         </header>
@@ -92,7 +93,7 @@ export default async function PublicationsPage() {
                         )}
 
                         <p className="text-sm text-foreground/70 leading-relaxed mt-4 flex-1">
-                          {card.description}
+                          {currentBrandCopy(card.description)}
                         </p>
 
                         <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -100,7 +101,7 @@ export default async function PublicationsPage() {
                           {card.audience && (
                             <>
                               <span aria-hidden="true" className="text-border">|</span>
-                              <span>{card.audience}</span>
+                              <span>{currentBrandCopy(card.audience)}</span>
                             </>
                           )}
                         </div>
@@ -137,7 +138,7 @@ export default async function PublicationsPage() {
           </h2>
           <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
             New prospective readers may request access to a confidential
-            selection of APRI publications.
+            selection of APRA publications.
           </p>
           <Link href="/review" className="btn-secondary">
             Request Complimentary Review Access
@@ -170,7 +171,7 @@ export default async function PublicationsPage() {
             >
               <div className="flex items-start justify-between gap-4 mb-3">
                 <span className="text-xs font-medium uppercase tracking-wider text-accent">
-                  {doc.kicker || doc.productLine}
+                  {currentBrandCopy(doc.kicker || doc.productLine)}
                 </span>
                 <AccessBadge visibility={doc.visibility} />
               </div>
@@ -181,12 +182,12 @@ export default async function PublicationsPage() {
 
               {doc.strapline && (
                 <p className="font-serif text-base text-foreground/70 italic mt-2">
-                  {doc.strapline}
+                  {currentBrandCopy(doc.strapline)}
                 </p>
               )}
 
               <p className="text-sm text-foreground/70 leading-relaxed mt-4 max-w-4xl">
-                {doc.description}
+                {currentBrandCopy(doc.description)}
               </p>
 
               <div className="mt-6 flex items-center gap-6 text-xs text-muted-foreground">

@@ -41,7 +41,7 @@ const TERM_END = "2027-06-30"
 const TERM_EXPIRY = "2027-06-30T00:00:00.000Z"
 
 /**
- * Papermark links and APRI's rows for one subscriber, with switches for every
+ * Papermark links and APRA's rows for one subscriber, with switches for every
  * failure the provisioning run has to survive.
  */
 class World {
@@ -64,7 +64,7 @@ class World {
     }
   }
 
-  /** A link that already exists in both Papermark and APRI's table. */
+  /** A link that already exists in both Papermark and APRA's table. */
   seed(documentId, { expiresAt = TERM_EXPIRY, papermark = {} } = {}) {
     const linkId = `pm_link_${++this.seq}_SECRET`
     this.papermark.set(linkId, { documentId, dataroomId: null, expiresAt, live: true, ...papermark })

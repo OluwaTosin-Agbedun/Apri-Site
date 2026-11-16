@@ -19,7 +19,7 @@ import { portalDocumentTitle } from './papermark-dataroom-contract'
  *    legacy client-folder links) and for the Complimentary Review (each
  *    edition's link, the link it had before a withdrawal, and the retired
  *    fixed-slot links).
- *  - Except reads by APRI's own administrators, identified by their account
+ *  - Except reads by APRA's own administrators, identified by their account
  *    address: an owner checking a link is not reader engagement. Excluded in
  *    SQL, so the admin list never leaves the server.
  *  - "Active subscribers" is a current state: status active AND inside their
@@ -107,7 +107,7 @@ export async function getOverviewMetrics(window: DateWindow): Promise<OverviewMe
           and de.downloaded_at <  ${toIso}::timestamptz
           and not exists (select 1 from admins a where lower(a.email) = lower(de.viewer_email))) as unique_downloaders,
 
-      -- access_clicks: unique event ids. An APRI intent signal, never summed
+      -- access_clicks: unique event ids. An APRA intent signal, never summed
       -- with view_sessions above.
       (select count(distinct pae.event_id)::int from publication_access_events pae
         where pae.occurred_at >= ${fromIso}::timestamptz
@@ -553,7 +553,7 @@ export async function getReaderRows(window: DateWindow): Promise<ReaderRow[]> {
         v.subscriber_id,
         lower(v.viewer_email) as email,
         coalesce(v.reader_type, 'unknown') as reader_type,
-        -- A review edition has no APRI publication id; its Papermark file
+        -- A review edition has no APRA publication id; its Papermark file
         -- identifies the document instead, so it still counts as opened.
         coalesce(v.publication_id::text, 'pm:' || v.papermark_document_id) as document_key,
         v.papermark_view_id,

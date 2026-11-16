@@ -91,7 +91,7 @@ function provider(addresses: string[], message: string): ProviderSend {
   if (!process.env.RESEND_API_KEY) return null
   const resend = new Resend(process.env.RESEND_API_KEY)
   const from = process.env.SUBSCRIBER_FROM_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
-  return key => resend.emails.send({ from:`APRI Operations <${from}>`,to:addresses,subject:"APRI operations: attention needed",text:`${message}\n\nOpen Admin → Operations to review. This is an internal service alert; no reader access was changed.` }, { idempotencyKey:key })
+  return key => resend.emails.send({ from:`APRA Operations <${from}>`,to:addresses,subject:"APRA operations: attention needed",text:`${message}\n\nOpen Admin → Operations to review. This is an internal service alert; no reader access was changed.` }, { idempotencyKey:key })
 }
 
 /** Explicit opt-in only. An uncertain or interrupted send is never blindly retried. */

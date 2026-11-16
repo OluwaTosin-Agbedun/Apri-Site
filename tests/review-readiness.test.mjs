@@ -28,7 +28,7 @@ registerHooks({
   },
 })
 
-const { emailOrigin, APRI_PRODUCTION_URL } = await import("../src/lib/app-url.ts")
+const { emailOrigin, APRA_PRODUCTION_URL } = await import("../src/lib/app-url.ts")
 const { configurationProblems } = await import("../src/lib/review-readiness.ts")
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8")
 
@@ -36,11 +36,11 @@ test("review emails no longer depend on APP_URL: unset or malformed means the pr
   const saved = process.env.APP_URL
   try {
     delete process.env.APP_URL
-    assert.equal(emailOrigin(), APRI_PRODUCTION_URL)
+    assert.equal(emailOrigin(), APRA_PRODUCTION_URL)
     process.env.APP_URL = "not a url"
-    assert.equal(emailOrigin(), APRI_PRODUCTION_URL)
+    assert.equal(emailOrigin(), APRA_PRODUCTION_URL)
     process.env.APP_URL = "javascript:alert(1)"
-    assert.equal(emailOrigin(), APRI_PRODUCTION_URL, "only http(s) origins")
+    assert.equal(emailOrigin(), APRA_PRODUCTION_URL, "only http(s) origins")
     process.env.APP_URL = "https://preview.example.invalid/some/path/"
     assert.equal(emailOrigin(), "https://preview.example.invalid", "an origin, never a path")
   } finally {

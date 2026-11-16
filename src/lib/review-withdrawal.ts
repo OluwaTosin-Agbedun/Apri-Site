@@ -8,12 +8,12 @@
  * and Papermark has to confirm that it has. A withdrawal therefore runs in three
  * steps, each recorded before the next begins:
  *
- *   1. APRI hides the edition everywhere and records which link it is revoking
+ *   1. APRA hides the edition everywhere and records which link it is revoking
  *      (and, for the edition a series offers, which edition replaces it, if
  *      any). Nothing in Papermark has changed yet.
- *   2. Papermark revokes exactly that link, and APRI reads it back. Only
+ *   2. Papermark revokes exactly that link, and APRA reads it back. Only
  *      Papermark reporting it gone counts.
- *   3. APRI records the withdrawal as complete and clears the edition's link,
+ *   3. APRA records the withdrawal as complete and clears the edition's link,
  *      so it can never be offered again with the same URL.
  *
  * A failure at any step leaves a state the same action can finish: step 1's
@@ -133,7 +133,7 @@ export type WithdrawalDecision =
  *
  * Latest or historical, any series, shared list or its own list: adoption is
  * never required to withdraw. What is required: a published edition with its
- * APRI link on record, a confirmation of exactly what was previewed, and -- for
+ * APRA link on record, a confirmation of exactly what was previewed, and -- for
  * the edition a series offers -- an explicit choice of another verified
  * published edition to offer instead, or of no replacement.
  */
@@ -161,7 +161,7 @@ export function decideWithdrawal(args: {
     return {
       ok: false,
       message:
-        "This edition has no APRI-managed Papermark link on record, so there is nothing APRI can revoke and confirm. " +
+        "This edition has no APRA-managed Papermark link on record, so there is nothing APRA can revoke and confirm. " +
         "Find its links in Papermark and revoke them there. Nothing was changed.",
     }
   }
@@ -213,10 +213,10 @@ export function revocationTargetProblem(
 ): string | null {
   if (live.state !== "active") return null
   if (live.targetType && live.targetType !== "document") {
-    return "The link on record is not a document link. APRI will not revoke it."
+    return "The link on record is not a document link. APRA will not revoke it."
   }
   if (!live.documentId || live.documentId !== edition.papermarkDocumentId) {
-    return "The link on record does not target this edition's own Papermark document. APRI will not revoke it."
+    return "The link on record does not target this edition's own Papermark document. APRA will not revoke it."
   }
   return null
 }
@@ -264,8 +264,8 @@ export type AccessPathReport = {
  *
  * The edition's own complimentary link is left out: whether it still works is
  * reported on its own, from reading it directly. Paid subscriber and briefing
- * links are APRI's own paid access: they are reported so the owner knows they
- * remain, and are never touched by a withdrawal. Anything APRI does not
+ * links are APRA's own paid access: they are reported so the owner knows they
+ * remain, and are never touched by a withdrawal. Anything APRA does not
  * recognise is "unmanaged" -- a link made by hand in Papermark, or a Data Room
  * link -- and is reported as still open rather than assumed closed.
  */
@@ -273,9 +273,9 @@ export function buildAccessPathReport(args: {
   links: readonly FoundLink[]
   /** The edition's own complimentary link, reported separately. */
   withdrawnLinkId: string | null
-  /** APRI's own records, by link id. */
+  /** APRA's own records, by link id. */
   knownIds: ReadonlyMap<string, ApriLinkKind>
-  /** APRI's own records that hold only a URL, by URL. */
+  /** APRA's own records that hold only a URL, by URL. */
   knownUrls: ReadonlyMap<string, ApriLinkKind>
   complete: boolean
   notes: readonly string[]
@@ -315,8 +315,8 @@ function describeLink(path: AccessPath): string {
 
 /**
  * Owner-facing lines. Paid and briefing access is counted, never listed by
- * name; links APRI does not manage are listed so they can be found in
- * Papermark. Nothing here claims a path was closed that APRI did not close.
+ * name; links APRA does not manage are listed so they can be found in
+ * Papermark. Nothing here claims a path was closed that APRA did not close.
  */
 export function describeAccessPaths(report: AccessPathReport): string[] {
   const lines: string[] = []
@@ -328,11 +328,11 @@ export function describeAccessPaths(report: AccessPathReport): string[] {
 
   if (unmanaged.length) {
     lines.push(
-      `Still open and not managed by APRI -- review in Papermark: ${unmanaged.map(describeLink).join("; ")}.`,
+      `Still open and not managed by APRA -- review in Papermark: ${unmanaged.map(describeLink).join("; ")}.`,
     )
   }
   if (other.length) {
-    lines.push(`Other APRI Complimentary Review records also point at this PDF: ${other.map((p) => `link ${p.linkId}`).join(", ")}.`)
+    lines.push(`Other APRA Complimentary Review records also point at this PDF: ${other.map((p) => `link ${p.linkId}`).join(", ")}.`)
   }
   if (paid.length) {
     lines.push(
@@ -348,7 +348,7 @@ export function describeAccessPaths(report: AccessPathReport): string[] {
         "so other ways to open this PDF may remain. Check the document and its Data Rooms in Papermark.",
     )
   } else if (!unmanaged.length && !other.length) {
-    lines.push("No other Papermark link outside APRI's paid access opens this PDF.")
+    lines.push("No other Papermark link outside APRA's paid access opens this PDF.")
   }
   return lines
 }
@@ -369,7 +369,7 @@ export type WithdrawalDeps = {
   loadReplacementCandidates(edition: WithdrawableEdition): Promise<ReplacementCandidate[]>
   /** Re-checks a replacement against Papermark before it is offered. */
   verifyReplacement(candidateId: string): Promise<{ ok: true } | { ok: false; message: string }>
-  /** Whether APRI records this link as anyone's paid access. */
+  /** Whether APRA records this link as anyone's paid access. */
   paidAccessCheck(linkId: string): Promise<"paid" | "not_paid" | "unknown">
   readLink(linkId: string): Promise<LinkState>
   revokeLink(linkId: string): Promise<{ ok: true } | { ok: false; message: string }>
@@ -407,7 +407,7 @@ function outcome(ok: boolean, status: WithdrawalStatus, message: string, accessP
  * Withdraws one edition, or finishes a withdrawal that stopped part-way.
  *
  * Reports success only once Papermark reads the edition's link as gone and
- * APRI has recorded that. Every other ending says what is true: whether the
+ * APRA has recorded that. Every other ending says what is true: whether the
  * edition is hidden, whether its link may still open, and what to do next.
  */
 export async function runWithdrawal(
@@ -442,14 +442,14 @@ export async function runWithdrawal(
     return outcome(
       false,
       "refused",
-      "APRI also records this link as paid subscriber access, so it will not revoke it. Manual review is required; nothing was changed.",
+      "APRA also records this link as paid subscriber access, so it will not revoke it. Manual review is required; nothing was changed.",
     )
   }
   if (paid === "unknown") {
     return outcome(
       false,
       "refused",
-      "APRI could not confirm this link is not someone's paid access, so it will not revoke it. Nothing was changed; try again.",
+      "APRA could not confirm this link is not someone's paid access, so it will not revoke it. Nothing was changed; try again.",
     )
   }
 
@@ -458,12 +458,12 @@ export async function runWithdrawal(
       const check = await deps.verifyReplacement(decision.replacementId)
       if (!check.ok) return outcome(false, "refused", `${check.message} Nothing was changed.`)
     }
-    // Step 1: hidden everywhere in APRI, and the link to revoke is on record.
+    // Step 1: hidden everywhere in APRA, and the link to revoke is on record.
     try {
       await deps.beginWithdrawal({ editionId: edition.id, linkId, replacementId: decision.replacementId })
     } catch (error) {
       const reason = error instanceof Error && error.message.startsWith("withdrawal:") ? ` (${error.message.slice(12).trim()})` : ""
-      return outcome(false, "refused", `APRI could not start the withdrawal${reason}. Nothing was changed.`)
+      return outcome(false, "refused", `APRA could not start the withdrawal${reason}. Nothing was changed.`)
     }
     deps.refresh()
   }
@@ -495,7 +495,7 @@ export async function runWithdrawal(
     return outcome(
       false,
       "record_failed",
-      `Papermark confirms ${edition.label}'s complimentary link no longer opens, but APRI could not record the withdrawal as complete. ` +
+      `Papermark confirms ${edition.label}'s complimentary link no longer opens, but APRA could not record the withdrawal as complete. ` +
         "The edition is already hidden from every public page. Use Complete withdrawal to finish; it does not create or restore any access.",
     )
   }

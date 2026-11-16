@@ -7,7 +7,7 @@ import ReaderSignInForm from "./sign-in-form"
 
 export const dynamic = "force-dynamic"
 export const metadata: Metadata = {
-  title: "Review Library sign-in | APRI",
+  title: "Review Library sign-in | APRA",
   robots: { index: false, follow: false },
 }
 

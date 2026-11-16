@@ -18,7 +18,7 @@ test("subscriber Save derives entitlement, enforces Individual seats and validat
   assert.equal(seatsForSubscriptionRequest("Individual Access", "99"), 1)
 })
 
-test("subscriber Save accepts and normalises APRI and custom Papermark domains", () => {
+test("subscriber Save accepts and normalises APRA and custom Papermark domains", () => {
   assert.equal(
     normalisePapermarkUrl("docs.athenacentre.org/view/private-test"),
     "https://docs.athenacentre.org/view/private-test",

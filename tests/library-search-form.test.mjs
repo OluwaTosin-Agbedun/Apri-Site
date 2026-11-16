@@ -196,7 +196,9 @@ describe("where search terms may and may not go", () => {
   })
 
   it("the search rules import nothing that talks to Papermark or the database", () => {
-    for (const m of rules.matchAll(/^import .* from "([^"]+)"/gm)) assert.match(m[1], /^\.\/(entitlements|portal-library|publication-catalogue)\.ts$/, m[1])
+    for (const m of rules.matchAll(/^import .* from "([^"]+)"/gm)) assert.match(m[1], /^\.\/(entitlements|portal-library|publication-catalogue|brand)\.ts$/, m[1])
+    const branding = read("src/lib/brand.ts")
+    assert.doesNotMatch(branding, /\b(?:import|fetch|getSql)\b|DATABASE_URL|server-only/, "branding presentation imports nothing and cannot report or store search terms")
     const catalogue = read("src/lib/publication-catalogue.ts")
     assert.doesNotMatch(catalogue, /^import /m, "the catalogue rules import nothing at all")
     assert.doesNotMatch(catalogue, /fetch\(|localStorage|sessionStorage|document\.cookie|getSql|neon/)

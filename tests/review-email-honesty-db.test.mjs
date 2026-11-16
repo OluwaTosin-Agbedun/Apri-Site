@@ -285,13 +285,13 @@ describe("the visitor is never told an unsent email is on its way", () => {
     const before = provider.sent.length
     const result = await ask(ada)
     assert.equal(result.ok, undefined)
-    assert.match(result.message, /Sign-in emails cannot be sent at the moment because of a configuration problem on APRI's side/)
+    assert.match(result.message, /Sign-in emails cannot be sent at the moment because of a configuration problem on APRA's side/)
     assert.equal(provider.sent.length, before)
     assert.equal((await rowsFor(ada))[0].outcome, "not_configured")
     assert.equal(await unspentCodes(ada), 0, "the code was never handed over, and it is spent")
   })
 
-  it("a problem on APRI's side is told apart from a problem with the address, and recorded for the owner", async () => {
+  it("a problem on APRA's side is told apart from a problem with the address, and recorded for the owner", async () => {
     const ada = await approvedReader("apriside")
     const secret = process.env.SESSION_SECRET
     const before = provider.sent.length
@@ -303,7 +303,7 @@ describe("the visitor is never told an unsent email is on its way", () => {
       process.env.SESSION_SECRET = secret
     }
     assert.equal(result.ok, undefined)
-    assert.match(result.message, /a problem on APRI's side, not with your address/)
+    assert.match(result.message, /a problem on APRA's side, not with your address/)
     assert.equal(provider.sent.length, before)
     const [row] = await rowsFor(ada)
     assert.equal(row.outcome, "not_configured")

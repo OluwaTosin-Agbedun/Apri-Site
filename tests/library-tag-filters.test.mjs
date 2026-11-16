@@ -126,7 +126,7 @@ describe("tag filter rules", () => {
 
 describe("search entries carry display fields only", () => {
   const readerDetails = {
-    authorEditor: "APRI Research Team",
+    authorEditor: "APRA Research Team",
     coveredPeriod: { start: "2026-09-01", end: "2026-09-30" },
     informationCutoff: "2026-09-28",
     readingMinutes: 12,

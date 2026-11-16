@@ -13,7 +13,7 @@ test("subscriber email links always use the canonical production verification ro
   const url = portalVerificationUrl("safe-test-token")
   assert.equal(
     url,
-    "https://apri.athenacentre.org/portal/verify?token=safe-test-token",
+    "https://athenaadvisory.ng/portal/verify?token=safe-test-token",
   )
   assert.doesNotMatch(url, /localhost|vercel\.app/i)
   assert.match(

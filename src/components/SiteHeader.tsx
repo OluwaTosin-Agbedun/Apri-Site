@@ -58,10 +58,10 @@ export default function SiteHeader() {
             onClick={() => setIsOpen(false)}
           >
             <span className="font-serif text-lg text-foreground tracking-tight leading-none">
-              APRI
+              APRA
             </span>
             <span className="text-[10px] sm:text-xs text-muted-foreground tracking-wide leading-tight mt-0.5">
-              Athena Political &amp; Regulatory Intelligence
+              Athena Political &amp; Regulatory Advisory
             </span>
           </Link>
 

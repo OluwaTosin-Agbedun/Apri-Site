@@ -1,4 +1,4 @@
-/** The authoritative commercial catalogue. Stored names remain stable for compatibility. */
+/** The authoritative commercial catalogue. Stored plan/agreement identifiers stay stable; format agreement names for display with currentBrandCopy(). */
 export const SUBSCRIPTION_CATALOGUE = [
   { name: "Individual Access", storedName: "Individual Access", aliases: [], level: "L1", price: "₦2 million annually", seats: 1, agreement: "APRI Individual Subscription", plan: "Individual" },
   { name: "Professional Access", storedName: "Professional Team Access", aliases: ["Professional Access"], level: "L1", price: "₦5 million annually", seats: 3, agreement: "APRI Professional Subscription", plan: "Professional" },

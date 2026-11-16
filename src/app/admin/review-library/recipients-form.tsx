@@ -55,7 +55,7 @@ export function ApprovedRecipientsSection({
         <p className="text-xs text-amber-700 mb-4 max-w-3xl">
           Locked: {legacyEditionCount} published edition{legacyEditionCount === 1 ? " is" : "s are"} still
           checked against this list because {legacyEditionCount === 1 ? "it has" : "they have"} not
-          been adopted, and changing it would put APRI and Papermark out of step for{" "}
+          been adopted, and changing it would put APRA and Papermark out of step for{" "}
           {legacyEditionCount === 1 ? "it" : "them"}. Adopt every published edition below; this list
           then becomes an address book only and can be edited freely.
         </p>

@@ -25,7 +25,7 @@ describe('subscriberWatermarkText (Phase 4 Subscriber Edition)', () => {
     const text = subscriberWatermarkText('nwaokike32@gmail.com')
     assert.equal(
       text,
-      'APRI Subscriber Edition · nwaokike32@gmail.com · {{date}} {{time}} · Confidential · Not for redistribution'
+      'APRA Subscriber Edition · nwaokike32@gmail.com · {{date}} {{time}} · Confidential · Not for redistribution'
     )
   })
 

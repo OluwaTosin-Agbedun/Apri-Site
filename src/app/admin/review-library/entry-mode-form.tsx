@@ -6,7 +6,7 @@ import { Busy } from "@/components/Spinner"
 
 const LABEL = {
   papermark: "Each edition's own Papermark link",
-  library: "APRI Review Library (one APRI code, then every assigned edition)",
+  library: "APRA Review Library (one APRA code, then every assigned edition)",
 } as const
 
 /**

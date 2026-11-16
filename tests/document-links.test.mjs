@@ -100,7 +100,7 @@ test('documentLinkSettings watermark uses Subscriber Edition format with email o
     assignedEmail: 'desmond@example.com',
     expiresAt: null,
   })
-  assert.match(settings.watermark_config.text, /APRI Subscriber Edition/)
+  assert.match(settings.watermark_config.text, /APRA Subscriber Edition/)
   assert.match(settings.watermark_config.text, /desmond@example\.com/)
   assert.doesNotMatch(settings.watermark_config.text, /Nwaokike Desmond/)
   assert.match(settings.watermark_config.text, /\{\{date\}\}/)
@@ -548,7 +548,7 @@ test('download: subscriber-document ownership verified server-side', () => {
 
 test('watermark: uses Subscriber Edition format with email, date, time and confidential', () => {
   const text = subscriberWatermarkText('desmond@example.com')
-  assert.match(text, /APRI Subscriber Edition/)
+  assert.match(text, /APRA Subscriber Edition/)
   assert.match(text, /desmond@example\.com/)
   assert.match(text, /\{\{date\}\}/)
   assert.match(text, /\{\{time\}\}/)
@@ -1272,11 +1272,11 @@ test('parseEditionDate: year before month name', () => {
 // ---------------------------------------------------------------------------
 
 test('generateEditionCode: standard MIN', () => {
-  assert.equal(generateEditionCode('MIN', '2026-08-01'), 'APRI-MIN-2026-08')
+  assert.equal(generateEditionCode('MIN', '2026-08-01'), 'APRA-MIN-2026-08')
 })
 
 test('generateEditionCode: QIB quarterly', () => {
-  assert.equal(generateEditionCode('QIB', '2026-07-01'), 'APRI-QIB-2026-07')
+  assert.equal(generateEditionCode('QIB', '2026-07-01'), 'APRA-QIB-2026-07')
 })
 
 test('generateEditionCode: empty series returns empty', () => {
@@ -1300,7 +1300,7 @@ test('derivePublicationMetadata: MIN with date', () => {
   assert.equal(meta.title, 'MIN 2026 08')
   assert.equal(meta.series, 'MIN')
   assert.equal(meta.editionDate, '2026-08-01')
-  assert.equal(meta.editionCode, 'APRI-MIN-2026-08')
+  assert.equal(meta.editionCode, 'APRA-MIN-2026-08')
   assert.equal(meta.frequency, 'Monthly')
   assert.equal(meta.pageCount, 12)
   assert.equal(meta.kicker, 'August 2026')

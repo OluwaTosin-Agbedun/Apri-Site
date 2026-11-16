@@ -19,7 +19,7 @@ function configuredHost(customDomain?: string | null): string | null {
 }
 
 /**
- * A stored Papermark share link, checked: https, a Papermark host (or APRI's
+ * A stored Papermark share link, checked: https, a Papermark host (or APRA's
  * own Papermark domain), no credentials, never a dashboard or the masters
  * folder. Returns the link to open in its own tab, or null for anything unsafe
  * or unrelated. Existing query parameters are kept; a stale `embed` one is
@@ -59,7 +59,7 @@ export function papermarkShareUrl(
  *   https://<custom domain>/<slug>/embed          (a custom domain)
  * which it serves with `frame-ancestors *`. Every other viewer address sends
  * X-Frame-Options (SAMEORIGIN or DENY), so a browser refuses to show it inside
- * an APRI page. The `?embed=1` this used to add is not a Papermark option, and
+ * an APRA page. The `?embed=1` this used to add is not a Papermark option, and
  * those frames were refused (checked on the live hosts, 2 October 2026).
  *
  * Any other shape -- a Data Room listing, a document inside a room, an unknown

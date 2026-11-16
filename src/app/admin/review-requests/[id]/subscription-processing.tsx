@@ -1,4 +1,5 @@
 "use client"
+import { currentBrandCopy } from "@/lib/brand"
 
 import { Busy } from "@/components/Spinner"
 import { useActionState } from "react"
@@ -78,7 +79,7 @@ export default function SubscriptionProcessing({ request: r }: { request: Proces
           {r.planLabel} — {r.price}
         </h3>
         <p className="text-sm text-muted-foreground mt-1">
-          {r.agreementType} · requested from{" "}
+          {currentBrandCopy(r.agreementType)} · requested from{" "}
           {r.submittedVia === "access_page" ? "the Subscription Access page" : "the Review Library"}
           {r.activatedAt ? ` · access activated ${r.activatedAt}` : ""}
         </p>

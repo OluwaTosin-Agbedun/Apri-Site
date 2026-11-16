@@ -367,7 +367,7 @@ describe('polling', () => {
     assert.match(fnBody(src, 'settledViewIds'), /reader_type is not null and reader_type <> 'unknown'/)
   })
 
-  it('counts link ids on stored views that APRI does not know', () => {
+  it('counts link ids on stored views that APRA does not know', () => {
     assert.match(fnBody(src, 'countUnknownViewLinks'), /!known\.has\(r\.id\)/)
   })
 
@@ -914,8 +914,8 @@ describe('dashboard rendering', () => {
     assert.match(src, /includes the whole of its end day/)
   })
 
-  it('names review access truthfully: a direct Papermark link, no APRI login', () => {
-    assert.match(src, /there is no APRI login for them/)
+  it('names review access truthfully: a direct Papermark link, no APRA login', () => {
+    assert.match(src, /there is no APRA login for them/)
     assert.doesNotMatch(src, /No subscriber record/)
   })
 })
@@ -1166,8 +1166,8 @@ describe('safeguards', () => {
 
   it('watermark settings are unchanged', () => {
     const src = read('src/lib/papermark-dataroom-contract.ts')
-    assert.match(src, /APRI Complimentary Review Copy · \{\{email\}\}/)
-    assert.match(src, /APRI Subscriber Edition/)
+    assert.match(src, /APRA Complimentary Review Copy · \{\{email\}\}/)
+    assert.match(src, /APRA Subscriber Edition/)
     assert.match(src, /opacity: 0\.15/)
     assert.match(src, /font_size: 18/)
   })

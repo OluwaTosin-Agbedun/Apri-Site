@@ -15,10 +15,10 @@ import {
 } from "./magic-token"
 
 /**
- * The remembered Complimentary Review Library: one email code from APRI, then
+ * The remembered Complimentary Review Library: one email code from APRA, then
  * about a day (24 hours) of return visits in the same browser without another
  * code. Hosted Papermark can neither accept nor report a verified reader, so
- * this APRI check is the only one: each reader's personal Papermark link asks
+ * this APRA check is the only one: each reader's personal Papermark link asks
  * for no second code and is open only while they hold a session here.
  *
  * Kept entirely apart from paid subscriber sign-in: its own tables, its own
@@ -72,14 +72,14 @@ export function resetReviewReaderSchemaCache() {
 /**
  * Where the public Complimentary Review cards lead: straight to each
  * edition's Papermark link (the current behaviour, and the default), or into
- * the remembered APRI Review Library. Reversible from Admin at any time.
+ * the remembered APRA Review Library. Reversible from Admin at any time.
  */
 export async function reviewEntryMode(): Promise<"papermark" | "library"> {
   try {
     const [row] = (await getSql()`select value from app_settings where key = 'review_entry_mode'`) as { value: string }[]
     // "rooms" (the older Papermark-verified room route) now means the library:
     // a room link no longer asks for Papermark's code, so it is reached only
-    // through an APRI session.
+    // through an APRA session.
     return (row?.value === "library" || row?.value === "rooms") && (await reviewReaderSchemaReady()) ? "library" : "papermark"
   } catch {
     return "papermark"
@@ -258,7 +258,7 @@ export async function destroyReaderSession(): Promise<void> {
 }
 
 /**
- * When this reader's latest open APRI session ends, or null if they have none:
+ * When this reader's latest open APRA session ends, or null if they have none:
  * the moment their personal Papermark link must close by.
  */
 export async function readerAccessUntil(email: string): Promise<string | null> {

@@ -8,7 +8,7 @@ import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 import DataRoomMappingForm, { MappingActions, CreatePublicationButton, LinkExistingPublication, GenerateDocumentDetailsButton } from "./dataroom-form"
 
 export const dynamic = "force-dynamic"
-export const metadata = { title: "Data Rooms · APRI" }
+export const metadata = { title: "Data Rooms · APRA" }
 
 export default async function DataRoomsPage() {
   const admin = await requireOwner()

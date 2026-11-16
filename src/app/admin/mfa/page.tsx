@@ -5,7 +5,7 @@ import { cancelStaffMfa } from "@/app/actions/staff-security"
 import MfaForm from "./mfa-form"
 
 export const dynamic = "force-dynamic"
-export const metadata = { title: "Sign-in check · APRI", robots: { index: false, follow: false } }
+export const metadata = { title: "Sign-in check · APRA", robots: { index: false, follow: false } }
 
 export default async function StaffMfaPage() {
   const token = (await cookies()).get(STAFF_CHALLENGE_COOKIE)?.value ?? ""
@@ -16,7 +16,7 @@ export default async function StaffMfaPage() {
     <p className="text-sm text-foreground/75 mb-6">{challenge.kind === "enroll" ? "Add this account to your authenticator app, save the recovery codes privately, then enter its six-digit code." : "Enter a fresh six-digit code from your authenticator, or one unused recovery code."}</p>
     {challenge.kind === "enroll" && <section className="border border-border p-5 mb-6 space-y-4">
       <p className="text-sm break-all">Account: {challenge.email}</p>
-      <p className="text-sm">Service: APRI Admin. Use a time-based code with a 30-second interval.</p>
+      <p className="text-sm">Service: APRA Admin. Use a time-based code with a 30-second interval.</p>
       <label className="block text-sm">Setup key<input className="block mt-2 w-full border border-border p-3 font-mono text-sm" readOnly value={challenge.secret ?? ""} /></label>
       <h2 className="font-medium text-sm">Recovery codes — save these privately</h2>
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">{challenge.recoveryCodes.map((code) => <li key={code}>{code}</li>)}</ul>

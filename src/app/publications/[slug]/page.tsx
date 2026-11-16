@@ -1,3 +1,4 @@
+import { currentBrandCopy } from "@/lib/brand"
 import { notFound, redirect } from 'next/navigation'
 import { getPublicationBySlug, getPublishedPublications } from '@/lib/publications'
 import {publicationVersions,familyHistory,latestEntitledVersions} from '@/lib/publication-versions'
@@ -38,7 +39,7 @@ export default async function PublicationDetailPage({
         <header className="mb-16">
           <div className="flex items-start justify-between gap-4 mb-4">
             <span className="text-xs font-medium uppercase tracking-wider text-accent">
-              {doc.kicker || doc.productLine}
+              {currentBrandCopy(doc.kicker || doc.productLine)}
             </span>
             <AccessBadge visibility={doc.visibility} />
           </div>
@@ -49,14 +50,14 @@ export default async function PublicationDetailPage({
 
           {doc.strapline && (
             <p className="font-serif text-lg text-foreground/70 italic leading-relaxed">
-              {doc.strapline}
+              {currentBrandCopy(doc.strapline)}
             </p>
           )}
         </header>
 
         <section className="mb-16">
           <p className="text-sm text-foreground/80 leading-relaxed max-w-4xl">
-            {doc.description}
+            {currentBrandCopy(doc.description)}
           </p>
         </section>
 
@@ -79,7 +80,7 @@ export default async function PublicationDetailPage({
             <dt className="uppercase tracking-wider text-xs text-muted-foreground">Frequency</dt>
             <dd className="text-foreground/70">{doc.frequency}</dd>
             <dt className="uppercase tracking-wider text-xs text-muted-foreground">Audience</dt>
-            <dd className="text-foreground/70">{doc.audience}</dd>
+            <dd className="text-foreground/70">{currentBrandCopy(doc.audience)}</dd>
           </dl>
         </section>
 
@@ -90,7 +91,7 @@ export default async function PublicationDetailPage({
         {doc.attribution && (
           <div className="mb-16 pt-8 border-t border-border">
             <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
-              {doc.attribution}
+              {currentBrandCopy(doc.attribution)}
             </p>
           </div>
         )}

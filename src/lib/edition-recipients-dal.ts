@@ -40,7 +40,7 @@ export type EditionAccessRow = {
   recipientsVerifiedAt: string | null
 }
 
-/** The shared APRI list, re-validated on read. Owner-only callers. */
+/** The shared APRA list, re-validated on read. Owner-only callers. */
 export async function readSharedRecipients(sql: Sql): Promise<string[]> {
   const rows = (await sql`
     select value from app_settings where key = 'review_approved_recipients' limit 1

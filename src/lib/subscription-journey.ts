@@ -3,7 +3,7 @@
  * no database, network or email in the way.
  *
  * A request never grants anything. Paid access follows, in order: the request;
- * APRI sends the agreement (the existing DocuSign/manual process) and the
+ * APRA sends the agreement (the existing DocuSign/manual process) and the
  * invoice; the agreement is signed and payment confirmed, both recorded by an
  * owner; then activation, which gives each named person their own subscriber
  * record, their own portal sign-in and their own personal document links.

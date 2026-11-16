@@ -59,11 +59,11 @@ export function sendReviewVerification(
   url: string,
 ) {
   return send("review_verification", {
-    from: `APRI <${from}>`,
+    from: `APRA <${from}>`,
     to: email,
     replyTo: MANAGER,
-    subject: "Confirm your APRI review request",
-    html: `<p>Dear ${esc(name)},</p><p>Please confirm your email before APRI prepares secure access.</p><p><a href="${esc(url)}">Confirm Email</a></p>`,
+    subject: "Confirm your APRA review request",
+    html: `<p>Dear ${esc(name)},</p><p>Please confirm your email before APRA prepares secure access.</p><p><a href="${esc(url)}">Confirm Email</a></p>`,
   })
 }
 export function sendReviewManagerNotification(d: {
@@ -78,20 +78,20 @@ export function sendReviewManagerNotification(d: {
   url: string
 }) {
   return send("review_manager_notice", {
-    from: `APRI System <${from}>`,
+    from: `APRA System <${from}>`,
     to: MANAGER,
     replyTo: d.email,
-    subject: `Verified APRI review request: ${d.name}`,
+    subject: `Verified APRA review request: ${d.name}`,
     html: `<h1>Verified review request</h1><p>Name: ${esc(d.name)}</p><p>Verified email: ${esc(d.email)}</p><p>Organisation: ${esc(d.organisation)}</p><p>Role: ${esc(d.role)}</p><p>User type: ${esc(d.userType)}</p><p>Lead source: ${esc(d.source)}</p><p>UTM: ${esc(d.utm)}</p><p>Verified: ${esc(d.when)} (Africa/Lagos)</p><p><a href="${esc(d.url)}">Open prospect record</a></p>`,
   })
 }
 export function sendReviewAccess(email: string, name: string, url: string) {
   return send("review_access", {
-    from: `APRI <${from}>`,
+    from: `APRA <${from}>`,
     to: email,
     replyTo: MANAGER,
-    subject: "Your APRI Complimentary Review access",
-    html: `<p>Dear ${esc(name)},</p><p><a href="${esc(url)}">Access APRI Review Library</a></p><p>Access is personal, confidential and not for redistribution.</p>`,
+    subject: "Your APRA Complimentary Review access",
+    html: `<p>Dear ${esc(name)},</p><p><a href="${esc(url)}">Access APRA Review Library</a></p><p>Access is personal, confidential and not for redistribution.</p>`,
   })
 }
 /**
@@ -101,11 +101,11 @@ export function sendReviewAccess(email: string, name: string, url: string) {
  */
 export function sendSubscriptionConfirmation(email: string, name: string, url: string) {
   return send("subscription_confirmation", {
-    from: `APRI <${from}>`,
+    from: `APRA <${from}>`,
     to: email,
     replyTo: MANAGER,
-    subject: "Confirm your APRI subscription request",
-    html: `<p>Dear ${esc(name)},</p><p>Please confirm your email address so APRI can prepare your subscription agreement and payment details.</p><p><a href="${esc(url)}">Confirm Email</a></p><p>If you did not request an APRI subscription, you can ignore this email.</p>`,
+    subject: "Confirm your APRA subscription request",
+    html: `<p>Dear ${esc(name)},</p><p>Please confirm your email address so APRA can prepare your subscription agreement and payment details.</p><p><a href="${esc(url)}">Confirm Email</a></p><p>If you did not request an APRA subscription, you can ignore this email.</p>`,
   })
 }
 export function sendSubscriptionMessages(d: {
@@ -116,17 +116,17 @@ export function sendSubscriptionMessages(d: {
 }) {
   return Promise.all([
     send("subscription_messages", {
-      from: `APRI <${from}>`,
+      from: `APRA <${from}>`,
       to: d.email,
       replyTo: MANAGER,
-      subject: "Your APRI subscription request",
-      html: `<p>Thank you for your APRI subscription request.</p><p>We will send your subscription agreement and payment details shortly. Your secure subscriber access will be activated once the agreement has been completed and payment confirmed.</p>`,
+      subject: "Your APRA subscription request",
+      html: `<p>Thank you for your APRA subscription request.</p><p>We will send your subscription agreement and payment details shortly. Your secure subscriber access will be activated once the agreement has been completed and payment confirmed.</p>`,
     }),
     send("subscription_messages", {
-      from: `APRI System <${from}>`,
+      from: `APRA System <${from}>`,
       to: MANAGER,
       replyTo: d.email,
-      subject: `APRI ${d.plan} subscription request: ${d.name}`,
+      subject: `APRA ${d.plan} subscription request: ${d.name}`,
       html: `<p>${esc(d.name)} requested ${esc(d.plan)} Access.</p><p><a href="${esc(d.adminUrl)}">Open prospect record</a></p>`,
     }),
   ])
@@ -141,14 +141,14 @@ export function sendSubscriptionMessages(d: {
 export function sendReviewLibrarySignIn(email: string, code: string) {
   const spaced = `${code.slice(0, 4)} ${code.slice(4)}`
   return send("library_sign_in", {
-    from: `APRI <${from}>`,
+    from: `APRA <${from}>`,
     to: email,
     replyTo: MANAGER,
-    subject: "Your APRI Review Library sign-in code",
-    html: `<p>Your APRI Complimentary Review Library sign-in code is:</p>
+    subject: "Your APRA Review Library sign-in code",
+    html: `<p>Your APRA Complimentary Review Library sign-in code is:</p>
 <p style="font-family:'Courier New',Courier,monospace;font-size:28px;letter-spacing:4px;margin:16px 0;">${esc(spaced)}</p>
 <p>Enter it on the sign-in page, in the browser you want to read in. It works once and expires in 15 minutes. That browser then stays signed in to your library for 24 hours.</p>
 <p>Access is personal, confidential and not for redistribution. If you did not ask for this code, you can ignore this email.</p>`,
-    text: `Your APRI Complimentary Review Library sign-in code is ${spaced}. Enter it on the sign-in page, in the browser you want to read in. It works once and expires in 15 minutes. That browser then stays signed in to your library for 24 hours. Access is personal, confidential and not for redistribution. If you did not ask for this code, you can ignore this email.`,
+    text: `Your APRA Complimentary Review Library sign-in code is ${spaced}. Enter it on the sign-in page, in the browser you want to read in. It works once and expires in 15 minutes. That browser then stays signed in to your library for 24 hours. Access is personal, confidential and not for redistribution. If you did not ask for this code, you can ignore this email.`,
   })
 }

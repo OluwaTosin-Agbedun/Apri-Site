@@ -89,10 +89,10 @@ export type RoomLinkSettings = {
  * The one link for a reader's group: only their email, watermark, screenshot
  * protection, and personalised downloads of assigned editions.
  *
- * `openUntil` set: the APRI-verified library. APRI has already checked the
+ * `openUntil` set: the APRA-verified library. APRA has already checked the
  * reader's email with its own one-time code, so Papermark asks for the email
  * but sends no second code -- and the link is open only until `openUntil`, the
- * end of the reader's APRI session. Without it: Papermark's own email code,
+ * end of the reader's APRA session. Without it: Papermark's own email code,
  * and no expiry (the older Papermark-verified room).
  */
 export function roomLinkSettings(args: { roomId: string; groupId: string; email: string; customDomain?: string | null; openUntil?: string | null }): RoomLinkSettings {
@@ -101,7 +101,7 @@ export function roomLinkSettings(args: { roomId: string; groupId: string; email:
     dataroom_id: args.roomId,
     audience_type: "group",
     group_id: args.groupId,
-    name: "APRI Complimentary Review Library — personal reader link",
+    name: "APRA Complimentary Review Library — personal reader link",
     expires_at: codeFree ? args.openUntil! : null,
     email_protected: true,
     email_authenticated: !codeFree,
@@ -140,7 +140,7 @@ export type ReadLink = {
 
 /**
  * What is wrong with a reader's room link as Papermark reports it, or null
- * when it matches exactly. `codeFree` checks the APRI-verified link: email
+ * when it matches exactly. `codeFree` checks the APRA-verified link: email
  * protected, no second Papermark code, and ALWAYS an expiry -- a code-free
  * link is never open-ended. Without it, Papermark's own email code is required.
  * `ignoreGate` skips the email-code and expiry checks, for a link about to be

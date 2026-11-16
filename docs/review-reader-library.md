@@ -1,4 +1,4 @@
-# Complimentary Review Library: one APRI code, then every assigned edition
+# Complimentary Review Library: one APRA code, then every assigned edition
 
 Last updated 2 October 2026.
 
@@ -6,9 +6,9 @@ Last updated 2 October 2026.
 
 1. An approved reader clicks **Access review copy** on the homepage or `/publications`. In
    library mode the card goes to `/review/library?edition=<id>`.
-2. A browser without an APRI reader session is sent to `/review/library/sign-in`. The reader
+2. A browser without an APRA reader session is sent to `/review/library/sign-in`. The reader
    types the address their editions were issued to.
-3. APRI emails **one 8-digit code**, with no link. It works once, for 15 minutes. Asking again
+3. APRA emails **one 8-digit code**, with no link. It works once, for 15 minutes. Asking again
    sends a new code, and the old one stops working. An address may receive at most five codes
    an hour.
 4. The reader types the code. That browser is then signed in for **24 hours from the code**.
@@ -27,7 +27,7 @@ Last updated 2 October 2026.
 The `/review` request, its email confirmation, and owner approval and assignment in Admin are
 unchanged. Requesting or confirming gives no access by itself.
 
-## Why APRI performs the only check (what hosted Papermark permits)
+## Why APRA performs the only check (what hosted Papermark permits)
 
 These facts come from Papermark's open-source code, checked against `main` (commit `ed19717`,
 28 August 2026), and its public OpenAPI spec (66 operations, fetched 2 October 2026).
@@ -38,16 +38,16 @@ These facts come from Papermark's open-source code, checked against `main` (comm
   No team or link setting changes that.
 - **No supported API can pre-verify a reader.** Papermark has no API, viewer SSO, signed
   viewer token or "skip verification" option. `?email=` only pre-fills the form.
-- **Papermark never tells APRI who passed its code.**
+- **Papermark never tells APRA who passed its code.**
 - **No cross-site embedding.** The session cookie is `SameSite=Strict`, so a Papermark viewer
-  embedded in an APRI page cannot keep a session across PDFs.
+  embedded in an APRA page cannot keep a session across PDFs.
 
-A custom APRI library behind one code, with PDFs that open without another code, therefore
+A custom APRA library behind one code, with PDFs that open without another code, therefore
 cannot also keep Papermark's own email code on. On 2 October 2026 the owner chose this design:
 
-- APRI's single-use code verifies the reader.
+- APRA's single-use code verifies the reader.
 - Each reader's **personal** Papermark link asks for their email only (no second code).
-- That link is **open only while the reader holds an APRI session**.
+- That link is **open only while the reader holds an APRA session**.
 
 Every edition's own Papermark link, which the cards use in Papermark mode, keeps Papermark's
 code.
@@ -65,7 +65,7 @@ code.
   - an allow list of exactly that address;
   - the personalised confidential watermark, screenshot protection, and downloads on only
     after the exact per-document permissions are confirmed.
-- **The link's expiry is the end of the reader's latest APRI session.** It is set when they
+- **The link's expiry is the end of the reader's latest APRA session.** It is set when they
   first press Read in a session (three Papermark calls, once per session, read back). It is closed
   (expiry in the past) when their last session ends or they sign out. A link with no closing
   time is treated as a fault.
@@ -73,9 +73,9 @@ code.
   closed and the room marked for repair: nothing is ever reported as removed without that
   confirmation.
 
-### What Papermark does and does not re-check, and how APRI covers it
+### What Papermark does and does not re-check, and how APRA covers it
 
-| Change | Papermark | APRI |
+| Change | Papermark | APRA |
 |---|---|---|
 | Recipient removed from one edition | The permission row is re-checked on every document open | Library and Read refuse it at once; the room is reconciled before the next Read |
 | Removed from every edition | Group membership is **not** re-checked inside an existing Papermark session. Its download-code route can even start a fresh session for an earlier viewer without re-checking it | The link is closed (its expiry set in the past); Papermark checks expiry before its session on every request |
@@ -106,7 +106,7 @@ code.
 - **Failures are reported by kind**, both to the reader and in owner-only diagnostics:
   - access not assigned;
   - being prepared;
-  - a problem on APRI's side (configuration or database);
+  - a problem on APRA's side (configuration or database);
   - the email provider refused the email;
   - no clear answer from the provider.
 - **Diagnostics never contain a code, token, link or email body.**
@@ -169,7 +169,7 @@ and missing protection. Repeating it does not recreate a link. Legacy view-only 
 valid for recipient changes, publishing checks and withdrawal while upgrades are pending.
 
 The library's **Read & download** button opens the exact assigned PDF; Download is inside
-Papermark's viewer. There is no supported cross-origin download proxy using APRI's API token
+Papermark's viewer. There is no supported cross-origin download proxy using APRA's API token
 and no raw PDF route is introduced. Papermark handles personalised PDF generation. The
 existing analytics collector records provider-confirmed download events; simply opening the
 viewer counts as no download.

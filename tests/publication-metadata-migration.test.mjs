@@ -252,7 +252,7 @@ describe("upgrading an existing database", () => {
     const sql = tagged(db)
     // Saved work as the editor saves it: reader details, a tag on an edition, and an approved summary.
     await db.query(
-      `update documents set author_editor = 'APRI Research Team', reading_time_minutes = 9, information_cutoff = '2026-05-28',
+      `update documents set author_editor = 'APRA Research Team', reading_time_minutes = 9, information_cutoff = '2026-05-28',
               covered_period_start = '2026-05-01', covered_period_end = '2026-05-31' where id = $1`,
       [DOC(1)],
     )
@@ -332,7 +332,7 @@ describe("the rollback", () => {
   })
 
   it("refuses while any publication record holds one of the new metadata values, naming the column", async () => {
-    for (const [column, value] of [["author_editor", "'APRI Research Team'"], ["information_cutoff", "'2026-09-28'"], ["reading_time_minutes", "12"]]) {
+    for (const [column, value] of [["author_editor", "'APRA Research Team'"], ["information_cutoff", "'2026-09-28'"], ["reading_time_minutes", "12"]]) {
       await db.query(`update documents set ${column} = ${value} where id = $1`, [DOC(1)])
       await refuses(new RegExp(`documents\\.${column}`))
       await db.query(`update documents set ${column} = null where id = $1`, [DOC(1)])

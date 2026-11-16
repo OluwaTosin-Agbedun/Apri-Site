@@ -372,7 +372,7 @@ describe('subscriber/briefing isolation', () => {
 
   it('watermark text uses Subscriber Edition format', () => {
     const text = subscriberWatermarkText('alice@example.com')
-    assert.match(text, /APRI Subscriber Edition/)
+    assert.match(text, /APRA Subscriber Edition/)
     assert.match(text, /alice@example\.com/)
     assert.match(text, /\{\{date\}\}/)
     assert.match(text, /\{\{time\}\}/)

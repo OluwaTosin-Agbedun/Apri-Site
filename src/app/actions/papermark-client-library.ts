@@ -200,7 +200,7 @@ export async function saveFolderAndSyncLibrary(
       }
     }
 
-    // Remove stale APRI rows only, and only now that the replacement is in
+    // Remove stale APRA rows only, and only now that the replacement is in
     // place. Papermark documents and links are never touched.
     const ids = resolved.map((row) => row.documentId)
     if (kind === "subscriber") {

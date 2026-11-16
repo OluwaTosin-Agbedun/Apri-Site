@@ -13,7 +13,7 @@ created in the browser that asked for the email.
 - On a phone, the mail app usually opens links in its own built-in browser. Gmail and Outlook
   both do this, and that browser keeps its cookies apart from Safari or Chrome.
 - On a computer, the mail client may open the system's default browser instead of the one the
-  subscriber reads APRI in.
+  subscriber reads APRA in.
 
 So the browser the subscriber returned in never held a session. Each visit asked for an email,
 and each new link signed in the mail app's browser again.

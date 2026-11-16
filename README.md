@@ -1,10 +1,10 @@
-# APRI — Athena Political & Regulatory Intelligence
+# APRA — Athena Political & Regulatory Advisory
 
 The website, subscriber library and Complimentary Review service for **Athena Political &
-Regulatory Intelligence (APRI)**. APRI publishes independent political, regulatory and
+Regulatory Advisory (APRA)**. APRA publishes independent political, regulatory and
 political-economy intelligence on Nigeria.
 
-- **Live site:** <https://apri.athenacentre.org>, hosted on Vercel.
+- **Live site:** <https://athenaadvisory.ng>, hosted on Vercel.
 - **Repository:** `athenacenterpl-cmd/Apri-Site`. `main` deploys.
 - **Stack:**
   - Next.js 16 (App Router, server actions) and React 19;
@@ -70,7 +70,7 @@ political-economy intelligence on Nigeria.
     and count. An edition with no category is still listed, last, under **Publications awaiting
     a category**. The single **Latest** card is the newest permitted edition across every
     category. A category only places and labels an edition: it never grants access.
-- **Viewing inside APRI.** Papermark lets another site frame only its `/embed` page
+- **Viewing inside APRA.** Papermark lets another site frame only its `/embed` page
   (`/view/<link>/embed`, or `/<slug>/embed` on a custom domain). Other viewer addresses send
   `X-Frame-Options`, so browsers refuse them in a frame.
   - `src/lib/papermark-embed.ts` builds that `/embed` address (`papermarkEmbedUrl`) and checks
@@ -134,10 +134,10 @@ political-economy intelligence on Nigeria.
    | Option | What happens |
    |---|---|
    | **Papermark links** (default) | Each card opens that edition's own Papermark link. Papermark asks for an email code per edition. |
-   | **APRI Review Library** (the intended normal route) | The card goes to `/review/library`. A browser that is not signed in enters the approved email; APRI emails **one code** (no link). After it, the reader sees a clean APRI list of every published edition assigned to them, for **24 hours** on that browser. **Read** re-checks the assignment and opens that PDF directly inside the reader's personal Papermark link, which admits only their address and asks for no second code. The link is open only while they are signed in. Before migration `20261011` is applied, Read uses each edition's own link (Papermark code per edition). |
+   | **APRA Review Library** (the intended normal route) | The card goes to `/review/library`. A browser that is not signed in enters the approved email; APRA emails **one code** (no link). After it, the reader sees a clean APRA list of every published edition assigned to them, for **24 hours** on that browser. **Read** re-checks the assignment and opens that PDF directly inside the reader's personal Papermark link, which admits only their address and asks for no second code. The link is open only while they are signed in. Before migration `20261011` is applied, Read uses each edition's own link (Papermark code per edition). |
 
-   Why APRI, not Papermark, checks the email: hosted Papermark has no supported way to accept a
-   reader APRI verified or to report one it verified, its verified session is per link (23
+   Why APRA, not Papermark, checks the email: hosted Papermark has no supported way to accept a
+   reader APRA verified or to report one it verified, its verified session is per link (23
    hours), and its session cookie is `SameSite=Strict`, so it cannot be embedded. The owner
    chose this design on 2 October 2026. Details and evidence:
    [`docs/review-reader-library.md`](docs/review-reader-library.md). `/review/read` now only
@@ -393,8 +393,8 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 |---|---|
 | `DATABASE_URL` | Neon Postgres connection string |
 | `SESSION_SECRET` | Signs all sessions and keys sign-in codes (32+ characters) |
-| `APP_URL` | Legacy/sandbox email origin fallback. `PUBLIC_SITE_URL`, when set, takes precedence; otherwise subscriber links default to the existing production host |
-| `PUBLIC_SITE_URL` | Trusted public origin for metadata, sitemap and first-party emails: only `https://apri.athenacentre.org` or `https://athenaadvisory.ng`; unset keeps the existing domain |
+| `APP_URL` | Legacy/sandbox email origin fallback. `PUBLIC_SITE_URL`, when set, takes precedence; otherwise subscriber links default to athenaadvisory.ng |
+| `PUBLIC_SITE_URL` | Trusted public origin for metadata, sitemap and first-party emails: only `https://apri.athenacentre.org` or `https://athenaadvisory.ng`; unset defaults to athenaadvisory.ng |
 | `SITE_REDIRECTS_ENABLED` | Default disabled. Only `enabled` plus the new trusted origin activates safe GET/HEAD domain redirects; no cross-domain API/POST/token forwarding |
 | `GOOGLE_SITE_VERIFICATION` | Optional public Search Console verification token; owner login and sitemap submission remain manual |
 | `DATAROOM_NEW_DOCUMENT_EMAILS` | Default disabled. `enabled` permits publication sending only after an owner separately approves a baseline in Publication Alerts; migration and configured Resend sender also required |
@@ -596,7 +596,8 @@ can be delayed; the saved jobs and leases remain recoverable. See
 **Publication email jobs:** `/api/cron/publication-notifications` uses the same header-only
 `CRON_SECRET`, an owner baseline and `DATAROOM_NEW_DOCUMENT_EMAILS=enabled`. The source
 workflow `.github/workflows/publication-notifications.yml` runs hourly at minute 31; the
-optional repository variable `APRI_SITE_URL` selects an approved old/new origin. It never
+preferred repository variable `APRA_SITE_URL` selects an approved old/new origin;
+`APRI_SITE_URL` remains a legacy fallback during migration. It never
 follows redirects with the secret. It checks up to 20 candidate subscribers for one event
 and sends up to 10 due jobs per run. Admin → Publication Alerts can advance the same bounded
 queue. See [Stage 5 rollout](docs/stage5-quality-and-notifications.md).
@@ -637,7 +638,7 @@ data. Live authenticator usability, real email delivery and a real Neon recovery
 rehearsal still need controlled acceptance. Rollout and limitations are in
 [`docs/stage4-operations-security.md`](docs/stage4-operations-security.md).
 
-**Stage 5 (separate branch):** durable subscriber publication alerts replace the first-hour
+**Stage 5:** durable subscriber publication alerts replace the first-hour
 new-file sweep and the old Sync and notify ledger. Existing releases are baselined without
 a historical email blast; new releases and explicitly approved corrections use saved jobs,
 current permissions and preferences, confirmed personal access and actual provider outcomes.
@@ -645,8 +646,8 @@ No email sends merely because this code or migration is deployed.
 
 Public metadata, sitemap, robots, sharing image and a restrained llms.txt are added; private
 content stays noindex/no-store. Existing paths/design/fonts remain. `src/proxy.ts` makes
-Next actually discover the request policy beside `src/app`. The new domain and permanent
-redirects are prepared but off. A domain move requires one fresh sign-in on the new domain;
+Next actually discover the request policy beside `src/app`. The public domain is now athenaadvisory.ng. Old-host permanent
+redirects remain opt-in until controlled live acceptance is complete. A domain move requires one fresh sign-in on the new domain;
 browser cookies cannot transfer between unrelated domains.
 
 Local combined validation: 2,642 tests, 2,640 pass, 0 fail and the same two pre-existing
@@ -661,9 +662,8 @@ The complete browser run also checks the labelled team portrait placeholders as 
 The recipient-removal browser check waits for the resolved library after reload;
 the loading skeleton is not mistaken for a finished, empty library.
 
-This Stage 5 branch is stacked on Stage 4 for combined verification; Stage 4 remains
-a separate pull request. Integrate the final Stage 3 changes and test the exact result
-before launch. Browser checks run on an invented-data production build in CI;
+Stages 1–5 are merged into main. The final combined source checks passed before the
+domain setup; current identity-change checks are recorded in the APRA migration guide. Browser checks run on an invented-data production build in CI;
 real inbox receipt, real Papermark/watermarks, Search Console and field Core Web Vitals need
 controlled live acceptance. See the [rollout and impact tables](docs/stage5-quality-and-notifications.md)
 and [domain migration plan](docs/athena-advisory-domain-migration.md).
@@ -695,8 +695,8 @@ invented data, an in-memory database, a mock Papermark and no email; not verifie
 
 **Subscriber archive search:** keyword, publication-type and inclusive issue-date filters
 are available in both subscriber library paths. Papermark delivery, the Latest card,
-subscription periods and individual exceptions are retained. This is the first functional
-scope increment; branding, Zoho integration and the domain cutover are deferred. Local
+subscription periods and individual exceptions are retained. The approved APRA name and new public domain are applied; visual redesign and Zoho
+integration remain deferred. Local
 verification uses invented records, not production subscribers.
 
 **Papermark repair stability:** apply `20261012_papermark_work_queue.sql` before deploying
@@ -718,7 +718,7 @@ approved address left no sign-in token and no email attempt. The new code reads 
 before it creates a token, so the failure came before the database step and before any send.
 
 **New (2 October), not yet verified live:**
-- The one-code Review Library: one APRI code, a 24-hour session, and direct Read into each
+- The one-code Review Library: one APRA code, a 24-hour session, and direct Read into each
   reader's personal Papermark link, which asks for no second code and is open only while they
   are signed in.
 - It needs migration `20261011_review_reader_open_window.sql`. Until that is applied, Read
@@ -746,7 +746,7 @@ and a different browser.
   [`docs/review-reader-library.md`](docs/review-reader-library.md).
 - **Which Vercel project serves the domain** has not been confirmed from this repository.
 
-- **Code delivery to a real inbox.** APRI now sends the reader's one code. Each send is
+- **Code delivery to a real inbox.** APRA now sends the reader's one code. Each send is
   recorded (accepted, refused or unknown), and delivery is shown only from Resend events.
 
 **Complimentary Review download rollout:** no new migration, environment variable or bulk
@@ -755,7 +755,7 @@ withdrawal, and paid subscriber settings are unchanged. Personal rooms upgrade i
 first open; pre-repair a few readers at a time if needed. Rate-limited upgrades remain
 unconfirmed and can be retried; the existing process-local pacing is not a shared job queue.
 Original edition links can be upgraded individually with **Enable / verify downloads**.
-Use Papermark's own Download control: APRI does not expose or proxy an unwatermarked source
+Use Papermark's own Download control: APRA does not expose or proxy an unwatermarked source
 PDF, and a Read click is not recorded as a completed download. Live watermarked file
 generation and delivery still require a controlled Papermark download check; automated
 coverage uses the isolated database and a mock provider.
@@ -768,7 +768,7 @@ coverage uses the isolated database and a mock provider.
   fix and live acceptance test.
 - [`docs/papermark-repair-stability.md`](docs/papermark-repair-stability.md): durable repairs, shared pacing, Hobby worker setup and recovery checks.
 - [`docs/review-reader-library.md`](docs/review-reader-library.md): the one-code Review Library,
-  what hosted Papermark permits and why APRI performs the check, the personal links, migrations
+  what hosted Papermark permits and why APRA performs the check, the personal links, migrations
   and the live acceptance checks.
 - [`docs/subscriber-access-recovery.md`](docs/subscriber-access-recovery.md): the paid access
   incident, the access rule, migration order and recovery.
@@ -809,10 +809,11 @@ policy is chosen. Used history cannot be destructively rolled back.
 Use [the detailed morning migration checklist](docs/morning-migration-runbook.md) for merge
 order, correct Neon project/migrations, source/mirror deployment, DNS, Vercel origins, reader
 checks, workers, Search Console and rollback. All three source workflows now accept the same
-allowlisted repository variable `APRI_SITE_URL` (old origin by default) and the existing
+allowlisted repository variable `APRA_SITE_URL` (`APRI_SITE_URL` remains a legacy fallback;
+old origin by default until the worker configuration step) and the existing
 `CRON_SECRET`; they do not follow redirects with that secret. A new domain requires one
-fresh sign-in per browser; it does not change accounts or subscription terms. Branding and
-Zoho remain deferred. No live migration, DNS cutover or provider test is implied by code checks.
+fresh sign-in per browser; it does not change accounts or subscription terms. The APRA
+name change is required before final live acceptance; visual redesign and Zoho remain deferred. No live migration, DNS cutover or provider test is implied by code checks.
 
 Database-backed publication and review dates are converted to calendar-day strings before
 rendering. This preserves the stored day when the database driver returns a local-midnight
@@ -820,3 +821,15 @@ Date and prevents the public archive from failing when an edition has no display
 The regression test exercises the real database driver and public/assigned-reader reads.
 Browser audits set and assert their actual viewport before each page, including the
 Admin editorial flow at 375 px and the approved state at 1440 px.
+
+## APRA identity migration
+
+The approved current identity is **Athena Political & Regulatory Advisory (APRA)**.
+The public origin is **https://athenaadvisory.ng**. See
+[`docs/apra-identity-migration.md`](docs/apra-identity-migration.md) for coverage,
+intentional compatibility identifiers, verification and the source → mirror deployment steps.
+Browser acceptance uses an invented owner with the one-time setup latch closed, matching
+an existing installation, and checks that sign-in audits reach their requested screens.
+Staff security, operations and publication-alert browser titles also carry APRA.
+Final subscriber/review inbox and PDF acceptance, worker configuration and old-host redirects
+resume after this identity change is synced and deployed.

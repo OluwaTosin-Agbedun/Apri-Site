@@ -1,4 +1,4 @@
--- APRI schema. Safe to run repeatedly.
+-- APRA schema. Safe to run repeatedly.
 
 create extension if not exists pgcrypto;
 
@@ -508,7 +508,7 @@ create index if not exists alert_holds_pending_idx
 -- ---------------------------------------------------------------------------
 -- Three things sold, kept apart in the data
 --
--- APRI sells subscriptions (the level-gated library), commissioned briefings
+-- APRA sells subscriptions (the level-gated library), commissioned briefings
 -- (an engagement, sometimes delivering a board paper, no library), and open
 -- publications (read at the Papermark gate, no person record at all).
 --

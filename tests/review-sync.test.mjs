@@ -325,7 +325,7 @@ test('admin form: enable section shows diagnostics for missing slots', () => {
   assert.match(src, /function EnableSection/)
 })
 
-test('admin form: a link is prepared and verified by APRI, never typed in', () => {
+test('admin form: a link is prepared and verified by APRA, never typed in', () => {
   const src = read('src/app/admin/review-library/review-form.tsx')
   assert.match(src, /prepareEditionSecureLink\(e\.id\)/)
   assert.doesNotMatch(src, /updateSlotSecureLink/)

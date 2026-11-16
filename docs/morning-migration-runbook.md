@@ -1,6 +1,9 @@
 # Migration to athenaadvisory.ng: operator checklist
 
-Prepared 16 November 2026. This procedure does not claim production has already
+Prepared 16 November 2026. Stages 1–5 are now merged; the operator has confirmed
+the five new migrations were applied, the mirror was synced and the new domain
+was deployed. The APRA identity update must be synced before resuming the live
+checks below. Earlier merge/backup steps remain as the release/recovery record. This procedure does not claim production has already
 migrated. Preserve the existing database, Papermark, approved branding and
 institutional accounts. Zoho and branding redesign remain deferred.
 
@@ -14,7 +17,7 @@ institutional accounts. Zoho and branding redesign remain deferred.
   never force-push a stale checkout over main or the reviewed branches.
 - Record the current Vercel deployment, connected Git/mirror repository,
   source commit, database project/branch and responsible cutover owner.
-- Take an available Neon recovery point/database branch. Use APRI production,
+- Take an available Neon recovery point/database branch. Use APRA production,
   NOT the University Tracker database. Save deployment/environment/DNS
   settings privately. Record representative subscriber ids/terms, assignment
   and release counts, and confirm old-site reader access before changes.
@@ -62,14 +65,14 @@ hide a permission error.
 3. Retarget the completed Stage 3 PR to main, check the final combined result,
    then merge. Use Create a merge commit where available to preserve stack
    ancestry. Retain branches until live acceptance.
-4. In the EXISTING APRI Vercel project, inspect the connected repository. If
+4. In the EXISTING APRA Vercel project, inspect the connected repository. If
    it deploys from a mirror, trigger that mirror's existing sync. Verify the
    deployed source includes the intended changes. Do not create an empty
    replacement project/database.
 5. Leave `SITE_REDIRECTS_ENABLED` disabled initially. Preserve existing
    `SESSION_SECRET`, `CRON_SECRET`, database and provider keys.
 
-## 4. Prove the existing APRI host first
+## 4. Prove the existing APRA host first
 
 On `https://apri.athenacentre.org`, record pass/fail with controlled readers:
 
@@ -89,13 +92,13 @@ send a bulk test announcement, or treat mock-provider checks as live evidence.
 
 ## 5. Add the new domain and verify HTTPS
 
-1. Vercel → APRI project → Settings → Domains: add `athenaadvisory.ng` and
+1. Vercel → APRA project → Settings → Domains: add `athenaadvisory.ng` and
    `www.athenaadvisory.ng` to the SAME project.
 2. In the company's Go54 account, copy the EXACT DNS values Vercel displays;
    do not guess an old IP/CNAME. Preserve existing MX/TXT/mail-verification
    records, the Athena Centre root site and Papermark's document domain.
 3. Wait for valid configuration and HTTPS certificates. Open the new host
-   on desktop/mobile, while retaining the old APRI hostname.
+   on desktop/mobile, while retaining the old APRA hostname.
 
 ## 6. Configure the new origin and test it before redirects
 
@@ -131,7 +134,7 @@ No shared public or protected offline caching is introduced.
 In the SOURCE repo Settings → Secrets and variables → Actions:
 
 - Secret `CRON_SECRET`: keep the existing matching Vercel value private.
-- VARIABLE `APRI_SITE_URL`: `https://athenaadvisory.ng`.
+- VARIABLE `APRA_SITE_URL`: `https://athenaadvisory.ng`.
 
 All three workers allow only the approved old/new origins and send the secret
 in the Authorization header without following redirects:
@@ -157,7 +160,7 @@ configuration deliberately and avoid duplicate subscriptions.
 
 ## 9. Search, communication and monitoring
 
-- Verify the new domain and exact old APRI property in Search Console, submit
+- Verify the new domain and exact old APRA property in Search Console, submit
   `https://athenaadvisory.ng/sitemap.xml`, inspect public canonicals/indexing and
   use the applicable Change of Address process. This needs the organisation's
   Google login; do not move the whole Athena Centre site's property.

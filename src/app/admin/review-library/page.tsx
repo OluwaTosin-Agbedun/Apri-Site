@@ -27,7 +27,7 @@ import { isReviewCode } from "@/lib/publication-catalogue"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
-export const metadata = { title: "Review Library · APRI" }
+export const metadata = { title: "Review Library · APRA" }
 
 export default async function ReviewLibraryPage() {
   const admin = await requireOwner()
@@ -306,7 +306,7 @@ export default async function ReviewLibraryPage() {
           <section>
             <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">Review email delivery</h3>
             <p className="text-xs text-muted-foreground mb-3 max-w-3xl">
-              What the email provider said about each APRI review email. &ldquo;Accepted&rdquo; is not delivery: an email shows
+              What the email provider said about each APRA review email. &ldquo;Accepted&rdquo; is not delivery: an email shows
               as delivered only when the provider reports it. Papermark&rsquo;s own verification codes are sent by Papermark
               and do not appear here.
             </p>

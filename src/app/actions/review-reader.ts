@@ -32,8 +32,8 @@ function destination(edition: unknown): string {
 }
 
 const NOT_ASSIGNED =
-  "No Complimentary Review publications are assigned to that address. Requesting a review, or confirming your email, does not give access by itself: APRI approves each reader. If you were approved under a different address, use that one."
-const APRI_SIDE = "Sign-in is unavailable just now because of a problem on APRI's side, not with your address. Please try again later."
+  "No Complimentary Review publications are assigned to that address. Requesting a review, or confirming your email, does not give access by itself: APRA approves each reader. If you were approved under a different address, use that one."
+const APRA_SIDE = "Sign-in is unavailable just now because of a problem on APRA's side, not with your address. Please try again later."
 
 /** Five sign-in emails an hour to any one address, whoever asks. */
 async function addressLimitReached(email: string): Promise<boolean> {
@@ -54,7 +54,7 @@ async function addressLimitReached(email: string): Promise<boolean> {
  * and the earlier one stops working.
  *
  * Every failure says which kind it is: access not assigned, a problem on
- * APRI's side (configuration or database), the email provider refusing the
+ * APRA's side (configuration or database), the email provider refusing the
  * email, or no clear answer from the provider. Diagnostics go to the owner's
  * email record; the reader never sees a provider message.
  *
@@ -65,7 +65,7 @@ async function addressLimitReached(email: string): Promise<boolean> {
 export async function requestReviewLibrarySignIn(_prev: FormState, formData: FormData): Promise<FormState> {
   const email = normaliseReaderEmail(formData.get("email"))
   if (!email) return { message: "Enter a valid email address." }
-  if (!(await reviewReaderSchemaReady())) return { message: APRI_SIDE }
+  if (!(await reviewReaderSchemaReady())) return { message: APRA_SIDE }
   try {
     await enforceReviewRateLimit("review_library_signin", 8)
   } catch (error) {
@@ -84,7 +84,7 @@ export async function requestReviewLibrarySignIn(_prev: FormState, formData: For
       status: "not_configured",
       message: "the sign-in code could not be prepared (database or SESSION_SECRET problem); nothing was sent",
     })
-    return { message: APRI_SIDE }
+    return { message: APRA_SIDE }
   }
   try {
     await sendReviewLibrarySignIn(email, code)
@@ -101,9 +101,9 @@ export async function requestReviewLibrarySignIn(_prev: FormState, formData: For
       if (error.outcome.status === "rejected") {
         return { message: "Our email provider did not accept the sign-in email, so no code was sent. Check the address, or try again later." }
       }
-      return { message: "Sign-in emails cannot be sent at the moment because of a configuration problem on APRI's side. Please try again later." }
+      return { message: "Sign-in emails cannot be sent at the moment because of a configuration problem on APRA's side. Please try again later." }
     }
-    return { message: APRI_SIDE }
+    return { message: APRA_SIDE }
   }
   return {
     ok: true,
@@ -129,7 +129,7 @@ export async function reviewLibrarySignInWithCode(_prev: FormState, formData: Fo
     if (result.reason === "session_failed") return { message: "Your code was right, but signing in could not be finished. Try the same code again in a minute." }
     if (result.reason === "no_editions") return { message: NOT_ASSIGNED }
     await recordReaderCodeFailure(email)
-    return { message: "That code did not work. Use the code from your latest APRI sign-in email; each code works once, for 15 minutes. You can ask for a new code." }
+    return { message: "That code did not work. Use the code from your latest APRA sign-in email; each code works once, for 15 minutes. You can ask for a new code." }
   }
   // Prepare the reader's personal room now, so their first Read is quick.
   try {
@@ -153,8 +153,8 @@ export async function reviewLibrarySignOut(): Promise<void> {
 /**
  * Owner only: where the public Complimentary Review cards on the homepage and
  * /publications lead. "papermark" keeps each edition's own Papermark link (a
- * Papermark code per edition); "library" sends readers to the APRI Review
- * Library (one APRI code, then every assigned edition). Reversible.
+ * Papermark code per edition); "library" sends readers to the APRA Review
+ * Library (one APRA code, then every assigned edition). Reversible.
  */
 export async function setReviewEntryMode(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireOwner()
@@ -179,5 +179,5 @@ export async function setReviewEntryMode(_prev: FormState, formData: FormData): 
 
 const ENTRY_MODE_LABEL = {
   papermark: "each edition's own Papermark link (a Papermark code per edition)",
-  library: "the APRI Review Library (one APRI code, then every assigned edition)",
+  library: "the APRA Review Library (one APRA code, then every assigned edition)",
 } as const

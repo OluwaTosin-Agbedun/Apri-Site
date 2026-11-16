@@ -1,4 +1,6 @@
-import { siteOrigin } from './site-config.ts'
+import { ADVISORY_SITE_ORIGIN, siteOrigin } from './site-config.ts'
+export const APRA_PRODUCTION_URL = ADVISORY_SITE_ORIGIN
+/** @deprecated Historical callback origin; current links use siteOrigin(). */
 export const APRI_PRODUCTION_URL = 'https://apri.athenacentre.org'
 
 export function portalVerificationUrl(token: string): string {

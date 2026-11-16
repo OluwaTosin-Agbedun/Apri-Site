@@ -82,7 +82,7 @@ the owner's **Check health and match delivery reports** action. Leases recover
 interrupted replay; new/less-tried events take priority and unmatched events
 back off, so old unknown messages cannot starve fresh evidence. A shared Resend
 account may also report messages from another application; unmatched does not
-by itself mean an APRI email failed. Event IDs prevent duplicate engagement counts. Older events
+by itself mean an APRA email failed. Event IDs prevent duplicate engagement counts. Older events
 do not overwrite a newer review-email status.
 
 Admin → Operations shows masked recent review and subscriber outcomes. Accepted

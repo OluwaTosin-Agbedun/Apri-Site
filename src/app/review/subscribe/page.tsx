@@ -5,7 +5,7 @@ import SiteHeader from "@/components/SiteHeader"
 import { PLANS, parsePlan } from "@/lib/subscription-journey"
 import SubscriptionForm from "./subscription-form"
 export const metadata: Metadata = {
-  title: "Subscription request | APRI",
+  title: "Subscription request | APRA",
   robots: { index: false, follow: false },
 }
 
@@ -44,7 +44,7 @@ export default async function Page({
       <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 py-20">
         <h1 className="font-serif text-4xl mb-4">Request {PLANS[plan].label}</h1>
         <p className="text-foreground/70 mb-10">
-          Provide the contracting details APRI needs to prepare your agreement
+          Provide the contracting details APRA needs to prepare your agreement
           and invoice.
         </p>
         {prospectId ? (

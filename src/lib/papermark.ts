@@ -327,7 +327,7 @@ function unwrap<T>(data: unknown, legacyKey: string): { items: T[]; next: string
 /**
  * Documents from one explicitly selected folder.
  *
- * There is deliberately no team-wide list helper: APRI Fetch must never have a
+ * There is deliberately no team-wide list helper: APRA Fetch must never have a
  * code path that can fall back to importing 00 Masters or folders 01–06.
  */
 export async function listDocumentsInFolder(
@@ -717,7 +717,7 @@ export async function mintSubscriberLink(args: {
   }
 
   // Converted before the request is built, so an unreadable term end is
-  // reported as an APRI data problem rather than sent to Papermark and bounced
+  // reported as an APRA data problem rather than sent to Papermark and bounced
   // back as a validation failure nobody can trace to a subscriber record.
   const expiry = papermarkExpiresAt(args.expiresAt ?? null)
   if (!expiry.ok) {
@@ -736,7 +736,7 @@ export async function mintSubscriberLink(args: {
       method: 'POST',
       body: JSON.stringify({
         document_id: args.papermarkDocumentId,
-        name: `APRI — ${args.subscriberName || args.subscriberEmail}`,
+        name: `APRA — ${args.subscriberName || args.subscriberEmail}`,
         // Email-gated to one address: the link identifies the reader even
         // without a watermark, which is what makes attribution work.
         email_protected: true,

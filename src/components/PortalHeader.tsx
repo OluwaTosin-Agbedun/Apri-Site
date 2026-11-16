@@ -32,7 +32,7 @@ export default function PortalHeader({
       <div className={`${shell} py-5 flex items-start justify-between gap-4`}>
         <div className="min-w-0">
           <Link href="/" className="font-serif text-base text-foreground tracking-tight">
-            APRI
+            APRA
           </Link>
           <p className="text-xs text-muted-foreground mt-1 truncate">
             {name}

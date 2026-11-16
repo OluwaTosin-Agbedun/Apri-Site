@@ -463,7 +463,7 @@ describe("drafts and protected text never leak", () => {
 
   it("the portal's page metadata is static and it has no structured data", () => {
     const page = readFileSync(new URL("../src/app/portal/page.tsx", import.meta.url), "utf8")
-    assert.match(page, /export const metadata = \{\s*title: "Your Library · APRI",\s*robots: \{ index: false, follow: false \},\s*\}/)
+    assert.match(page, /export const metadata = \{\s*title: "Your Library · APRA",\s*robots: \{ index: false, follow: false \},\s*\}/)
     assert.doesNotMatch(page, /generateMetadata|application\/ld\+json|openGraph/)
   })
 

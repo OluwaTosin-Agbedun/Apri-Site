@@ -149,7 +149,7 @@ describe("before the migration", () => {
     const before = await documentsSnapshot()
     await signIn(session, editor, "editor")
     const results = [
-      await act(metadataActions.savePublicationDetails, { authorEditor: "APRI Research Team", readingMinutes: "12" }, ed.room.id),
+      await act(metadataActions.savePublicationDetails, { authorEditor: "APRA Research Team", readingMinutes: "12" }, ed.room.id),
       await act(metadataActions.addPublicationTag, { kind: "subject", label: "Tariffs" }),
       await act(submitPublicationSummary, summaryForm("draft", 0), ed.room.id),
     ]

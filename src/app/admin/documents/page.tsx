@@ -8,7 +8,7 @@ import { getPublicationCatalogue } from '@/lib/publication-catalogue-dal'
 import SyncPanel from './sync-panel'
 import RowActions from './row-actions'
 
-export const metadata = { title: 'Publications · APRI' }
+export const metadata = { title: 'Publications · APRA' }
 export const dynamic = 'force-dynamic'
 
 type Row = {

@@ -22,7 +22,7 @@ export default async function TeamPage() {
           </h1>
           <div className="space-y-5 text-base sm:text-lg text-foreground/70 leading-relaxed">
             <p>
-              Athena Political &amp; Regulatory Intelligence brings together
+              Athena Political &amp; Regulatory Advisory brings together
               practitioners, political scientists, economists, governance
               researchers and election analysts with experience across
               government, public policy, institutional reform, elections,
@@ -106,7 +106,7 @@ export default async function TeamPage() {
           </h2>
           <div className="space-y-5 text-sm sm:text-base text-foreground/80 leading-relaxed">
             <p>
-              APRI combines continuous monitoring of political, electoral,
+              APRA combines continuous monitoring of political, electoral,
               regulatory and policy developments with structured analysis of
               official records, regulatory publications, electoral data, public
               statements, credible media reporting and consultations with
@@ -119,12 +119,12 @@ export default async function TeamPage() {
               publication.
             </p>
             <p>
-              APRI is a subscription-based intelligence service. Subscribers
+              APRA is a subscription-based intelligence service. Subscribers
               receive access to our intelligence and briefings but do not
               determine our analytical conclusions or editorial judgements.
             </p>
             <p>
-              APRI does not provide lobbying, political access brokerage, legal
+              APRA does not provide lobbying, political access brokerage, legal
               advice or investment advice.
             </p>
           </div>
@@ -135,14 +135,14 @@ export default async function TeamPage() {
             Institutional Foundation
           </h2>
           <p className="text-sm sm:text-base text-foreground/80 leading-relaxed mb-7">
-            Athena Political &amp; Regulatory Intelligence is an intelligence
+            Athena Political &amp; Regulatory Advisory is an intelligence
             service of the Athena Centre for Policy and Leadership, drawing on
             the Centre&rsquo;s wider work in governance, elections, public
             policy, institutional reform and political analysis.
           </p>
           <div className="flex flex-col gap-3 text-sm">
             <p>
-              <span className="text-muted-foreground mr-2">APRI:</span>
+              <span className="text-muted-foreground mr-2">APRA:</span>
               <a
                 className="text-accent hover:text-accent-hover underline-offset-4 hover:underline"
                 href={siteOrigin()}

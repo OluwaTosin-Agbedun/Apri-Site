@@ -149,7 +149,7 @@ describe("migration", () => {
     assert.ok(classify < notNull, "NOT NULL comes after every row is classified")
   })
 
-  it("seeds no recipients and never reads the shared APRI list", () => {
+  it("seeds no recipients and never reads the shared APRA list", () => {
     assert.doesNotMatch(code, /insert into review_edition_recipients/)
     assert.doesNotMatch(code, /review_approved_recipients|app_settings/)
   })
@@ -359,7 +359,7 @@ describe("adoption of live Papermark access", () => {
     assert.doesNotMatch(adopt, /setReviewLinkAllowList|updateReviewDocumentLink|createReviewDocumentLink|revokeReviewDocumentLink|method: ['"](POST|PATCH|DELETE)/)
   })
 
-  it("the action never seeds from the shared APRI list", () => {
+  it("the action never seeds from the shared APRA list", () => {
     assert.doesNotMatch(adopt, /readSharedRecipients|review_approved_recipients/)
   })
 
@@ -549,8 +549,8 @@ describe("applying one edition", () => {
     assert.match(mismatch, /recipients_verified_hash = null/)
   })
 
-  it("does not report success if APRI cannot record the verification", () => {
-    assert.match(fn, /APRI could not record the verification/)
+  it("does not report success if APRA cannot record the verification", () => {
+    assert.match(fn, /APRA could not record the verification/)
     const catchBlock = fn.slice(fn.lastIndexOf("} catch {"), fn.lastIndexOf("refreshReviewPages()"))
     assert.match(catchBlock, /ok: false/)
   })
@@ -655,22 +655,22 @@ describe("planning one edition's grant against Papermark", () => {
     assert.equal(p.kind, "already_live")
   })
 
-  it("granted in APRI but not yet in Papermark: refused, sent to apply", () => {
+  it("granted in APRA but not yet in Papermark: refused, sent to apply", () => {
     const p = plan(["a@example.org", "new@example.org"], live(["a@example.org"]))
     assert.equal(p.kind, "refuse")
     assert.match(p.reason, /Papermark has not been updated yet/)
   })
 
-  it("in Papermark but not in APRI: refused, sent to reconcile", () => {
+  it("in Papermark but not in APRA: refused, sent to reconcile", () => {
     const p = plan(["a@example.org"], live(["a@example.org", "new@example.org"]))
     assert.equal(p.kind, "refuse")
-    assert.match(p.reason, /APRI's list for it does not/)
+    assert.match(p.reason, /APRA's list for it does not/)
   })
 
   it("any other disagreement: refused, so no unpreviewed change is ever carried along", () => {
     const p = plan(["a@example.org"], live(["b@example.org"]))
     assert.equal(p.kind, "refuse")
-    assert.match(p.reason, /does not match APRI's list/)
+    assert.match(p.reason, /does not match APRA's list/)
   })
 
   it("an unreadable link, wrong document, policy breach or domain rule is refused", () => {
@@ -741,7 +741,7 @@ describe("the grant action", () => {
   it("an unrecorded Papermark change withdraws the edition's verification and says so", () => {
     const failure = grant.slice(grant.indexOf("if (!recorded) {"))
     assert.match(failure, /withdrawVerification\(sql, edition\.id\)/)
-    assert.match(failure, /Papermark now admits this prospect, but APRI could not record the grant/)
+    assert.match(failure, /Papermark now admits this prospect, but APRA could not record the grant/)
   })
 
   it("a refused Papermark change leaves that edition untouched and stops", () => {
@@ -783,7 +783,7 @@ describe("the grant action", () => {
     assert.match(w, /where id = \$\{editionId\}::uuid and recipient_mode = 'edition'/)
   })
 
-  it("the grant never writes the shared APRI list", () => {
+  it("the grant never writes the shared APRA list", () => {
     assert.doesNotMatch(grant, /review_approved_recipients|app_settings/)
   })
 
@@ -895,7 +895,7 @@ describe("/review/library", () => {
     const assigned = open.indexOf("await getReviewEditionForEmail(reader.email, id)")
     assert.ok(session !== -1 && session < assigned, "a reader session first, then this edition's recipients")
     assert.ok(assigned < open.indexOf("await readerDocumentFor(reader.email, edition.id"), "the personal link only after both")
-    // Only two redirects leave APRI -- the PDF inside the reader's personal
+    // Only two redirects leave APRA -- the PDF inside the reader's personal
     // link, or the edition's own link (before 20261011) -- and both come after
     // both checks. Every other answer is a path on this site.
     const outward = [...open.matchAll(/NextResponse\.redirect\((?!new URL\()([^,)]+)/g)]

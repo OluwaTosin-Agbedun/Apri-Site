@@ -1,4 +1,4 @@
-# APRI site: rules for anyone changing this repository
+# APRA site: rules for anyone changing this repository
 
 - Start with `README.md`: it describes the whole project, how to run, test and deploy it, and what still needs a live check.
 - **Update `README.md` in the same commit as every change** (pages, Admin controls, environment variables, migrations, scripts, docs, rollout steps) and refresh its "Last updated" date. `tests/readme.test.mjs` fails if a migration, a document in `docs/` or a variable in `.env.example` is missing from it.

@@ -189,7 +189,7 @@ export async function saveSubscriber(
     return {
       errors: {
         libraryLinkUrl: [
-          "Use an HTTPS Papermark share link or the configured APRI Papermark custom domain.",
+          "Use an HTTPS Papermark share link or the configured APRA Papermark custom domain.",
         ],
       },
     }
@@ -589,7 +589,7 @@ export async function deleteSubscriber(id: string, confirmationEmail: string): P
   if (!rows[0]) return { message: "The confirmation email did not match." }
 
   refresh()
-  return { ok: true, message: "Subscriber deleted from APRI. Revoke the Papermark link separately." }
+  return { ok: true, message: "Subscriber deleted from APRA. Revoke the Papermark link separately." }
 }
 
 /**

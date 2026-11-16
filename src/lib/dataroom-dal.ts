@@ -294,7 +294,7 @@ export async function updateLinkAnalytics(args: {
 }
 
 // ---------------------------------------------------------------------------
-// Data Room documents (APRI's snapshot)
+// Data Room documents (APRA's snapshot)
 // ---------------------------------------------------------------------------
 
 export async function syncDataRoomDocuments(

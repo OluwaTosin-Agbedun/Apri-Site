@@ -1,3 +1,4 @@
+import { currentBrandCopy } from "./brand.ts"
 import { isCatalogueCode, sectionKey, UNASSIGNED_KEY, type CatalogueCode } from "./publication-catalogue.ts"
 
 /**
@@ -156,7 +157,7 @@ export const UNREADABLE_DATE = "unreadable"
  * dashes that pasted or smart-punctuated text contains, and the reverse.
  */
 function normalise(text: string): string {
-  return text
+  return currentBrandCopy(text)
     .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .replace(/[‘’‚‛ʼ′`´]/g, "'")

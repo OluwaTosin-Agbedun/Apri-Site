@@ -4,9 +4,9 @@ import SiteFooter from '@/components/SiteFooter'
 import { CONTACT_EMAIL } from '@/config'
 
 export const metadata = {
-  title: 'Terms of Use · APRI',
+  title: 'Terms of Use · APRA',
   description:
-    'The terms on which APRI publications and briefings are provided.',
+    'The terms on which APRA publications and briefings are provided.',
 }
 
 /** Shown at the top so a reader can tell whether they have seen this version. */
@@ -38,7 +38,7 @@ export default function TermsPage() {
             Terms of Use
           </h1>
           <p className="text-sm text-muted-foreground">
-            The terms on which APRI publications and briefings are provided, by Athena
+            The terms on which APRA publications and briefings are provided, by Athena
             Centre. Last updated {LAST_UPDATED}.
           </p>
         </header>
@@ -91,7 +91,7 @@ export default function TermsPage() {
 
           <Section title="This is analysis, not advice">
             <P>
-              APRI publications and briefings are independent political, regulatory and
+              APRA publications and briefings are independent political, regulatory and
               political-economy analysis. They are not legal advice, investment advice,
               lobbying, or political access brokerage, and they should not be relied on as
               a substitute for professional advice on your particular circumstances.

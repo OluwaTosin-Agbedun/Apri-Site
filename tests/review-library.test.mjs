@@ -243,7 +243,7 @@ test('publications page: cards display all required fields', () => {
 
 test('homepage: review cards link to their corresponding secure URLs', () => {
   const src = read('src/app/page.tsx')
-  // Library mode: the Review Library with this edition chosen (APRI's code
+  // Library mode: the Review Library with this edition chosen (APRA's code
   // first). Papermark mode: the edition's own stored link.
   assert.match(src, /href=\{entryMode === "library" \? `\/review\/library\?edition=\$\{card\.id\}` : card\.secureUrl\}/)
   assert.doesNotMatch(src, /entryMode === "rooms"|"\/review\/read"/, 'no card leads to the retired rooms entry')

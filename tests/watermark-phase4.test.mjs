@@ -30,7 +30,7 @@ describe('subscriberWatermarkText', () => {
     const text = subscriberWatermarkText('reader@example.com')
     assert.equal(
       text,
-      'APRI Subscriber Edition · reader@example.com · {{date}} {{time}} · Confidential · Not for redistribution'
+      'APRA Subscriber Edition · reader@example.com · {{date}} {{time}} · Confidential · Not for redistribution'
     )
   })
 
@@ -64,8 +64,8 @@ describe('subscriberWatermarkText', () => {
     assert.doesNotMatch(subscriberWatermarkText('a@b.com'), /Assigned to/)
   })
 
-  it('does not contain "APRI CONFIDENTIAL"', () => {
-    assert.doesNotMatch(subscriberWatermarkText('a@b.com'), /APRI CONFIDENTIAL/)
+  it('does not contain "APRA CONFIDENTIAL"', () => {
+    assert.doesNotMatch(subscriberWatermarkText('a@b.com'), /APRA CONFIDENTIAL/)
   })
 
   it('does not contain Complimentary Review wording', () => {
@@ -126,7 +126,7 @@ describe('subscriberWatermarkConfig', () => {
 describe('deprecated watermarkText shim', () => {
   it('produces subscriber edition format regardless of name', () => {
     const text = watermarkText('Any Name', 'test@example.com')
-    assert.match(text, /APRI Subscriber Edition/)
+    assert.match(text, /APRA Subscriber Edition/)
     assert.match(text, /test@example\.com/)
     assert.doesNotMatch(text, /Any Name/)
   })
@@ -157,7 +157,7 @@ describe('dataRoomLinkSettings watermark', () => {
   })
 
   it('uses Subscriber Edition format in watermark text', () => {
-    assert.match(settings.watermark_config.text, /APRI Subscriber Edition/)
+    assert.match(settings.watermark_config.text, /APRA Subscriber Edition/)
     assert.match(settings.watermark_config.text, /user@example\.com/)
   })
 
@@ -180,7 +180,7 @@ describe('documentLinkSettings watermark', () => {
   })
 
   it('uses Subscriber Edition format', () => {
-    assert.match(settings.watermark_config.text, /APRI Subscriber Edition/)
+    assert.match(settings.watermark_config.text, /APRA Subscriber Edition/)
     assert.match(settings.watermark_config.text, /another@example\.com/)
   })
 
@@ -194,7 +194,7 @@ describe('documentLinkSettings watermark', () => {
 // ---------------------------------------------------------------------------
 
 test('prospect watermark format is never built by subscriberWatermarkText', () => {
-  const prospectFormat = 'APRI Complimentary Review Copy'
+  const prospectFormat = 'APRA Complimentary Review Copy'
   const subText = subscriberWatermarkText('prospect@example.com')
   assert.doesNotMatch(subText, new RegExp(prospectFormat))
 })

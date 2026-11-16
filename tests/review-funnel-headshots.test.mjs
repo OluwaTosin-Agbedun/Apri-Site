@@ -5,8 +5,8 @@ const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8")
 test("review page contains exact Chancellor copy and no phone field", () => {
   const s =
     read("src/app/review/page.tsx") + read("src/app/review/review-form.tsx")
-  assert.match(s, /Review Athena Political &amp; Regulatory Intelligence/)
-  assert.match(s, /Complimentary access to selected APRI publications/)
+  assert.match(s, /Review Athena Political &amp; Regulatory Advisory/)
+  assert.match(s, /Complimentary access to selected APRA publications/)
   assert.doesNotMatch(read("src/app/review/review-form.tsx"), /name="phone"/)
   assert.doesNotMatch(s, /instant access|Open Edition/i)
 })
@@ -15,7 +15,7 @@ test("confirmation and subscription copy are exact", () => {
     t = read("src/app/review/subscribe/thanks/page.tsx")
   assert.match(c, /Your email has been confirmed\./)
   assert.match(c, /We are preparing your complimentary review access\./)
-  assert.match(t, /Thank you for your APRI subscription request\./)
+  assert.match(t, /Thank you for your APRA subscription request\./)
   assert.match(
     t,
     /activated once the agreement has\s+been completed and payment confirmed\./,
@@ -93,7 +93,7 @@ test("Complimentary Review downloads are personalised and applied one edition at
   assert.match(contract, /enable_screenshot_protection: true/)
   assert.match(contract, /opacity: 0\.15/)
   assert.match(contract, /font_size: 18/)
-  assert.match(contract, /APRI Complimentary Review Copy · \{\{email\}\}/)
+  assert.match(contract, /APRA Complimentary Review Copy · \{\{email\}\}/)
   assert.match(service, /args\.allowList\.length === 0/)
   // Applying recipients changes the allow list only; the link is never recreated.
   const apply = access.slice(access.indexOf("export async function applyEditionRecipients"))

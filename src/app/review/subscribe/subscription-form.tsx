@@ -75,7 +75,7 @@ export default function SubscriptionForm(props: Props) {
               </select>
             </label>
             <label>
-              How did you hear about APRI?
+              How did you hear about APRA?
               <select className={input} name="source" required defaultValue="">
                 <option value="" disabled>
                   Select one
@@ -159,7 +159,7 @@ export default function SubscriptionForm(props: Props) {
         </span>
       </label>
       <p className="text-sm text-muted-foreground">
-        No card details are collected. APRI will issue the agreement and payment details separately.
+        No card details are collected. APRA will issue the agreement and payment details separately.
       </p>
       {state.message && (
         <p className="text-red-700" role="alert">

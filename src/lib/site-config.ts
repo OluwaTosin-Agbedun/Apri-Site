@@ -7,7 +7,7 @@ export function siteOrigin(
   env: Record<string, string | undefined> = process.env,
 ): string {
   const raw = (env.PUBLIC_SITE_URL ?? "").trim()
-  if (!raw) return LEGACY_SITE_ORIGIN
+  if (!raw) return ADVISORY_SITE_ORIGIN
   let url: URL
   try {
     url = new URL(raw)

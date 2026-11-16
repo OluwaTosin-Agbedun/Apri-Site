@@ -155,7 +155,7 @@ export type SubscriberReaderRow = {
 
 /**
  * Every Papermark session in the paid context, with the document it was on
- * resolved through APRI's own mappings. A Data Room view (opening the room)
+ * resolved through APRA's own mappings. A Data Room view (opening the room)
  * is not a reading session and is left out.
  */
 const PAID_SESSIONS = `
@@ -482,7 +482,7 @@ function reviewTitle(e: Pick<EditionMeta, 'title' | 'label'>): string {
  * on a review link -- including readers with no recorded views. Keyed by the
  * normalised email; a name is used only where the person gave one in a review
  * request. Review access is by the Papermark link itself (Papermark verifies
- * the email), so no APRI login is shown for it.
+ * the email), so no APRA login is shown for it.
  */
 export async function listReviewReaders(filters: MonitorFilters): Promise<ReviewReaderRow[]> {
   const sql = getSql()

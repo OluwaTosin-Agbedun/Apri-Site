@@ -2,7 +2,7 @@
  * Paid portal titles and activity indicators.
  *
  * Titles: Admin → Data Rooms showed documents' renamed Papermark names while
- * the portal kept the titles APRI generated from the old filenames, because a
+ * the portal kept the titles APRA generated from the old filenames, because a
  * stored editorial title always won. The synced Papermark name is now the
  * title everywhere -- Latest, every library card and the viewer heading --
  * unless an editorial title is explicitly marked as an intentional override.
@@ -55,7 +55,7 @@ describe("which title wins", () => {
   const renamed = "Athena Intelligence Update — Periodic Focused Briefing — Issue 001 (2026)"
   const generated = "Athena Intelligence Update 001 2026 Osun 3"
 
-  it("a title APRI generated from an old filename does not outlive a rename", () => {
+  it("a title APRA generated from an old filename does not outlive a rename", () => {
     assert.equal(portalDocumentTitle({ syncedName: renamed, editorialTitle: generated, editorialTitleIsOverride: false }), renamed)
     assert.equal(
       portalDocumentTitle({

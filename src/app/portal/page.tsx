@@ -1,3 +1,4 @@
+import { currentBrandCopy } from "@/lib/brand"
 import SubmitButton from "@/components/SubmitButton"
 import Link from "next/link"
 import {publicationVersions,latestEntitledVersions} from '@/lib/publication-versions'
@@ -34,7 +35,7 @@ import { PublicationFacts, ProtectedSummary } from "@/components/PublicationRead
 export const dynamic = "force-dynamic"
 
 export const metadata = {
-  title: "Your Library · APRI",
+  title: "Your Library · APRA",
   robots: { index: false, follow: false },
 }
 
@@ -304,7 +305,7 @@ function PortalFooter() {
   return (
     <div className="mt-8 pt-8 border-t border-border">
       <p className="text-xs text-muted-foreground leading-relaxed max-w-4xl">
-        Your access is personal to you and every view is logged. APRI intelligence
+        Your access is personal to you and every view is logged. APRA intelligence
         is issued for the exclusive use of authorised readers and may not be
         redistributed.
         Questions:{" "}
@@ -356,11 +357,11 @@ function DataRoomCard({ document, featured = false }: { document: DataRoomDocume
             {document.displayTitle}
           </h3>
           {document.kicker && (
-            <p className="text-sm text-foreground/70 mt-1">{document.kicker}</p>
+            <p className="text-sm text-foreground/70 mt-1">{currentBrandCopy(document.kicker)}</p>
           )}
           {document.summary && (
             <p className="text-sm text-foreground/60 leading-relaxed mt-2 line-clamp-3">
-              {document.summary}
+              {currentBrandCopy(document.summary)}
             </p>
           )}
           <div className="flex items-center gap-3 mt-3">
@@ -460,9 +461,9 @@ function LibrarySetup({ principal }: { principal: CurrentSubscriber }) {
     <NoticeShell title="Your library is being set up">
       <p className="text-sm text-foreground/70 leading-relaxed mb-8">
         {principal.fullName ? `Thank you, ${principal.fullName}. ` : ""}Your access is being prepared. Please try
-        again shortly. If this continues, contact APRI and we will sort it out.
+        again shortly. If this continues, contact APRA and we will sort it out.
       </p>
-      <ContactButton subject="APRI library setup" label="Contact APRI" />
+      <ContactButton subject="APRA library setup" label="Contact APRA" />
     </NoticeShell>
   )
 }
@@ -530,7 +531,7 @@ function PublicationRow({ item }: { item: Item }) {
       <div className="block h-full border border-border bg-card/30 p-5 sm:p-6">
         <div className="flex items-start gap-3"><h3 className="font-serif text-lg text-foreground leading-snug">{item.title}</h3><LegacyActivityStatus item={item} /></div>
         {item.summary && (
-          <p className="text-sm text-foreground/60 leading-relaxed mt-2">{item.summary}</p>
+          <p className="text-sm text-foreground/60 leading-relaxed mt-2">{currentBrandCopy(item.summary)}</p>
         )}
         {meta && <p className="text-xs text-muted-foreground mt-3">{meta}</p>}
         <PublicationFacts details={item.details} />
@@ -555,7 +556,7 @@ function PublicationRow({ item }: { item: Item }) {
         <div className="min-w-0">
           <div className="flex items-start gap-3"><h3 className="font-serif text-lg text-foreground leading-snug group-hover:text-accent transition-colors">{item.title}</h3><LegacyActivityStatus item={item} /></div>
           {item.summary && (
-            <p className="text-sm text-foreground/60 leading-relaxed mt-2">{item.summary}</p>
+            <p className="text-sm text-foreground/60 leading-relaxed mt-2">{currentBrandCopy(item.summary)}</p>
           )}
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-3">
             {meta && <span>{meta}</span>}
@@ -610,9 +611,9 @@ function SubscriptionNotice({ principal }: { principal: CurrentSubscriber }) {
         <NoticeShell title="Your access is paused">
           <p className="text-sm text-foreground/70 leading-relaxed mb-8">
             {thanks}Your subscription is currently suspended, so your library is not available.
-            Please contact APRI and we will help.
+            Please contact APRA and we will help.
           </p>
-          <ContactButton subject="APRI access" label="Contact APRI" />
+          <ContactButton subject="APRA access" label="Contact APRA" />
         </NoticeShell>
       )
     case "not_started":
@@ -629,18 +630,18 @@ function SubscriptionNotice({ principal }: { principal: CurrentSubscriber }) {
         <NoticeShell title="Your library is being set up">
           <p className="text-sm text-foreground/70 leading-relaxed mb-8">
             {thanks}We are completing the details of your subscription. Please try again shortly. If this
-            continues, contact APRI and we will sort it out.
+            continues, contact APRA and we will sort it out.
           </p>
-          <ContactButton subject="APRI library setup" label="Contact APRI" />
+          <ContactButton subject="APRA library setup" label="Contact APRA" />
         </NoticeShell>
       )
     default:
       return (
         <NoticeShell title="This account is not active">
           <p className="text-sm text-foreground/70 leading-relaxed mb-8">
-            {thanks}This subscription is not active yet. If you believe this is incorrect, please contact APRI.
+            {thanks}This subscription is not active yet. If you believe this is incorrect, please contact APRA.
           </p>
-          <ContactButton subject="APRI access" label="Contact APRI" />
+          <ContactButton subject="APRA access" label="Contact APRA" />
         </NoticeShell>
       )
   }
@@ -663,7 +664,7 @@ function NoticeShell({ title, children }: { title: string; children: React.React
       <header className="border-b border-border">
         <div className="max-w-md mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
           <Link href="/" className="font-serif text-base text-foreground tracking-tight">
-            APRI
+            APRA
           </Link>
           <form action={subscriberSignOut}>
             <SubmitButton busy="Signing out…" className="text-xs text-foreground/60 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
@@ -691,7 +692,7 @@ function LockedLibrary({ name }: { name: string }) {
       <header className="border-b border-border">
         <div className="max-w-md mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
           <Link href="/" className="font-serif text-base text-foreground tracking-tight">
-            APRI
+            APRA
           </Link>
           <form action={subscriberSignOut}>
             <SubmitButton busy="Signing out…" className="text-xs text-foreground/60 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
@@ -714,7 +715,7 @@ function LockedLibrary({ name }: { name: string }) {
         </p>
 
         <a
-          href={`mailto:${CONTACT}?subject=APRI%20renewal`}
+          href={`mailto:${CONTACT}?subject=APRA%20renewal`}
           className="inline-flex items-center bg-foreground text-background px-8 py-4 text-base font-medium tracking-wide hover:bg-foreground/90 transition-colors"
         >
           Contact us about renewal

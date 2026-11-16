@@ -48,12 +48,13 @@ Object.assign(env, {
   DATABASE_URL: isolated.databaseUrl,
   APRI_TEST_DB_ENDPOINT: isolated.endpoint,
   SESSION_SECRET: secret,
-  PUBLIC_SITE_URL: "https://apri.athenacentre.org",
+  PUBLIC_SITE_URL: "https://athenaadvisory.ng",
   NODE_OPTIONS: `--import ${fileURLToPath(new URL("../tests/support/browser-preload.mjs", import.meta.url))}`,
 })
 const report = {
   http: [],
   browser: [],
+  identity: [],
   accessibility: [],
   performance: [],
   limitations: [
@@ -153,14 +154,14 @@ try {
   const internal = new Set()
   for (const path of publicPaths) {
     const response = await request(path, {
-      headers: { host: "apri.athenacentre.org" },
+      headers: { host: "athenaadvisory.ng" },
     })
     assert.equal(response.status, 200, path)
     const html = await response.text()
     assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1, path)
     assert.ok(
       html.includes(
-        `rel="canonical" href="https://apri.athenacentre.org${
+        `rel="canonical" href="https://athenaadvisory.ng${
           path === "/" ? "" : path
         }"`,
       ),
@@ -181,6 +182,11 @@ try {
   }
   assert.equal(new Set(titles).size, publicPaths.length)
   assert.equal(new Set(descriptions).size, publicPaths.length)
+  const social = await request("/opengraph-image")
+  assert.equal(social.status, 200)
+  assert.match(social.headers.get("content-type"), /image\/png/)
+  await writeFile(resolve(output, "apra-social-preview.png"), Buffer.from(await social.arrayBuffer()))
+  record("APRA social preview generated")
   for (const href of internal) {
     const target = new URL(href, origin)
     const response = await request(target.pathname + target.search)
@@ -286,6 +292,12 @@ try {
         images: [...document.images].filter((img) => !img.hasAttribute("alt"))
           .length,
       }))
+      const visibleText = await page.locator("body").innerText()
+      assert.doesNotMatch(visibleText, /\bAPRI\b|Athena\s+Political\s+(?:&|and)\s+Regulatory\s+Intelligence/i, `${label}: former platform name remains visible`)
+      assert.match(await page.title(), /APRA|Athena Political & Regulatory Advisory/, `${label}: current identity missing from title`)
+      const links = await page.locator('a[href^="http"]').evaluateAll(nodes => nodes.map(node => node.href))
+      assert.ok(!links.some(href => new URL(href).hostname === "apri.athenacentre.org"), `${label}: old website link remains`)
+      report.identity.push({ label, width, status: "PASS" })
       assert.deepEqual(
         errors,
         { viewportWidth: width, h1: 1, main: 1, overflow: false, images: 0 },
@@ -352,12 +364,24 @@ try {
       }
       await ctx.close()
     }
+    const anonymous = await context(375)
+    const signIn = await anonymous.newPage()
+    for (const path of ["/portal/sign-in", "/review/library/sign-in", "/admin/login"]) {
+      await audit(signIn, path, 375, path.replaceAll("/", "-").slice(1))
+      assert.equal(new URL(signIn.url()).pathname, path, "Sign-in audit must reach the requested screen")
+    }
+    await anonymous.close()
     for (const [index, value] of fixtures.cookies.subscribers.entries()) {
       const width = index % 2 ? 375 : 1440
       const ctx = await context(width, { name: "apri_subscriber", value })
       const page = await ctx.newPage()
       await audit(page, "/portal", width, `subscriber-${index + 1}`)
       assert.match(await page.textContent("body"), /Test Reader/)
+      if (index === 0) {
+        await audit(page, `/portal/publication/${fixtures.publications[0].id}`, 375, "subscriber-document")
+        await page.goto(origin + "/portal")
+        await page.getByRole("searchbox").waitFor()
+      }
       const search = page.getByRole("searchbox")
       await search.fill("unlikely-no-matches-query")
       assert.match(await page.textContent("main"), /No publications match/i)
@@ -401,6 +425,7 @@ try {
       fixtures.categories.length - 1,
     )
     await reviewContext.close()
+    assert.equal((await fixtures.sql`select description from documents where id=${fixtures.publications[0].id}::uuid`)[0].description, "Saved APRI promotional description.", "branding presentation does not rewrite the source publication record")
     const adminContext = await context(1440, {
       name: "apri_session",
       value: fixtures.cookies.admin,

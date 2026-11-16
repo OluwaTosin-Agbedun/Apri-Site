@@ -239,10 +239,10 @@ export async function loadEditionEvents(sql: Sql): Promise<Map<string, EditionEv
 }
 
 // ---------------------------------------------------------------------------
-// Recognising APRI's own links
+// Recognising APRA's own links
 // ---------------------------------------------------------------------------
 
-/** Every table that records a Papermark link APRI manages, and what it is. */
+/** Every table that records a Papermark link APRA manages, and what it is. */
 const LINK_ID_SOURCES: ReadonlyArray<{ kind: ApriLinkKind; table: string }> = [
   { kind: "paid_subscriber", table: "publication_access" },
   { kind: "paid_subscriber", table: "papermark_client_documents" },
@@ -273,7 +273,7 @@ async function idsIn(sql: Sql, table: string, ids: string[]): Promise<string[]> 
 }
 
 /**
- * Which of these Papermark links APRI manages, and as what.
+ * Which of these Papermark links APRA manages, and as what.
  *
  * Returns what could be read and whether every source was readable, so a
  * missing table is reported as an incomplete check rather than as "unmanaged".
@@ -342,7 +342,7 @@ export async function classifyPapermarkLinks(
 }
 
 /**
- * Whether APRI records this link as anyone's paid access.
+ * Whether APRA records this link as anyone's paid access.
  *
  * "unknown" when any paid-access table could not be read: that cannot prove the
  * link is not someone's paid access, so the caller refuses to revoke it.

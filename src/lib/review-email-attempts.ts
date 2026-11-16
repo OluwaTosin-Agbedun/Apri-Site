@@ -5,7 +5,7 @@ import { safeText, type EmailOutcome } from "./email-delivery"
 /**
  * The owner-only record of Complimentary Review emails (migration 20261010).
  *
- * `outcome` is what the provider said when APRI handed it the email.
+ * `outcome` is what the provider said when APRA handed it the email.
  * "accepted" means the provider took it -- not that it reached an inbox.
  * Delivery, bounces, complaints and delays are recorded only from the
  * provider's signed webhook events (applyReviewEmailEvent), so the Admin

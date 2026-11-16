@@ -4,9 +4,9 @@ import SiteFooter from '@/components/SiteFooter'
 import { CONTACT_EMAIL } from '@/config'
 
 export const metadata = {
-  title: 'Privacy · APRI',
+  title: 'Privacy · APRA',
   description:
-    'What APRI collects, why, who processes it, and how long it is kept.',
+    'What APRA collects, why, who processes it, and how long it is kept.',
 }
 
 /** Shown at the top so a reader can tell whether they have seen this version. */
@@ -43,7 +43,7 @@ export default function PrivacyPage() {
             Privacy
           </h1>
           <p className="text-sm text-muted-foreground">
-            Athena Political &amp; Regulatory Intelligence (APRI), a service of Athena
+            Athena Political &amp; Regulatory Advisory (APRA), a service of Athena
             Centre. Last updated {LAST_UPDATED}.
           </p>
         </header>

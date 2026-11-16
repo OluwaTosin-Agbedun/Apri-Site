@@ -17,7 +17,7 @@ import {latestPaidPublicationFor,publicationVersions} from '@/lib/publication-ve
 export const dynamic = "force-dynamic"
 
 export const metadata = {
-  title: "Document · APRI",
+  title: "Document · APRA",
   robots: { index: false, follow: false },
 }
 
@@ -127,7 +127,7 @@ export default async function PortalDocumentPage({
               copy: it verifies that the person reading it is the person it was issued to.
               Inside this page Papermark may ask again each time the page is reloaded;
               &ldquo;Open in a new tab&rdquo; keeps it confirmed for that tab. You will not be
-              asked to sign in to APRI again.
+              asked to sign in to APRA again.
             </p>
           </>
         ) : openUrl ? (
@@ -142,7 +142,7 @@ export default async function PortalDocumentPage({
         ) : (
           <div className="border border-border bg-card/30 p-8" role="alert">
             <p className="text-sm text-foreground/70 leading-relaxed">
-              This document cannot be opened at the moment. Please contact APRI and we
+              This document cannot be opened at the moment. Please contact APRA and we
               will check its secure link.
             </p>
           </div>

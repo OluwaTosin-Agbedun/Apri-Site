@@ -1,3 +1,4 @@
+import { currentBrandCopy } from "@/lib/brand"
 import { publicMetadata } from "@/lib/seo"
 import { siteOrigin } from "@/lib/site-config"
 import Link from "next/link"
@@ -37,7 +38,7 @@ function PublicationCard({ doc }: { doc: Publication }) {
     <article className="group panel-interactive p-8 sm:p-10 lg:p-12">
       <div className="flex items-start justify-between gap-4 mb-3">
         <span className="text-xs font-medium uppercase tracking-wider text-accent">
-          {doc.kicker || doc.productLine}
+          {currentBrandCopy(doc.kicker || doc.productLine)}
         </span>
         <AccessBadge visibility={doc.visibility} />
       </div>
@@ -53,12 +54,12 @@ function PublicationCard({ doc }: { doc: Publication }) {
 
       {doc.strapline && (
         <p className="font-serif text-base text-foreground/70 italic mt-2">
-          {doc.strapline}
+          {currentBrandCopy(doc.strapline)}
         </p>
       )}
 
       <p className="text-sm text-foreground/70 leading-relaxed mt-5 mb-5 max-w-4xl">
-        {doc.description}
+        {currentBrandCopy(doc.description)}
       </p>
 
       <Link
@@ -76,7 +77,7 @@ function PublicationCard({ doc }: { doc: Publication }) {
         <dt className="uppercase tracking-wider text-muted-foreground">
           Audience
         </dt>
-        <dd className="text-foreground/70">{doc.audience}</dd>
+        <dd className="text-foreground/70">{currentBrandCopy(doc.audience)}</dd>
       </dl>
 
       {/* Shared gate. Never renders papermark_link -- see PublicationAccess. */}
@@ -87,7 +88,7 @@ function PublicationCard({ doc }: { doc: Publication }) {
 
       {doc.attribution && (
         <p className="text-xs text-muted-foreground mt-8 pt-6 border-t border-border/60 max-w-xl leading-relaxed">
-          {doc.attribution}
+          {currentBrandCopy(doc.attribution)}
         </p>
       )}
     </article>
@@ -129,7 +130,7 @@ export default async function HomePage() {
             document. It still wraps on a narrow screen, where it has to.
           */}
           <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
-            Athena Political &amp; Regulatory Intelligence
+            Athena Political &amp; Regulatory Advisory
           </h1>
 
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed mb-12 max-w-4xl">
@@ -188,7 +189,7 @@ export default async function HomePage() {
                     {card.pubTitle}
                   </h3>
                   <p className="text-sm text-foreground/70 leading-relaxed mt-3 max-w-4xl line-clamp-2">
-                    {card.description}
+                    {currentBrandCopy(card.description)}
                   </p>
                   <span className="inline-flex items-center text-sm font-medium text-accent mt-4 group-hover:translate-x-1 transition-transform">
                     Access review copy &rarr;
@@ -207,7 +208,7 @@ export default async function HomePage() {
         <aside className="mb-24 border-l-4 border-accent bg-card/30 p-8 sm:p-10">
           <h2 className="font-serif text-2xl text-foreground">Complimentary Review</h2>
           <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
-            New prospective readers may request verified access to a confidential selection of APRI publications.
+            New prospective readers may request verified access to a confidential selection of APRA publications.
           </p>
           <Link href="/review" className="btn-secondary">Request Complimentary Review Access</Link>
         </aside>
@@ -224,7 +225,7 @@ export default async function HomePage() {
               place and hyphenated in the other.
             */}
             <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-8">
-              APRI publishes written intelligence on Nigeria&rsquo;s political,
+              APRA publishes written intelligence on Nigeria&rsquo;s political,
               regulatory and political-economy environment, issued to
               subscribers and authorised readers.
             </p>
@@ -258,7 +259,7 @@ export default async function HomePage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 lg:gap-24 mb-28">
           <section>
             <h2 className="font-serif text-xl sm:text-2xl text-foreground section-head mb-8 tracking-tight">
-              What APRI Tracks
+              What APRA Tracks
             </h2>
             <ul className="space-y-4 text-sm text-foreground/80">
               {[
@@ -299,16 +300,16 @@ export default async function HomePage() {
           </section>
         </div>
 
-        {/* The APRI Approach */}
+        {/* The APRA Approach */}
         <section className="mb-24 pt-16 border-t border-border">
           <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-4 tracking-tight">
-            The APRI Approach
+            The APRA Approach
           </h2>
           <p className="font-serif text-base sm:text-lg text-foreground/70 italic mb-8">
             Signal. Interpretation. Implication.
           </p>
           <p className="text-sm text-foreground/80 leading-relaxed mb-10 max-w-4xl">
-            APRI distinguishes political noise from developments that can
+            APRA distinguishes political noise from developments that can
             materially affect regulation, capital allocation, market access and
             corporate strategy. Our analysis combines political intelligence,
             regulatory monitoring, institutional analysis and sector-specific
@@ -349,7 +350,7 @@ export default async function HomePage() {
             Subscription Access
           </h2>
           <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-4xl">
-            Access to the APRI subscriber library is granted to authorised
+            Access to the APRA subscriber library is granted to authorised
             recipients. Submit your details below and a secure access link will
             be issued if approved.
           </p>
@@ -380,10 +381,10 @@ export default async function HomePage() {
           className="mb-24 pt-16 border-t border-border scroll-mt-28"
         >
           <h2 className="font-serif text-xl text-foreground mb-6">
-            About Athena Political &amp; Regulatory Intelligence
+            About Athena Political &amp; Regulatory Advisory
           </h2>
           <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-4xl">
-            Athena Political &amp; Regulatory Intelligence helps business
+            Athena Political &amp; Regulatory Advisory helps business
             leaders, boards, diplomatic missions and institutional
             decision-makers understand how shifts in political power, public
             policy, regulation and institutional behaviour may affect their
@@ -392,12 +393,12 @@ export default async function HomePage() {
           </p>
 
           <p className="text-sm text-foreground/80 leading-relaxed mb-5 max-w-4xl">
-            Athena Political &amp; Regulatory Intelligence is a service of the
+            Athena Political &amp; Regulatory Advisory is a service of the
             Athena Centre for Policy and Leadership.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-7 text-sm mb-8">
             <p>
-              <span className="text-muted-foreground mr-2">APRI:</span>
+              <span className="text-muted-foreground mr-2">APRA:</span>
               <a
                 href={siteOrigin()}
                 className="text-accent hover:text-accent-hover transition-colors"

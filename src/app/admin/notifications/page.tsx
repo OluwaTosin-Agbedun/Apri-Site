@@ -18,7 +18,7 @@ import {
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 export const metadata = {
-  title: "Publication alerts",
+  title: "Publication alerts · APRA",
   robots: { index: false, follow: false },
 }
 const date = (v: unknown) =>

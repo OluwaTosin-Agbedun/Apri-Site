@@ -28,7 +28,7 @@ import {
   isStableSignInUrl,
 } from "../src/lib/portal-link-copy.ts"
 import {
-  APRI_PRODUCTION_URL,
+  APRA_PRODUCTION_URL,
   portalSignInUrl,
   portalVerificationUrl,
 } from "../src/lib/app-url.ts"
@@ -72,7 +72,7 @@ const decide = (over = {}) =>
 describe("the copied value", () => {
   it("is the stable portal sign-in page", () => {
     const u = new URL(portalSignInUrl())
-    assert.equal(u.origin, new URL(APRI_PRODUCTION_URL).origin)
+    assert.equal(u.origin, new URL(APRA_PRODUCTION_URL).origin)
     assert.equal(u.protocol, "https:")
     assert.equal(u.pathname, "/portal/sign-in")
     assert.equal(u.search, "")

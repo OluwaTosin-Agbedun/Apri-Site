@@ -33,7 +33,7 @@ export default function RowActions({
   }
 
   function remove() {
-    if (!window.confirm(`Delete “${title}” from APRI and remove its APRI associations?\n\nThe original Papermark document and link will not be deleted.`)) return
+    if (!window.confirm(`Delete “${title}” from APRA and remove its APRA associations?\n\nThe original Papermark document and link will not be deleted.`)) return
     startTransition(async () => {
       const result = await deleteDocument(id)
       if (result?.message && !result.ok) setError(result.message)

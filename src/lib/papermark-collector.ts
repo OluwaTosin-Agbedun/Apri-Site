@@ -43,7 +43,7 @@ const ENRICH_LIMIT = 100
  */
 const REFRESH_DAYS = 14
 
-/** Pages of 100 views read per link: enough for every view on any APRI link. */
+/** Pages of 100 views read per link: enough for every view on any APRA link. */
 const VIEW_PAGES_PER_LINK = 20
 
 /** Where the next run resumes, so a run cut short by its budget never starves the same links. */
@@ -54,7 +54,7 @@ export type CollectionSummary = {
   skipped?: string
   /** Links polled in this run. */
   linksChecked: number
-  /** Links APRI has on file. */
+  /** Links APRA has on file. */
   linksKnown: number
   /** Every known link was polled in this run (otherwise the next run resumes). */
   allLinksCovered: boolean
@@ -66,7 +66,7 @@ export type CollectionSummary = {
   enriched: number
   enrichmentCoveragePct: Maybe<number>
   failures: number
-  /** Link ids on stored views that match none of APRI's link records. */
+  /** Link ids on stored views that match none of APRA's link records. */
   unknownLinkIds: number
   /** Papermark's analytics rate limit stopped enrichment early; it resumes next run. */
   analyticsRateLimited?: boolean
@@ -77,7 +77,7 @@ export type CollectionSummary = {
 }
 
 /**
- * Every Papermark link id APRI has on file -- for the subscriber portal and the
+ * Every Papermark link id APRA has on file -- for the subscriber portal and the
  * Complimentary Review alike.
  *
  * Subscriber portal: personal document links, Data Room links, per-publication
@@ -149,7 +149,7 @@ export async function knownLinkIds(): Promise<Set<string>> {
  * Runs one collection pass.
  *
  * The single most important line in this function is the filter on `known`:
- * when APRI has no link ids on file the poll checks **zero** links. The
+ * when APRA has no link ids on file the poll checks **zero** links. The
  * previous behaviour — `known.size === 0 || known.has(id)` — fell back to
  * polling every link in the Papermark account, which pulled in views for
  * documents belonging to other work and attributed them to nobody. A poll that
@@ -380,7 +380,7 @@ async function settledViewIds(linkId: string): Promise<Map<string, { downloaded:
   }
 }
 
-/** Link ids on stored views that match none of APRI's link records. */
+/** Link ids on stored views that match none of APRA's link records. */
 async function countUnknownViewLinks(): Promise<number> {
   try {
     const known = await knownLinkIds()

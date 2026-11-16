@@ -334,7 +334,7 @@ export async function applyEditionRecipients(
   })
 
   if (!readBack.ok || !readBack.matches) {
-    // Whatever APRI last confirmed no longer describes the live link, so the
+    // Whatever APRA last confirmed no longer describes the live link, so the
     // confirmation is withdrawn rather than left looking current.
     try {
       await sql`
@@ -384,7 +384,7 @@ export async function applyEditionRecipients(
       ok: false,
       matches: true,
       message:
-        "Papermark now matches, but APRI could not record the verification. " +
+        "Papermark now matches, but APRA could not record the verification. " +
         "Preview again; applying the same list again is safe.",
     }
   }
@@ -419,7 +419,7 @@ export async function adoptEditionAccess(editionId: string): Promise<AdoptionRes
   if (!edition) return { ok: false, adopted: 0, message: "Unknown edition." }
 
   // Read only. Adoption never writes to Papermark and never looks at the
-  // shared APRI list: it records exactly who can open the edition today.
+  // shared APRA list: it records exactly who can open the edition today.
   const live: LiveLinkState = edition.secureLinkId
     ? await readLiveLink(edition.secureLinkId)
     : { ok: false, error: "no link" }
@@ -561,7 +561,7 @@ function modeLabel(mode: RecipientMode): string {
 // ---------------------------------------------------------------------------
 //
 // Granting is written to Papermark as part of the grant, so the owner is never
-// left with a grant APRI records but Papermark does not enforce:
+// left with a grant APRA records but Papermark does not enforce:
 //
 //  1. Every chosen edition is checked first -- read-only -- and the whole
 //     request is refused, changing nothing, if any one of them cannot be
@@ -571,7 +571,7 @@ function modeLabel(mode: RecipientMode): string {
 //     matching read-back is recorded -- the grant row, the new verified
 //     fingerprint and the audit event in one statement.
 //  3. If Papermark refuses, nothing is changed for that edition. If it accepts
-//     but does not read back as intended, or APRI cannot record it, the
+//     but does not read back as intended, or APRA cannot record it, the
 //     edition's verified fingerprint is withdrawn so Admin shows it as needing
 //     a preview rather than as in step. Processing stops there and the message
 //     says exactly which editions are done, which failed and why, and which
@@ -606,7 +606,7 @@ async function withdrawVerification(
 
 /**
  * After Papermark refused a change: puts the edition's confirmation back, but
- * only if a fresh read shows Papermark still holds exactly the list APRI does.
+ * only if a fresh read shows Papermark still holds exactly the list APRA does.
  * Otherwise the edition stays marked as needing a preview.
  */
 async function restoreVerificationIfUnchanged(
@@ -766,7 +766,7 @@ export async function grantProspectEditions(
         message: grantOutcome({
           done,
           already,
-          failure: `${edition.label}: APRI could not prepare the change, so Papermark was not touched and nothing was changed for it.`,
+          failure: `${edition.label}: APRA could not prepare the change, so Papermark was not touched and nothing was changed for it.`,
           notAttempted: remaining(),
         }),
       }
@@ -857,7 +857,7 @@ export async function grantProspectEditions(
           done,
           already,
           failure:
-            `${edition.label}: Papermark now admits this prospect, but APRI could not record the grant. ` +
+            `${edition.label}: Papermark now admits this prospect, but APRA could not record the grant. ` +
             `Preview ${edition.label} in Review Library: it will show this address as unexpected, ` +
             "so you can add it to the edition's list or remove it.",
           notAttempted: remaining(),
