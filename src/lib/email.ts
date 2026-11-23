@@ -36,9 +36,9 @@ export async function sendBriefingConfirmation(
   if (!resend) return
 
   await resend.emails.send({
-    from: `APRA Briefings <${FROM}>`,
+    from: `Athena Strategic Advisory Briefings <${FROM}>`,
     to: d.email,
-    subject: "Your Briefing Request Has Been Received — APRA",
+    subject: "Your Briefing Request Has Been Received — Athena Strategic Advisory",
     html: confirmationHtml(d),
   })
 }
@@ -50,7 +50,7 @@ export async function sendBriefingNotification(
   if (!resend) return
 
   await resend.emails.send({
-    from: `APRA System <${FROM}>`,
+    from: `Athena Strategic Advisory System <${FROM}>`,
     to: MANAGER,
     subject: `New Briefing Request: ${d.name} — ${d.organization}`,
     replyTo: d.email,
@@ -84,7 +84,7 @@ export async function sendAccessRequestNotification(d: {
   const seatLine = d.seats === 1 ? "1 person" : `${d.seats} people`
 
   await resend.emails.send({
-    from: `APRA System <${FROM}>`,
+    from: `Athena Strategic Advisory System <${FROM}>`,
     to: MANAGER,
     subject: `Subscription enquiry: ${d.name} — ${d.organization} (${seatLine})`,
     replyTo: d.email,
@@ -154,11 +154,11 @@ export async function sendAccessRequestConfirmation(d: {
   const resend = getResend()
   if (!resend) return
   await resend.emails.send({
-    from: `APRA <${FROM}>`,
+    from: `Athena Strategic Advisory <${FROM}>`,
     to: d.email,
     replyTo: MANAGER,
-    subject: "Your APRA subscription request has been received",
-    html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><h1 style="font-size:22px">Thank you, ${esc(d.name)}</h1><p>We have received your APRA subscription request. Our team will review it and reply within one business day.</p><p>If you did not submit this request, please ignore this email.</p></body></html>`,
+    subject: "Your Athena Strategic Advisory subscription request has been received",
+    html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><h1 style="font-size:22px">Thank you, ${esc(d.name)}</h1><p>We have received your Athena Strategic Advisory subscription request. Our team will review it and reply within one business day.</p><p>If you did not submit this request, please ignore this email.</p></body></html>`,
   })
 }
 
@@ -215,7 +215,7 @@ function confirmationHtml(d: BriefingDetails): string {
         <!-- Footer -->
         <tr><td style="padding:24px 40px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:12px;color:#888888;font-family:Arial,Helvetica,sans-serif;line-height:1.6;">
-            Athena Political &amp; Regulatory Advisory (APRA)<br>
+            Athena Strategic Advisory<br>
             This is an automated confirmation. Please do not reply unless you wish to amend your request.
           </p>
         </td></tr>
@@ -298,7 +298,7 @@ function notificationHtml(d: BriefingDetails): string {
         <!-- Footer -->
         <tr><td style="padding:16px 40px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:11px;color:#aaa;">
-            Sent by APRA System &middot; This request is also stored in the admin CMS.
+            Sent by Athena Strategic Advisory System &middot; This request is also stored in the admin CMS.
           </p>
         </td></tr>
 

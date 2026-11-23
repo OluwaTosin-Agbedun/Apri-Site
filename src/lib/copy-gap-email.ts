@@ -28,7 +28,7 @@ export async function sendCopyGapAlert(gaps: CopyGap[]): Promise<boolean> {
   try {
     const resend = new Resend(key)
     await resend.emails.send({
-      from: `APRA System <${from}>`,
+      from: `Athena Strategic Advisory System <${from}>`,
       to,
       subject: `${gaps.length} stamped ${gaps.length === 1 ? 'copy' : 'copies'} overdue`,
       html: `<!DOCTYPE html>
@@ -39,7 +39,7 @@ export async function sendCopyGapAlert(gaps: CopyGap[]): Promise<boolean> {
       <table width="640" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e8e5df;max-width:640px;">
 
         <tr><td style="padding:24px 32px;border-bottom:2px solid #b49f69;">
-          <p style="margin:0;font-size:12px;letter-spacing:2px;color:#b49f69;">APRA &mdash; COPIES OVERDUE</p>
+          <p style="margin:0;font-size:12px;letter-spacing:2px;color:#b49f69;">Athena Strategic Advisory &mdash; COPIES OVERDUE</p>
         </td></tr>
 
         <tr><td style="padding:28px 32px;">
@@ -78,7 +78,7 @@ export async function sendCopyGapAlert(gaps: CopyGap[]): Promise<boolean> {
 
         <tr><td style="padding:16px 32px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:11px;color:#aaa;">
-            Internal only. Contains subscriber names &mdash; do not forward outside APRA.
+            Internal only. Contains subscriber names &mdash; do not forward outside Athena Strategic Advisory.
           </p>
         </td></tr>
 

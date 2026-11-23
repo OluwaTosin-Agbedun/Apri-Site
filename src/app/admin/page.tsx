@@ -6,7 +6,7 @@ import SecurityFindings from '@/components/SecurityFindings'
 import Link from 'next/link'
 import { getDataRoomStats } from '@/lib/dataroom-dal'
 
-export const metadata = { title: 'Overview · APRA' }
+export const metadata = { title: 'Overview · Athena Strategic Advisory' }
 export const dynamic = 'force-dynamic'
 
 export default async function AdminDashboardPage() {
@@ -51,7 +51,7 @@ export default async function AdminDashboardPage() {
   }[]
 
   const metrics = [
-    { label: 'Published Publications', value: counts?.documents ?? 0 },
+    { label: 'Published records', value: counts?.documents ?? 0 },
     { label: 'Subscribers', value: counts?.subscribers ?? 0 },
     { label: 'Pending Access Requests', value: counts?.pending ?? 0 },
     { label: 'New Briefing Requests', value: counts?.new_briefings ?? 0 },
@@ -65,6 +65,18 @@ export default async function AdminDashboardPage() {
       description="Metrics and recent activity across the platform."
     >
       <SecurityFindings />
+
+      <section aria-labelledby="admin-workflow-heading" className="border border-border bg-card/30 p-6 mb-8">
+        <h3 id="admin-workflow-heading" className="font-serif text-xl mb-4">Start here</h3>
+        <ol className="list-decimal pl-5 space-y-4 text-sm leading-relaxed">
+          <li><Link href="/admin/datarooms" className="text-accent underline">Prepare publication files</Link>: upload the approved PDF in its private Papermark room, then sync that room here.</li>
+          <li><Link href="/admin/documents" className="text-accent underline">Edit publication records</Link>: save the title, issue number, date and description; review the audience and complete the release steps.</li>
+          <li><Link href="/admin/subscribers" className="text-accent underline">Manage named readers</Link>: set the package and dates, check their assigned publications, then prepare personal access. Activation sends the onboarding emails.</li>
+          {admin.role === 'owner' && <li><Link href="/admin/review-library" className="text-accent underline">Manage Complimentary Review editions</Link>: choose the approved email addresses and which editions are offered on the public site.</li>}
+        </ol>
+        <p className="text-sm text-muted-foreground mt-5">Saving details, releasing an edition and preparing personal access are separate steps. Check earlier editions explicitly when a reader starts after their issue date.</p>
+        <p className="text-sm text-muted-foreground mt-3">The approved intelligence-digest process uses Zoho separately. Sign-in and onboarding emails continue through the website.</p>
+      </section>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
         {metrics.map((m) => (

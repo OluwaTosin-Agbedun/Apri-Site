@@ -21,7 +21,7 @@ export default async function TeamPage() {
           </h1>
           <div className="space-y-5 text-base sm:text-lg text-foreground/70 leading-relaxed">
             <p>
-              Athena Political &amp; Regulatory Advisory brings together
+              Athena Strategic Advisory brings together
               practitioners, political scientists, economists, governance
               researchers and election analysts with experience across
               government, public policy, institutional reform, elections,
@@ -103,7 +103,7 @@ export default async function TeamPage() {
           </h2>
           <div className="space-y-5 text-sm sm:text-base text-foreground/80 leading-relaxed">
             <p>
-              APRA combines continuous monitoring of political, electoral,
+              Athena Strategic Advisory combines continuous monitoring of political, electoral,
               regulatory and policy developments with structured analysis of
               official records, regulatory publications, electoral data, public
               statements, credible media reporting and consultations with
@@ -116,12 +116,12 @@ export default async function TeamPage() {
               publication.
             </p>
             <p>
-              APRA is a subscription-based intelligence service. Subscribers
+              Athena Strategic Advisory is a subscription-based intelligence service. Subscribers
               receive access to our intelligence and briefings but do not
               determine our analytical conclusions or editorial judgements.
             </p>
             <p>
-              APRA does not provide lobbying, political access brokerage, legal
+              Athena Strategic Advisory does not provide lobbying, political access brokerage, legal
               advice or investment advice.
             </p>
           </div>

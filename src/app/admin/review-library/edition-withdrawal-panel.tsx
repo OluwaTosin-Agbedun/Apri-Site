@@ -18,7 +18,7 @@ import { proposedReplacement } from "@/lib/review-withdrawal"
  *
  * Every step is an owner-only server action; this component decides nothing.
  * Withdrawal always starts with a read-only preview of exactly what will
- * happen -- the edition, its Papermark document, the one APRA link that will be
+ * happen -- the edition, its Papermark document, the one Athena Strategic Advisory link that will be
  * revoked, and what else can open the same PDF -- and the confirmation is bound
  * to that preview. For the edition a series offers, the owner must choose
  * another edition to offer, or no replacement, before confirming.

@@ -26,7 +26,7 @@ export async function sendFindingAlert(findings: LinkFinding[]): Promise<boolean
   try {
     const resend = new Resend(key)
     await resend.emails.send({
-      from: `APRA Security <${from}>`,
+      from: `Athena Strategic Advisory Security <${from}>`,
       to,
       subject: `Security: ${findings.length} subscriber link${findings.length === 1 ? '' : 's'} not restricted to one person`,
       html: `<!DOCTYPE html>
@@ -37,7 +37,7 @@ export async function sendFindingAlert(findings: LinkFinding[]): Promise<boolean
       <table width="640" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e8e5df;max-width:640px;">
 
         <tr><td style="padding:24px 32px;border-bottom:3px solid #a94442;">
-          <p style="margin:0;font-size:12px;letter-spacing:2px;color:#a94442;">APRA &mdash; SECURITY FINDING</p>
+          <p style="margin:0;font-size:12px;letter-spacing:2px;color:#a94442;">Athena Strategic Advisory &mdash; SECURITY FINDING</p>
         </td></tr>
 
         <tr><td style="padding:28px 32px;">

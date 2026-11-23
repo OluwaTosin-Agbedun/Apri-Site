@@ -34,21 +34,21 @@ const APPROVED_CARDS: Record<string, ReviewCard> = {
     description:
       'A monthly assessment of Nigeria’s political, regulatory and political-economy operating environment, highlighting significant developments, implications and issues organisations should monitor when making strategic and operating decisions.',
     frequency: 'Monthly',
-    audience: 'APRA subscribers and prospective readers',
+    audience: 'Athena Strategic Advisory subscribers and prospective readers',
   },
   AIU: {
     publicationType: 'Periodic Focused Briefing',
     description:
       'A focused intelligence update issued when a significant political, regulatory, electoral, institutional or operating-risk development occurs between regular monthly publications.',
     frequency: 'As developments require',
-    audience: 'APRA subscribers and prospective readers',
+    audience: 'Athena Strategic Advisory subscribers and prospective readers',
   },
   PLM: {
     publicationType: 'ATHENA ELECTION OBSERVATORY',
     description:
-      'A monthly monitoring publication from the Athena Election Observatory covering Nigeria’s democratic, electoral and political landscape. The Political Landscape Monitor is made available to APRA subscribers as part of their subscription.',
+      'A monthly monitoring publication from the Athena Election Observatory covering Nigeria’s democratic, electoral and political landscape. The Political Landscape Monitor is made available to Athena Strategic Advisory subscribers as part of their subscription.',
     frequency: 'Monthly',
-    audience: 'APRA subscribers and prospective readers',
+    audience: 'Athena Strategic Advisory subscribers and prospective readers',
     approvedTitle: 'Athena Political Landscape Monitor | Issue 01 | July 2026',
   },
 }
@@ -58,13 +58,13 @@ const SERIES_TEMPLATES: Record<string, ReviewCard> = {
     publicationType: 'Quarterly Intelligence Brief',
     description: 'A strategic quarterly review of the political, economic and security environment.',
     frequency: 'Quarterly',
-    audience: 'APRA subscribers and prospective readers',
+    audience: 'Athena Strategic Advisory subscribers and prospective readers',
   },
   AEO: {
     publicationType: 'Election & Democratic Governance Monitor',
     description: 'Analysis of electoral and democratic governance developments and their implications.',
     frequency: 'Event-driven',
-    audience: 'APRA subscribers and prospective readers',
+    audience: 'Athena Strategic Advisory subscribers and prospective readers',
   },
 }
 
@@ -79,6 +79,6 @@ export function prefillReviewCard(pub: PubRow): ReviewCard {
     publicationType: pub.product_line || 'Publication',
     description: pub.description || pub.summary || '',
     frequency: pub.frequency || '',
-    audience: 'APRA subscribers and prospective readers',
+    audience: 'Athena Strategic Advisory subscribers and prospective readers',
   }
 }

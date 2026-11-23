@@ -16,7 +16,7 @@ import {
 import { AddFolderForm, CategoryForm, RemoveFolderButton } from "./categories-forms"
 
 export const dynamic = "force-dynamic"
-export const metadata = { title: "Publication Categories · APRA", robots: { index: false, follow: false } }
+export const metadata = { title: "Publication Categories · Athena Strategic Advisory", robots: { index: false, follow: false } }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 

@@ -12,7 +12,7 @@ import { sanitizeBeacon } from "@/lib/analytics-privacy"
  * never added to Papermark's verified reader counts.
  *
  * No custom events are sent. Custom events need a Pro plan and the project is
- * on Hobby — but the better reason is that APRA publication engagement belongs
+ * on Hobby — but the better reason is that Athena Strategic Advisory publication engagement belongs
  * in Neon, where it can be tied to a verified reader and audited, rather than in
  * a third-party analytics product.
  *

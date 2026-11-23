@@ -409,18 +409,18 @@ describe('Chancellor copy', () => {
   it('the Publications heading sentence is the approved wording', () => {
     assert.match(
       pubs,
-      /Publications and analytical products available to APRA subscribers\s*\n?\s*and authorised readers\./,
+      /Publications and analytical products available to Athena Strategic Advisory subscribers\s*\n?\s*and authorised readers\./,
     )
   })
 
   it('the old Publications wording is gone', () => {
-    assert.doesNotMatch(pubs, /APRA intelligence products for subscribers and authorised readers/)
+    assert.doesNotMatch(pubs, /Athena Strategic Advisory intelligence products for subscribers and authorised readers/)
   })
 
   it('the Complimentary Review introduction is the approved wording', { todo: "The Chancellor-approved introduction was removed from the site in 61cd5ee (PR #28, versioned library). Restore it, or confirm the current wording is approved, then update this test." }, () => {
     assert.match(
       pubs,
-      /This complimentary review provides prospective subscribers with\s*\n?\s*selected examples of publications and analytical products\s*\n?\s*available through APRA\./,
+      /This complimentary review provides prospective subscribers with\s*\n?\s*selected examples of publications and analytical products\s*\n?\s*available through Athena Strategic Advisory\./,
     )
   })
 
@@ -449,7 +449,7 @@ describe('Chancellor copy', () => {
     // this work did not introduce the publications sentence into it.
     assert.doesNotMatch(
       home,
-      /Publications and analytical products available to APRA subscribers/,
+      /Publications and analytical products available to Athena Strategic Advisory subscribers/,
     )
   })
 })
@@ -473,7 +473,7 @@ describe('PLM review card', () => {
       card.description,
       'A monthly monitoring publication from the Athena Election Observatory covering ' +
         'Nigeria’s democratic, electoral and political landscape. The Political Landscape ' +
-        'Monitor is made available to APRA subscribers as part of their subscription.',
+        'Monitor is made available to Athena Strategic Advisory subscribers as part of their subscription.',
     )
   })
 
@@ -481,8 +481,8 @@ describe('PLM review card', () => {
     assert.equal(card.frequency, 'Monthly')
   })
 
-  it('audience is APRA subscribers and prospective readers', () => {
-    assert.equal(card.audience, 'APRA subscribers and prospective readers')
+  it('audience is Athena Strategic Advisory subscribers and prospective readers', () => {
+    assert.equal(card.audience, 'Athena Strategic Advisory subscribers and prospective readers')
   })
 
   it('the old wording is gone', () => {

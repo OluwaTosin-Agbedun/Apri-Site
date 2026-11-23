@@ -7,7 +7,7 @@ import SignInForm from "./sign-in-form"
 export const dynamic = "force-dynamic"
 
 export const metadata = {
-  title: "Subscriber Sign In · APRA",
+  title: "Subscriber Sign In · Athena Strategic Advisory",
   // Never index a sign-in page for a confidential service.
   robots: { index: false, follow: false },
 }
@@ -37,11 +37,11 @@ export default async function SignInPage({
       : reason === "expired"
         ? "That sign-in link has expired. Links expire after 15 minutes; request a fresh one below."
         : reason === "inactive"
-          ? "This APRA account is not active. Contact APRA if you believe this is incorrect."
+          ? "This Athena Strategic Advisory account is not active. Contact Athena Strategic Advisory if you believe this is incorrect."
           : reason === "suspended"
-            ? "This APRA subscription is currently suspended. Contact APRA for help."
+            ? "This Athena Strategic Advisory subscription is currently suspended. Contact Athena Strategic Advisory for help."
           : reason === "subscription-expired"
-            ? "This subscription has expired. Contact APRA to renew access."
+            ? "This subscription has expired. Contact Athena Strategic Advisory to renew access."
             : "That sign-in link is invalid. Request a fresh link below."
 
   return (
@@ -50,10 +50,10 @@ export default async function SignInPage({
         <div className="max-w-md mx-auto px-6 h-20 flex items-center">
           <Link href="/" className="group">
             <span className="font-serif text-base text-foreground tracking-tight">
-              APRA
+              Athena Strategic Advisory
             </span>
             <span className="hidden sm:inline text-xs text-muted-foreground ml-3 pl-3 border-l border-border">
-              Athena Political &amp; Regulatory Advisory
+              Political &amp; Regulatory Intelligence
             </span>
           </Link>
         </div>

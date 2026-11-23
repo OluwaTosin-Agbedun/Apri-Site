@@ -15,7 +15,7 @@ import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
 import { EngagementMaintenance, ReaderSearch } from "./engagement-client"
 import { Badge, EditionActivityTable } from "./monitor-parts"
 
-export const metadata = { title: "Engagement · APRA" }
+export const metadata = { title: "Engagement · Athena Strategic Advisory" }
 export const dynamic = "force-dynamic"
 
 type Params = {
@@ -239,7 +239,7 @@ async function SubscribersTab({ filters }: { filters: MonitorFilters }) {
                     >
                       {r.name || r.email}
                     </Link>
-                    {r.isAdministrator && <Badge>APRA admin</Badge>}
+                    {r.isAdministrator && <Badge>Athena Strategic Advisory admin</Badge>}
                     <span className="block text-xs text-muted-foreground">{r.email}</span>
                   </td>
                   <td className="p-3 text-xs">{r.level}</td>
@@ -278,7 +278,7 @@ async function ReviewTab({ filters }: { filters: MonitorFilters }) {
       <p className="text-sm text-muted-foreground mb-3">
         {rows.length} review reader{rows.length === 1 ? "" : "s"}: approved recipients, verified requesters and anyone
         Papermark recorded on a review link, including those with no recorded views. Review editions are opened directly
-        through their Papermark link, which verifies the reader&rsquo;s email; there is no APRA login for them.
+        through their Papermark link, which verifies the reader&rsquo;s email; there is no Athena Strategic Advisory login for them.
         Activity covers {period ?? "all time"}.
       </p>
       <ReaderSearch />
@@ -296,10 +296,10 @@ async function ReviewTab({ filters }: { filters: MonitorFilters }) {
                     <div className="col-span-2 lg:col-span-1">
                       <p className="font-medium text-foreground">
                         {r.name ?? r.email}
-                        {r.isAdministrator && <Badge>APRA admin</Badge>}
+                        {r.isAdministrator && <Badge>Athena Strategic Advisory admin</Badge>}
                       </p>
                       {r.name && <p className="text-xs text-muted-foreground">{r.email}</p>}
-                      <p className="text-xs text-muted-foreground">{r.verified ? "Email verified with APRA" : "Not a verified requester"}</p>
+                      <p className="text-xs text-muted-foreground">{r.verified ? "Email verified with Athena Strategic Advisory" : "Not a verified requester"}</p>
                     </div>
                     <Summary label="Approved editions" value={`${active.length}${removed.length ? ` (+${removed.length} removed)` : ""}`} />
                     <Summary label={`Sessions${period ? " (period)" : ""}`} value={String(r.sessions)} />

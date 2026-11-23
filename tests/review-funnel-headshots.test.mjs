@@ -5,8 +5,8 @@ const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8")
 test("review page contains exact Chancellor copy and no phone field", () => {
   const s =
     read("src/app/review/page.tsx") + read("src/app/review/review-form.tsx")
-  assert.match(s, /Review Athena Political &amp; Regulatory Advisory/)
-  assert.match(s, /Complimentary access to selected APRA publications/)
+  assert.match(s, /Review Athena Strategic Advisory/)
+  assert.match(s, /Complimentary access to selected Athena Strategic Advisory publications/)
   assert.doesNotMatch(read("src/app/review/review-form.tsx"), /name="phone"/)
   assert.doesNotMatch(s, /instant access|Open Edition/i)
 })
@@ -15,7 +15,7 @@ test("confirmation and subscription copy are exact", () => {
     t = read("src/app/review/subscribe/thanks/page.tsx")
   assert.match(c, /Your email has been confirmed\./)
   assert.match(c, /We are preparing your complimentary review access\./)
-  assert.match(t, /Thank you for your APRA subscription request\./)
+  assert.match(t, /Thank you for your Athena Strategic Advisory subscription request\./)
   assert.match(
     t,
     /activated once the agreement has\s+been completed and payment confirmed\./,

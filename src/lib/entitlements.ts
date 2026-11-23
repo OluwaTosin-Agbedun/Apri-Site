@@ -137,7 +137,7 @@ export function tierDisplayName(storedName: string): string {
 
 export const TIER_DESCRIPTIONS: Record<string, string> = {
   'Individual Access':
-    'Core APRA publications for one named reader.',
+    'Core Athena Strategic Advisory publications for one named reader.',
   'Professional Team Access':
     'The same core access for a small team of individually named readers.',
   'Political Monitor':
@@ -145,9 +145,9 @@ export const TIER_DESCRIPTIONS: Record<string, string> = {
     // is on the straight-quotes-only list, and a bare ' would close the string.
     'Organisational access to continuing political and regulatory monitoring, including the Monthly Intelligence Note, the Athena Election Observatory\'s Political Landscape Monitor, Quarterly Outlook, Election Watch and relevant intelligence updates.',
   'Executive Intelligence':
-    'Full APRA intelligence plus the executive layer, scheduled executive briefings and priority sector-specific intelligence access.',
+    'Executive political and regulatory intelligence for named readers, with priority sector coverage. Bespoke advisory and commissioned briefings are scoped separately.',
   'Board Briefing':
-    'Full APRA intelligence, priority bespoke analysis, direct engagement with the intelligence team and the annual Board Political & Regulatory Briefing.',
+    'Board-level political and regulatory intelligence for named readers. Bespoke advisory and board briefings are available as separate commissioned services.',
 }
 
 /**

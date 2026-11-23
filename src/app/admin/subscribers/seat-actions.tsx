@@ -101,10 +101,10 @@ export default function SeatActions({
 
   function remove() {
     const confirmation = window.prompt(
-      `Type the subscriber's exact email to delete their APRA account:\n\n${email}\n\nPapermark access must be revoked separately.`,
+      `Type the subscriber's exact email to delete their Athena Strategic Advisory account:\n\n${email}\n\nPapermark access must be revoked separately.`,
     )
     if (confirmation !== email) return
-    if (!window.confirm("Final warning: permanently delete this APRA subscriber and all APRA access records? Papermark access must be revoked separately.")) return
+    if (!window.confirm("Final warning: permanently delete this Athena Strategic Advisory subscriber and all Athena Strategic Advisory access records? Papermark access must be revoked separately.")) return
     setMessage(null)
     startTransition(async () => {
       const result = await deleteSubscriber(id, confirmation)

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { getCurrentAdmin, isSetupComplete } from '@/lib/dal'
 import LoginForm from './login-form'
 
-export const metadata = { title: 'Sign in · APRA' }
+export const metadata = { title: 'Sign in · Athena Strategic Advisory' }
 export const dynamic = 'force-dynamic'
 
 export default async function LoginPage() {
@@ -14,7 +14,7 @@ export default async function LoginPage() {
     <main id="main-content" tabIndex={-1} className="min-h-screen bg-background flex items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm">
         <div className="mb-10">
-          <h1 className="font-serif text-2xl text-foreground mb-3 tracking-tight">APRA</h1>
+          <h1 className="font-serif text-2xl text-foreground mb-3 tracking-tight">Athena Strategic Advisory</h1>
           <p className="text-sm text-foreground/70">
             Sign in to the intelligence platform.
           </p>

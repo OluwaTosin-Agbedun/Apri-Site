@@ -6,7 +6,7 @@ import { loadTagVocabulary, type VocabularyTag } from "@/lib/publication-metadat
 import { AddTagForm, DeleteTagForm, RenameTagForm, TagStateForm } from "./tag-forms"
 
 export const dynamic = "force-dynamic"
-export const metadata = { title: "Publication Tags · APRA", robots: { index: false, follow: false } }
+export const metadata = { title: "Publication Tags · Athena Strategic Advisory", robots: { index: false, follow: false } }
 
 /**
  * The controlled vocabulary of subjects, sectors and geography that editors

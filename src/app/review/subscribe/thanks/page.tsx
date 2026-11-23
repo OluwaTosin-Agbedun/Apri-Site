@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import SiteHeader from "@/components/SiteHeader"
 export const metadata: Metadata = {
-  title: "Subscription request received | APRA",
+  title: "Subscription request received | Athena Strategic Advisory",
   robots: { index: false, follow: false },
 }
 export default async function Page({
@@ -17,7 +17,7 @@ export default async function Page({
       <SiteHeader />
       <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 py-24 space-y-5">
         <h1 className="font-serif text-4xl">
-          Thank you for your APRA subscription request.
+          Thank you for your Athena Strategic Advisory subscription request.
         </h1>
         <p>
           We will send your subscription agreement and payment details shortly.

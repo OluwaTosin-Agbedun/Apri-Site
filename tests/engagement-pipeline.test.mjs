@@ -915,7 +915,7 @@ describe('dashboard rendering', () => {
   })
 
   it('names review access truthfully: a direct Papermark link, no APRA login', () => {
-    assert.match(src, /there is no APRA login for them/)
+    assert.match(src, /there is no Athena Strategic Advisory login for them/)
     assert.doesNotMatch(src, /No subscriber record/)
   })
 })

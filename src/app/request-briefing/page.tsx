@@ -46,7 +46,7 @@ export default async function RequestBriefingPage({
             .
           </p>
           <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
-            APRA briefings are independent analytical sessions. They are not
+            Athena Strategic Advisory briefings are independent analytical sessions. They are not
             lobbying, political access brokerage, legal advice or investment
             advice.
           </p>

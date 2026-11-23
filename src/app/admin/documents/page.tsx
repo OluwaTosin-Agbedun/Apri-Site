@@ -8,7 +8,7 @@ import { getPublicationCatalogue } from '@/lib/publication-catalogue-dal'
 import SyncPanel from './sync-panel'
 import RowActions from './row-actions'
 
-export const metadata = { title: 'Publications · APRA' }
+export const metadata = { title: 'Publications · Athena Strategic Advisory' }
 export const dynamic = 'force-dynamic'
 
 type Row = {
@@ -67,6 +67,16 @@ export default async function AdminDocumentsPage() {
         </Link>
       }
     >
+      <section className="border border-border p-6 mb-6 text-sm leading-relaxed">
+        <h2 className="font-serif text-xl mb-3">Publish a new edition</h2>
+        <ol className="list-decimal pl-5 space-y-2">
+          <li>Upload the approved PDF to its assigned private Papermark Data Room.</li>
+          <li>Open Data Rooms, sync the room, then choose Edit publication details.</li>
+          <li>Save the title, issue number, edition date and description. Review its public or subscriber availability and the assigned subscription packages.</li>
+          <li>Complete the editorial release steps, then prepare and verify each named reader&rsquo;s personal access before distributing the report.</li>
+        </ol>
+        <p className="mt-3 text-muted-foreground">Previous editions remain in the library. Saving details, publishing an edition and preparing reader access are separate steps.</p>
+      </section>
       <SyncPanel />
 
       <div className="border border-border bg-card/30">

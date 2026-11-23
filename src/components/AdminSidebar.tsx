@@ -46,7 +46,7 @@ export default function AdminSidebar({
       >
         <div className="p-5 border-b border-border flex items-center justify-between">
           <div>
-            <h2 className="font-serif text-lg text-foreground tracking-tight">APRA</h2>
+            <h2 className="font-serif text-lg text-foreground tracking-tight">Athena Strategic Advisory</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Intelligence Platform</p>
           </div>
           <button

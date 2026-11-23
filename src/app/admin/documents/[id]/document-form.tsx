@@ -251,7 +251,7 @@ export default function DocumentForm({
 
       <div>
         <label htmlFor="attribution" className={label}>Attribution note</label>
-        <input id="attribution" name="attribution" defaultValue={draft.attribution} className={field} placeholder="An Athena Election Observatory publication included in APRA subscriber access." />
+        <input id="attribution" name="attribution" defaultValue={draft.attribution} className={field} placeholder="An Athena Election Observatory publication included in Athena Strategic Advisory subscriber access." />
         {err('attribution')}
       </div>
 

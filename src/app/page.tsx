@@ -118,9 +118,9 @@ export default async function HomePage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-12 sm:py-20">
         {/* Hero */}
-        <header className="mb-28 sm:mb-36">
+        <header className="mb-16 sm:mb-20">
           {/*
             One line on a wide screen, and no forced break.
 
@@ -129,9 +129,11 @@ export default async function HomePage() {
             place at every width, which is what made it read like a typeset
             document. It still wraps on a narrow screen, where it has to.
           */}
-          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
-            Athena Political &amp; Regulatory Advisory
+          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-foreground mb-4 leading-[1.1] tracking-[-0.02em]">
+            Athena Strategic Advisory
           </h1>
+
+          <p className="text-sm uppercase tracking-wider text-accent mb-7">Political &amp; Regulatory Intelligence</p>
 
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed mb-12 max-w-4xl">
             Independent political, regulatory and political-economy intelligence
@@ -208,13 +210,13 @@ export default async function HomePage() {
         <aside className="mb-24 border-l-4 border-accent bg-card/30 p-8 sm:p-10">
           <h2 className="font-serif text-2xl text-foreground">Complimentary Review</h2>
           <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
-            New prospective readers may request verified access to a confidential selection of APRA publications.
+            New prospective readers may request verified access to a confidential selection of Athena Strategic Advisory publications.
           </p>
           <Link href="/review" className="btn-secondary">Request Complimentary Review Access</Link>
         </aside>
 
         {/* Publications */}
-        <section id="publications" className="mb-24 scroll-mt-28">
+        {documents.length > 0 && <section id="publications" className="mb-24 scroll-mt-28">
           <div className="mb-14">
             <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-6 tracking-tight">
               Publications &amp; Briefings
@@ -225,7 +227,7 @@ export default async function HomePage() {
               place and hyphenated in the other.
             */}
             <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-8">
-              APRA publishes written intelligence on Nigeria&rsquo;s political,
+              Athena Strategic Advisory publishes written intelligence on Nigeria&rsquo;s political,
               regulatory and political-economy environment, issued to
               subscribers and authorised readers.
             </p>
@@ -252,14 +254,14 @@ export default async function HomePage() {
               })}
             </div>
           )}
-        </section>
+        </section>}
 
         <div className="rule-soft mb-24" />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 lg:gap-24 mb-28">
           <section>
             <h2 className="font-serif text-xl sm:text-2xl text-foreground section-head mb-8 tracking-tight">
-              What APRA Tracks
+              What We Track
             </h2>
             <ul className="space-y-4 text-sm text-foreground/80">
               {[
@@ -300,16 +302,16 @@ export default async function HomePage() {
           </section>
         </div>
 
-        {/* The APRA Approach */}
+        {/* Our Analytical Approach */}
         <section className="mb-24 pt-16 border-t border-border">
           <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-4 tracking-tight">
-            The APRA Approach
+            The Athena Strategic Advisory Approach
           </h2>
           <p className="font-serif text-base sm:text-lg text-foreground/70 italic mb-8">
             Signal. Interpretation. Implication.
           </p>
           <p className="text-sm text-foreground/80 leading-relaxed mb-10 max-w-4xl">
-            APRA distinguishes political noise from developments that can
+            Athena Strategic Advisory distinguishes political noise from developments that can
             materially affect regulation, capital allocation, market access and
             corporate strategy. Our analysis combines political intelligence,
             regulatory monitoring, institutional analysis and sector-specific
@@ -350,10 +352,14 @@ export default async function HomePage() {
             Subscription Access
           </h2>
           <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-4xl">
-            Access to the APRA subscriber library is granted to authorised
-            recipients. Submit your details below and a secure access link will
-            be issued if approved.
+            Subscribing organisations receive regular political and regulatory analysis,
+            an archive of assigned publications and secure access for individually named
+            readers. Our intelligence helps teams assess policy changes, anticipate
+            operating risks and make informed investment and strategy decisions.
           </p>
+
+          <p className="text-sm mb-6"><Link href="/portal" className="text-accent underline">Existing reader? Open your subscriber library.</Link></p>
+          <p className="text-sm text-foreground/70 mb-6">For an organisational subscription, tell us about your requirements below. Bespoke advisory and board briefings are separately commissioned through <Link href="/request-briefing" className="text-accent underline">Request a Briefing</Link>.</p>
 
           <AccessForm />
 
@@ -381,10 +387,10 @@ export default async function HomePage() {
           className="mb-24 pt-16 border-t border-border scroll-mt-28"
         >
           <h2 className="font-serif text-xl text-foreground mb-6">
-            About Athena Political &amp; Regulatory Advisory
+            About Athena Strategic Advisory
           </h2>
           <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-4xl">
-            Athena Political &amp; Regulatory Advisory helps business
+            Athena Strategic Advisory helps business
             leaders, boards, diplomatic missions and institutional
             decision-makers understand how shifts in political power, public
             policy, regulation and institutional behaviour may affect their
@@ -394,7 +400,7 @@ export default async function HomePage() {
 
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-7 text-sm mb-8">
             <p>
-              <span className="text-muted-foreground mr-2">APRA:</span>
+              <span className="text-muted-foreground mr-2">Athena Strategic Advisory:</span>
               <a
                 href={siteOrigin()}
                 className="text-accent hover:text-accent-hover transition-colors"

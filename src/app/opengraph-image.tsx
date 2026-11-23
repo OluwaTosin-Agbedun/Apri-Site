@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og"
 export const alt =
-  "Athena Political & Regulatory Advisory — independent intelligence for decision-makers"
+  "Athena Strategic Advisory — independent intelligence for decision-makers"
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 export default function OpenGraphImage() {
@@ -17,10 +17,10 @@ export default function OpenGraphImage() {
         padding: "80px",
       }}
     >
-      <div style={{ fontSize: 30, marginBottom: 40 }}>APRA</div>
       <div style={{ fontSize: 64, lineHeight: 1.15, maxWidth: 1000 }}>
-        Athena Political &amp; Regulatory Advisory
+        Athena Strategic Advisory
       </div>
+      <div style={{ fontSize: 28, color: "#52525b", marginTop: 20 }}>Political &amp; Regulatory Intelligence</div>
       <div
         style={{
           width: 100,

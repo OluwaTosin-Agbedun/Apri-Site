@@ -110,7 +110,7 @@ export default function PublicationDetailsForm({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="sm:col-span-2">
               <label htmlFor="details-authorEditor" className={label}>Author / editor</label>
-              <input id="details-authorEditor" name="authorEditor" value={values.authorEditor} onChange={set("authorEditor")} maxLength={MAX_AUTHOR_EDITOR_LENGTH} className={field} placeholder="e.g. APRA Research Team" {...invalid("authorEditor")} />
+              <input id="details-authorEditor" name="authorEditor" value={values.authorEditor} onChange={set("authorEditor")} maxLength={MAX_AUTHOR_EDITOR_LENGTH} className={field} placeholder="e.g. Athena Strategic Advisory Research Team" {...invalid("authorEditor")} />
               {err("authorEditor")}
             </div>
             <div>

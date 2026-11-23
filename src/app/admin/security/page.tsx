@@ -5,7 +5,7 @@ import AdminShell from "@/components/AdminShell"
 import { SecurityForm } from "./security-forms"
 
 export const dynamic = "force-dynamic"
-export const metadata = { title: "Staff sign-in security · APRA", robots: { index: false, follow: false } }
+export const metadata = { title: "Staff sign-in security · Athena Strategic Advisory", robots: { index: false, follow: false } }
 
 export default async function SecurityPage() {
   const admin = await requireAdmin()

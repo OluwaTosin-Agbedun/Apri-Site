@@ -69,11 +69,11 @@ export async function sendSignInLink(args: {
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   const outcome = await send({
-    from: `APRA <${FROM}>`,
+    from: `Athena Strategic Advisory <${FROM}>`,
     to: args.email,
-    subject: "Your APRA sign-in link",
+    subject: "Your Athena Strategic Advisory sign-in link",
     html: shell(`
-      <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Sign in to your APRA library</h1>
+      <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Sign in to your Athena Strategic Advisory library</h1>
 
       <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#333333;">
         Good day${esc(greeting)}. Use the button below to open your intelligence library.
@@ -109,12 +109,12 @@ export async function sendLapsedNotice(args: {
   const greeting = args.fullName ? `, ${args.fullName}` : ""
 
   return send({
-    from: `APRA <${FROM}>`,
+    from: `Athena Strategic Advisory <${FROM}>`,
     to: args.email,
     replyTo: CONTACT,
-    subject: "Your APRA access",
+    subject: "Your Athena Strategic Advisory access",
     html: shell(`
-      <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Your APRA access has ended</h1>
+      <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Your Athena Strategic Advisory access has ended</h1>
 
       <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#333333;">
         Good day${esc(greeting)}. Your subscription term has come to an end, so your
@@ -152,10 +152,10 @@ export function welcomeMessage(args: {
 }): { message: Message; idempotencyKey: string } {
   const greeting = args.fullName ? `, ${args.fullName}` : ""
   const html = shell(`
-      <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Welcome to APRA</h1>
+      <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Welcome to Athena Strategic Advisory</h1>
 
       <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#333333;">
-        Good day${esc(greeting)}. Your APRA subscription is now active.
+        Good day${esc(greeting)}. Your Athena Strategic Advisory subscription is now active.
       </p>
 
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f6;border:1px solid #e8e5df;border-radius:4px;margin:0 0 24px;">
@@ -170,16 +170,16 @@ export function welcomeMessage(args: {
 
       <p style="margin:0 0 0;font-size:13px;line-height:1.7;color:#888888;">
         If that link has expired, request a fresh one at any time from
-        <a href="${esc(portalSignInUrl())}" style="color:#b49f69;">the APRA sign-in page</a>
+        <a href="${esc(portalSignInUrl())}" style="color:#b49f69;">the Athena Strategic Advisory sign-in page</a>
         using this email address. ${esc(emailNotice())}
       </p>
     `)
   return {
     message: {
-      from: `APRA <${FROM}>`,
+      from: `Athena Strategic Advisory <${FROM}>`,
       to: args.email,
       replyTo: CONTACT,
-      subject: "Your APRA subscription is active",
+      subject: "Your Athena Strategic Advisory subscription is active",
       html,
     },
     idempotencyKey: `welcome:${args.subscriberId}:${fingerprint(`${args.email}\n${html}`)}`,
@@ -208,15 +208,15 @@ export async function sendSecureAccess(args: {
   const code = await signInCodeFor(args.token)
   const greeting = args.fullName ? `, ${args.fullName}` : ""
   const outcome = await send({
-    from: `APRA <${FROM}>`,
+    from: `Athena Strategic Advisory <${FROM}>`,
     to: args.email,
     replyTo: CONTACT,
-    subject: "Your secure APRA access link",
+    subject: "Your secure Athena Strategic Advisory access link",
     html: shell(`
       <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Your secure access link</h1>
 
       <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#333333;">
-        Good day${esc(greeting)}. Use the button below to open your APRA intelligence
+        Good day${esc(greeting)}. Use the button below to open your Athena Strategic Advisory intelligence
         library. The link is personal to you, works once and expires in 15 minutes.
       </p>
 
@@ -225,7 +225,7 @@ export async function sendSecureAccess(args: {
 
       <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#888888;">
         If it has expired, request a fresh link from
-        <a href="${esc(portalSignInUrl())}" style="color:#b49f69;">the APRA sign-in page</a>
+        <a href="${esc(portalSignInUrl())}" style="color:#b49f69;">the Athena Strategic Advisory sign-in page</a>
         using this email address. Please do not forward this email. ${esc(emailNotice())}
       </p>
     `),
@@ -278,7 +278,7 @@ export async function sendEditionAlert(alert: EditionAlert, idempotencyKey?: str
     .join(" · ")
 
   const message: Message = {
-    from: `APRA <${FROM}>`,
+    from: `Athena Strategic Advisory <${FROM}>`,
     to: alert.email,
     replyTo: CONTACT,
     subject: `${alert.notificationKind === "correction" ? "Updated" : "New"}: ${alert.title}`,
@@ -335,7 +335,7 @@ function shell(body: string): string {
 
         <tr><td style="padding:24px 40px;border-top:1px solid #e8e5df;background:#faf9f6;">
           <p style="margin:0;font-size:12px;color:#888888;font-family:Arial,Helvetica,sans-serif;line-height:1.6;">
-            Athena Political &amp; Regulatory Advisory (APRA)
+            Athena Strategic Advisory
           </p>
         </td></tr>
 
@@ -354,7 +354,7 @@ function shell(body: string): string {
 function codeBlock(code: string | null): string {
   if (!code) return ""
   return `<p style="margin:24px 0 8px;font-size:14px;line-height:1.7;color:#333333;">
-        Reading on a different browser or device from this email? Go to the APRA sign-in page there, enter
+        Reading on a different browser or device from this email? Go to the Athena Strategic Advisory sign-in page there, enter
         your email address, then this code. It works once, within 15 minutes:
       </p>
       <p style="margin:0;font-family:'Courier New',Courier,monospace;font-size:26px;letter-spacing:4px;color:#1a1a1a;">${esc(formatSignInCode(code))}</p>`

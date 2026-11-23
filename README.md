@@ -1,11 +1,12 @@
-# APRA — Athena Political & Regulatory Advisory
+# Athena Strategic Advisory
 
-The website, subscriber library and Complimentary Review service for **Athena Political &
-Regulatory Advisory (APRA)**. APRA publishes independent political, regulatory and
+**Political & Regulatory Intelligence**
+
+The website, subscriber library and Complimentary Review service for **Athena Strategic Advisory**. Athena publishes independent political, regulatory and
 political-economy intelligence on Nigeria.
 
 - **Live site:** <https://athenaadvisory.ng>, hosted on Vercel.
-- **Repository:** `athenacenterpl-cmd/Apri-Site`. `main` deploys.
+- **Repository:** `athenacenterpl-cmd/Apri-Site`. The user handles the manual hosting sync and deployment; this change is prepared on a separate review branch.
 - **Stack:**
   - Next.js 16 (App Router, server actions) and React 19;
   - Tailwind CSS 4;
@@ -627,7 +628,26 @@ by these health checks. See the Stage 4 guide below for limits and rollout.
 
 ## Current status and what still needs a live check
 
-Last updated **16 November 2026**.
+Last updated **23 November 2026**.
+
+**Website identity and copy update:** the approved business name is Athena Strategic Advisory,
+with Political & Regulatory Intelligence underneath. Public and Admin wording, page metadata
+and new transactional email display names use the current identity. The existing white-and-gold
+design, fonts, links and publication titles remain. The display formatter removes the leaked
+PLM editorial instruction from saved promotional copy without updating source database rows.
+The homepage explains named-reader subscription benefits, separates commissioned advisory and
+board briefings, reduces the excessive hero gap and omits the duplicate empty publications section.
+The Admin dashboard now provides a role-aware Start here guide. The publication-record screen explains Upload, Sync, release and personal-access preparation. The dashboard metric is labelled Published records to distinguish it from the reports already assigned in libraries.
+
+This change adds no database migration, access rule, new reader or publication, email send,
+Papermark mutation, Zoho connector, secret, or hosting operation. Existing private originals,
+personal-copy settings and compatibility identifiers remain intact. Zoho templates and campaigns
+are managed separately by the assigned team. Live reader and downloaded-watermark acceptance
+remain required; a source wording correction is not provider or delivery proof.
+
+**Validation:** the coding execution environment was unavailable during preparation. Existing
+checks and browser acceptance must pass before merge. Do not interpret the historical validation
+counts below as evidence for this proposed change.
 
 **Stage 4:** staff authenticator enrolment and server-side revocation, durable
 delivery-event replay, owner-only Operations, incident contacts and bounded
@@ -650,7 +670,7 @@ Next actually discover the request policy beside `src/app`. The public domain is
 redirects remain opt-in until controlled live acceptance is complete. A domain move requires one fresh sign-in on the new domain;
 browser cookies cannot transfer between unrelated domains.
 
-Local combined validation: 2,642 tests, 2,640 pass, 0 fail and the same two pre-existing
+Previous 16 November validation: 2,642 tests, 2,640 pass, 0 fail and the same two pre-existing
 wording todos; lint/type-check/production build and the public HTTP/anchor crawl pass.
 The send claim also checks the current Lagos day to catch a term ending between
 policy evaluation and provider submission, and a changed saved provider confirmation
@@ -822,34 +842,20 @@ The regression test exercises the real database driver and public/assigned-reade
 Browser audits set and assert their actual viewport before each page, including the
 Admin editorial flow at 375 px and the approved state at 1440 px.
 
-## APRA identity migration
+## Current identity and compatibility
 
-The approved current identity is **Athena Political & Regulatory Advisory (APRA)**.
-The public origin is **https://athenaadvisory.ng**. See
-[`docs/apra-identity-migration.md`](docs/apra-identity-migration.md) for coverage,
-intentional compatibility identifiers, verification and the source → mirror deployment steps.
-Browser acceptance uses an invented owner with the one-time setup latch closed, matching
-an existing installation, and checks that sign-in audits reach their requested screens.
-Staff security, operations and publication-alert browser titles also carry APRA.
-Final subscriber/review inbox and PDF acceptance, worker configuration and old-host redirects
-resume after this identity change is synced and deployed.
+The approved current identity is **Athena Strategic Advisory**, with
+**Political & Regulatory Intelligence** as the service descriptor. The public origin stays
+**https://athenaadvisory.ng**. The earlier standalone-entity clarification still applies:
+no parent-organisation relationship, invented legal address or replacement mailbox is introduced.
+Factual team employment history and working verified mailboxes are retained.
 
-**APRA is a standalone entity (Chancellor's clarification, 16 November 2026).** APRA is a
-standalone registered entity, not a service of the Athena Centre or any other organisation.
-Every "a service of the Athena Centre for Policy and Leadership" statement was removed, along
-with all Athena Centre website links: from the footer, the homepage About section, the team
-page's introduction and its former "Institutional Foundation" section, the privacy notice and
-the terms of use.
-- **Structured data:** the `parentOrganization` relationship is gone from the organisation data.
-- **Emails:** the parent name is gone from the briefing and subscriber email signatures, and
-  internal staff emails now say "do not forward outside APRA".
-- **Footer:** keeps the APRA name, the `athenaadvisory.ng` link and its navigation. The
-  copyright reads "© <current year> Athena Advisory": the year still updates automatically, and
-  "All rights reserved" is gone. No replacement affiliation or tagline was added.
-- **Kept:** factual team biographies and employment history (`src/data/team.ts`), working
-  mailboxes such as `intelligence@athenacentre.org` until verified replacements are supplied,
-  the Papermark document domain and old-host compatibility.
-- **Not invented:** no registration number, legal address or mailbox.
+Existing report titles, edition codes, database keys, historical agreements, cookie names,
+provider settings and environment-variable compatibility are retained. Stored promotional
+descriptions are normalised at display time; approved protected summaries and originals are
+not silently rewritten. Existing remote watermarks require separate approved preparation and
+actual download inspection; this source-only change does not claim those copies were changed.
 
-`tests/apra-standalone-identity.test.mjs` keeps this true. No migration, permission, session,
-workflow or provider change.
+The historical [identity migration guide](docs/apra-identity-migration.md) remains a reference
+for compatibility and the source-to-hosting arrangements. Its old public-name wording is
+superseded by this update. The user handles the manual hosting sync after review and acceptance.

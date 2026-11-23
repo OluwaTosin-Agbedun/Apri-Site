@@ -186,7 +186,7 @@ try {
   assert.equal(social.status, 200)
   assert.match(social.headers.get("content-type"), /image\/png/)
   await writeFile(resolve(output, "apra-social-preview.png"), Buffer.from(await social.arrayBuffer()))
-  record("APRA social preview generated")
+  record("Athena Strategic Advisory social preview generated")
   for (const href of internal) {
     const target = new URL(href, origin)
     const response = await request(target.pathname + target.search)
@@ -294,7 +294,7 @@ try {
       }))
       const visibleText = await page.locator("body").innerText()
       assert.doesNotMatch(visibleText, /\bAPRI\b|Athena\s+Political\s+(?:&|and)\s+Regulatory\s+Intelligence/i, `${label}: former platform name remains visible`)
-      assert.match(await page.title(), /APRA|Athena Political & Regulatory Advisory/, `${label}: current identity missing from title`)
+      assert.match(await page.title(), /Athena Strategic Advisory/, `${label}: current identity missing from title`)
       const links = await page.locator('a[href^="http"]').evaluateAll(nodes => nodes.map(node => node.href))
       assert.ok(!links.some(href => new URL(href).hostname === "apri.athenacentre.org"), `${label}: old website link remains`)
       report.identity.push({ label, width, status: "PASS" })

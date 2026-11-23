@@ -42,7 +42,7 @@ export default async function PublicationsPage() {
             Publications
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
-            Publications and analytical products available to APRA subscribers
+            Publications and analytical products available to Athena Strategic Advisory subscribers
             and authorised readers.
           </p>
         </header>
@@ -138,7 +138,7 @@ export default async function PublicationsPage() {
           </h2>
           <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
             New prospective readers may request access to a confidential
-            selection of APRA publications.
+            selection of Athena Strategic Advisory publications.
           </p>
           <Link href="/review" className="btn-secondary">
             Request Complimentary Review Access

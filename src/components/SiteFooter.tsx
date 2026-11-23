@@ -6,7 +6,7 @@ export default function SiteFooter() {
     <footer className="pt-10 border-t border-hairline text-xs text-muted-foreground">
       <div className="mb-8 max-w-3xl">
         <p>
-          Athena Political &amp; Regulatory Advisory (APRA):{" "}
+          Athena Strategic Advisory<br />Political &amp; Regulatory Intelligence<br />{" "}
           <a
             href={siteOrigin()}
             className="text-foreground hover:text-accent transition-colors"
@@ -17,7 +17,7 @@ export default function SiteFooter() {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-border/60">
         <p>
-          &copy; {new Date().getFullYear()} Athena Advisory
+          &copy; {new Date().getFullYear()} Athena Strategic Advisory
         </p>
 
         <nav

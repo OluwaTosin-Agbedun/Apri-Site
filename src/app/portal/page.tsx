@@ -35,7 +35,7 @@ import { PublicationFacts, ProtectedSummary } from "@/components/PublicationRead
 export const dynamic = "force-dynamic"
 
 export const metadata = {
-  title: "Your Library · APRA",
+  title: "Your Library · Athena Strategic Advisory",
   robots: { index: false, follow: false },
 }
 
@@ -305,7 +305,7 @@ function PortalFooter() {
   return (
     <div className="mt-8 pt-8 border-t border-border">
       <p className="text-xs text-muted-foreground leading-relaxed max-w-4xl">
-        Your access is personal to you and every view is logged. APRA intelligence
+        Your access is personal to you and every view is logged. Athena Strategic Advisory intelligence
         is issued for the exclusive use of authorised readers and may not be
         redistributed.
         Questions:{" "}
@@ -461,9 +461,9 @@ function LibrarySetup({ principal }: { principal: CurrentSubscriber }) {
     <NoticeShell title="Your library is being set up">
       <p className="text-sm text-foreground/70 leading-relaxed mb-8">
         {principal.fullName ? `Thank you, ${principal.fullName}. ` : ""}Your access is being prepared. Please try
-        again shortly. If this continues, contact APRA and we will sort it out.
+        again shortly. If this continues, contact Athena Strategic Advisory and we will sort it out.
       </p>
-      <ContactButton subject="APRA library setup" label="Contact APRA" />
+      <ContactButton subject="Athena Strategic Advisory library setup" label="Contact Athena Strategic Advisory" />
     </NoticeShell>
   )
 }
@@ -611,9 +611,9 @@ function SubscriptionNotice({ principal }: { principal: CurrentSubscriber }) {
         <NoticeShell title="Your access is paused">
           <p className="text-sm text-foreground/70 leading-relaxed mb-8">
             {thanks}Your subscription is currently suspended, so your library is not available.
-            Please contact APRA and we will help.
+            Please contact Athena Strategic Advisory and we will help.
           </p>
-          <ContactButton subject="APRA access" label="Contact APRA" />
+          <ContactButton subject="Athena Strategic Advisory access" label="Contact Athena Strategic Advisory" />
         </NoticeShell>
       )
     case "not_started":
@@ -630,18 +630,18 @@ function SubscriptionNotice({ principal }: { principal: CurrentSubscriber }) {
         <NoticeShell title="Your library is being set up">
           <p className="text-sm text-foreground/70 leading-relaxed mb-8">
             {thanks}We are completing the details of your subscription. Please try again shortly. If this
-            continues, contact APRA and we will sort it out.
+            continues, contact Athena Strategic Advisory and we will sort it out.
           </p>
-          <ContactButton subject="APRA library setup" label="Contact APRA" />
+          <ContactButton subject="Athena Strategic Advisory library setup" label="Contact Athena Strategic Advisory" />
         </NoticeShell>
       )
     default:
       return (
         <NoticeShell title="This account is not active">
           <p className="text-sm text-foreground/70 leading-relaxed mb-8">
-            {thanks}This subscription is not active yet. If you believe this is incorrect, please contact APRA.
+            {thanks}This subscription is not active yet. If you believe this is incorrect, please contact Athena Strategic Advisory.
           </p>
-          <ContactButton subject="APRA access" label="Contact APRA" />
+          <ContactButton subject="Athena Strategic Advisory access" label="Contact Athena Strategic Advisory" />
         </NoticeShell>
       )
   }
@@ -664,7 +664,7 @@ function NoticeShell({ title, children }: { title: string; children: React.React
       <header className="border-b border-border">
         <div className="max-w-md mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
           <Link href="/" className="font-serif text-base text-foreground tracking-tight">
-            APRA
+            Athena Strategic Advisory
           </Link>
           <form action={subscriberSignOut}>
             <SubmitButton busy="Signing out…" className="text-xs text-foreground/60 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
@@ -692,7 +692,7 @@ function LockedLibrary({ name }: { name: string }) {
       <header className="border-b border-border">
         <div className="max-w-md mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
           <Link href="/" className="font-serif text-base text-foreground tracking-tight">
-            APRA
+            Athena Strategic Advisory
           </Link>
           <form action={subscriberSignOut}>
             <SubmitButton busy="Signing out…" className="text-xs text-foreground/60 hover:text-foreground transition-colors cursor-pointer py-2 inline-flex items-center gap-2">
@@ -715,7 +715,7 @@ function LockedLibrary({ name }: { name: string }) {
         </p>
 
         <a
-          href={`mailto:${CONTACT}?subject=APRA%20renewal`}
+          href={`mailto:${CONTACT}?subject=Athena Strategic Advisory%20renewal`}
           className="inline-flex items-center bg-foreground text-background px-8 py-4 text-base font-medium tracking-wide hover:bg-foreground/90 transition-colors"
         >
           Contact us about renewal

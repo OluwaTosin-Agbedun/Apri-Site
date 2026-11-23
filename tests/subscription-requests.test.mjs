@@ -138,7 +138,7 @@ describe("the request form", () => {
 
   it("thanks the requester in the agreed words", () => {
     const thanks = read("src/app/review/subscribe/thanks/page.tsx").replace(/\s+/g, " ")
-    assert.match(thanks, /Thank you for your APRA subscription request\./)
+    assert.match(thanks, /Thank you for your Athena Strategic Advisory subscription request\./)
     assert.match(
       thanks,
       /We will send your subscription agreement and payment details shortly\. Your secure subscriber access will be activated once the agreement has been completed and payment confirmed\./,

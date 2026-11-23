@@ -5,7 +5,7 @@ import { tierDisplayName } from "@/lib/entitlements"
 import AdminShell from "@/components/AdminShell"
 import SeatActions from "./seat-actions"
 
-export const metadata = { title: "Subscribers · APRA" }
+export const metadata = { title: "Subscribers · Athena Strategic Advisory" }
 export const dynamic = "force-dynamic"
 
 type Row = {
@@ -96,7 +96,7 @@ export default async function AdminSubscribersPage({ searchParams }: {
         </span>
       }
     >
-      {deleted && <div className="mb-6 border border-accent/30 bg-accent/5 p-4 text-sm">Subscriber deleted from APRA. Revoke their Papermark link separately.</div>}
+      {deleted && <div className="mb-6 border border-accent/30 bg-accent/5 p-4 text-sm">Subscriber deleted from Athena Strategic Advisory. Revoke their Papermark link separately.</div>}
       <div className="border border-border bg-card/30 overflow-x-auto">
         {subscribers.length === 0 ? (
           <div className="p-12 text-center text-sm text-muted-foreground">

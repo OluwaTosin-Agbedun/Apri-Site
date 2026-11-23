@@ -54,7 +54,7 @@ export default function CopyPortalLink({
         {subscriberEmail ? <> ({subscriberEmail})</> : null}
       </p>
       <p className="text-xs text-muted-foreground mb-3 max-w-xl leading-relaxed">
-        The APRA portal sign-in page. It carries no sign-in token: the subscriber
+        The Athena Strategic Advisory portal sign-in page. It carries no sign-in token: the subscriber
         enters their own email address there and receives their own one-time
         link. Copying it sends nothing and changes nothing.
       </p>

@@ -26,13 +26,13 @@ import {
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
 // ---------------------------------------------------------------------------
-// Section 1 – Masthead: stacked "APRA" + full name
+// Section 1 – Masthead: stacked "Athena Strategic Advisory" + full name
 // ---------------------------------------------------------------------------
 
-test('S1: masthead renders APRA on its own line with full name beneath', () => {
+test('S1: masthead renders Athena Strategic Advisory on its own line with full name beneath', () => {
   const header = read('src/components/SiteHeader.tsx')
-  assert.match(header.replace(/\s+/g, ' '), /font-serif[^<]*> APRA </)
-  assert.match(header, /Athena Political &amp; Regulatory Advisory/)
+  assert.match(header.replace(/\s+/g, ' '), /font-serif[^<]*> Athena Strategic Advisory </)
+  assert.match(header, /Political &amp; Regulatory Intelligence/)
   assert.doesNotMatch(header, /\|/, 'the single-line separator pipe is gone')
 })
 
@@ -42,7 +42,7 @@ test('S1: masthead renders APRA on its own line with full name beneath', () => {
 
 test('S2: hero uses approved headline and sub-copy', () => {
   const page = read('src/app/page.tsx')
-  assert.match(page, /Athena Political &amp; Regulatory Advisory/)
+  assert.match(page, /Athena Strategic Advisory/)
   assert.match(page, /Independent political, regulatory and political-economy intelligence/)
   assert.match(read('src/lib/seo.ts'), /operating, investing and making strategic decisions in Nigeria/)
 })
@@ -75,10 +75,10 @@ test('S4: empty publications state renders nothing, not a developer box', () => 
 })
 
 // ---------------------------------------------------------------------------
-// Section 5 – "What APRA Tracks" (8 approved items)
+// Section 5 – "What Athena Strategic Advisory Tracks" (8 approved items)
 // ---------------------------------------------------------------------------
 
-test('S5: What APRA Tracks lists exactly the 8 approved items', () => {
+test('S5: What Athena Strategic Advisory Tracks lists exactly the 8 approved items', () => {
   const page = read('src/app/page.tsx')
   const items = [
     'Political Power & Coalition Dynamics',
@@ -108,14 +108,14 @@ test('S6: "Built for consequential decisions." section with approved copy', () =
 })
 
 // ---------------------------------------------------------------------------
-// Section 7 – The APRA Approach
+// Section 7 – The Athena Strategic Advisory Approach
 // ---------------------------------------------------------------------------
 
-test('S7: The APRA Approach section with signal-interpretation-implication', () => {
+test('S7: The Athena Strategic Advisory Approach section with signal-interpretation-implication', () => {
   const page = read('src/app/page.tsx')
-  assert.match(page, /The APRA Approach/)
+  assert.match(page, /Our Analytical Approach/)
   assert.match(page, /Signal\. Interpretation\. Implication\./)
-  assert.match(page, /APRA distinguishes political noise/)
+  assert.match(page, /Athena Strategic Advisory distinguishes political noise/)
   assert.match(page, /What changed/)
   assert.match(page, /Why it matters/)
   assert.match(page, /What to watch/)
@@ -127,11 +127,11 @@ test('S7: The APRA Approach section with signal-interpretation-implication', () 
 
 test('S8: all five tiers have approved descriptions', () => {
   const expected = {
-    'Individual Access': 'Core APRA publications for one named reader.',
+    'Individual Access': 'Core Athena Strategic Advisory publications for one named reader.',
     'Professional Team Access': 'The same core access for a small team of individually named readers.',
     'Political Monitor': /continuing political and regulatory monitoring/,
-    'Executive Intelligence': /Full APRA intelligence plus the executive layer/,
-    'Board Briefing': /Full APRA intelligence, priority bespoke analysis/,
+    'Executive Intelligence': /Executive political and regulatory intelligence/,
+    'Board Briefing': /Board-level political and regulatory intelligence/,
   }
 
   for (const [tier, desc] of Object.entries(expected)) {
@@ -387,7 +387,7 @@ test('S15: access page uses responsive text sizes', () => {
   assert.match(page, /text-4xl sm:text-5xl/)
 })
 
-test('S15: APRA approach uses responsive grid', () => {
+test('S15: Athena Strategic Advisory approach uses responsive grid', () => {
   const page = read('src/app/page.tsx')
   assert.match(page, /grid-cols-1 sm:grid-cols-3/)
 })

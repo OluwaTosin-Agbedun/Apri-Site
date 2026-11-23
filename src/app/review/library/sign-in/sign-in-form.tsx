@@ -10,7 +10,7 @@ const primary =
   "w-full bg-foreground text-background px-6 py-4 text-base font-medium tracking-wide hover:bg-foreground/90 disabled:opacity-60 transition-colors cursor-pointer"
 const problem = "text-sm text-red-800 border border-red-200 bg-red-50/60 p-3"
 
-/** Email, then the one code APRA emails, typed in this browser. */
+/** Email, then the one code Athena Strategic Advisory emails, typed in this browser. */
 export default function ReaderSignInForm({ edition }: { edition: string | null }) {
   const [requested, request, requesting] = useActionState(requestReviewLibrarySignIn, undefined)
   const [signedIn, signIn, signing] = useActionState(reviewLibrarySignInWithCode, undefined)

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { isSetupComplete } from '@/lib/dal'
 import SetupForm from './setup-form'
 
-export const metadata = { title: 'Set up administrator · APRA' }
+export const metadata = { title: 'Set up administrator · Athena Strategic Advisory' }
 
 // Never cached: whether setup is open depends on live database state.
 export const dynamic = 'force-dynamic'

@@ -1,4 +1,4 @@
-import { BRAND_NAME, BRAND_SHORT_NAME } from "./brand"
+import { BRAND_NAME } from "./brand"
 import type { Metadata } from "next"
 import {
   INDEXABLE_PATHS,
@@ -7,11 +7,11 @@ import {
   siteOrigin,
 } from "./site-config"
 
-export const SITE_NAME = `${BRAND_NAME} (${BRAND_SHORT_NAME})`
+export const SITE_NAME = BRAND_NAME
 export const SITE_DESCRIPTION =
   "Independent political, regulatory and political-economy intelligence for organisations operating, investing and making strategic decisions in Nigeria."
 export const SHARE_ALT =
-  "Athena Political & Regulatory Advisory — independent intelligence for decision-makers"
+  "Athena Strategic Advisory — independent intelligence for decision-makers"
 export const PAGE_INFORMATION: Record<typeof INDEXABLE_PATHS[number], {
   title: string
   description: string
@@ -20,7 +20,7 @@ export const PAGE_INFORMATION: Record<typeof INDEXABLE_PATHS[number], {
   "/publications": {
     title: `Publications | ${SITE_NAME}`,
     description:
-      "Explore APRA publications and analytical products for subscribers, authorised readers and prospective subscribers using the complimentary review library.",
+      "Explore Athena Strategic Advisory publications and analytical products for subscribers, authorised readers and prospective subscribers using the complimentary review library.",
   },
   "/services": {
     title: `Services & Briefings | ${SITE_NAME}`,
@@ -30,22 +30,22 @@ export const PAGE_INFORMATION: Record<typeof INDEXABLE_PATHS[number], {
   "/team": {
     title: `Our Intelligence Team | ${SITE_NAME}`,
     description:
-      "Meet the people behind APRA and learn how our independent political, regulatory and political-economy intelligence is produced and reviewed.",
+      "Meet the people behind Athena Strategic Advisory and learn how our independent political, regulatory and political-economy intelligence is produced and reviewed.",
   },
   "/access": {
     title: `Subscription Access | ${SITE_NAME}`,
     description:
-      "Subscription levels for APRA political, regulatory and political-economy intelligence, including the quarterly Subscriber Intelligence Briefing.",
+      "Subscription levels for Athena Strategic Advisory political, regulatory and political-economy intelligence, including the quarterly Subscriber Intelligence Briefing.",
   },
   "/review": {
-    title: "Complimentary Review | APRA",
+    title: "Complimentary Review | Athena Strategic Advisory",
     description:
-      "Request complimentary review access to a confidential selection of APRA publications. Access requires email confirmation and approval.",
+      "Request complimentary review access to a confidential selection of Athena Strategic Advisory publications. Access requires email confirmation and approval.",
   },
   "/request-briefing": {
     title: `Request a Briefing | ${SITE_NAME}`,
     description:
-      "Request a private political and regulatory intelligence briefing from APRA.",
+      "Request a private political and regulatory intelligence briefing from Athena Strategic Advisory.",
   },
 }
 export function publicMetadata(path: typeof INDEXABLE_PATHS[number]): Metadata {

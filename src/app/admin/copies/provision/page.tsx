@@ -6,7 +6,7 @@ import { copyNames } from '@/lib/copy-naming'
 import { SERIES, isLevel, isSeriesCode } from '@/lib/entitlements'
 import ProvisionForm, { type ProvisionTarget } from '../provision-form'
 
-export const metadata = { title: 'Provision a copy · APRA' }
+export const metadata = { title: 'Provision a copy · Athena Strategic Advisory' }
 export const dynamic = 'force-dynamic'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
