@@ -45,10 +45,12 @@ any other organisation. The site now states no parent organisation:
 Kept deliberately:
 - factual team biographies and employment history (for example "Founder, Athena Centre for
   Policy and Leadership");
-- working mailboxes such as `intelligence@athenacentre.org` and the existing verified senders,
-  until verified replacements are supplied;
+- existing verified outgoing senders, until verified replacements are supplied;
 - the Papermark document domain `docs.athenacentre.org`;
 - old-host compatibility.
+
+The Chancellor supplied `intelligence@athenaadvisory.ng` as the replacement public
+contact mailbox on 24 November 2026. Website and portal contact links now use it.
 
 No registration number, legal address or mailbox is invented, and no tagline replaces the
 affiliation. `tests/apra-standalone-identity.test.mjs` pins all of this.

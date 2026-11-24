@@ -1,6 +1,7 @@
 import "server-only"
 import { Resend } from "resend"
 import { tierDisplayName } from "./entitlements"
+import { CONTACT_EMAIL } from "../config"
 
 let _resend: Resend | null = null
 
@@ -12,7 +13,7 @@ function getResend(): Resend | null {
 
 const FROM = process.env.BRIEFING_FROM_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
 const MANAGER =
-  process.env.BRIEFING_MANAGER_EMAIL ?? "intelligence@athenacentre.org"
+  process.env.BRIEFING_MANAGER_EMAIL ?? CONTACT_EMAIL
 
 interface BriefingDetails {
   name: string
@@ -37,6 +38,7 @@ export async function sendBriefingConfirmation(
 
   await resend.emails.send({
     from: `Athena Strategic Advisory Briefings <${FROM}>`,
+    replyTo: CONTACT_EMAIL,
     to: d.email,
     subject: "Your Briefing Request Has Been Received — Athena Strategic Advisory",
     html: confirmationHtml(d),
@@ -156,7 +158,7 @@ export async function sendAccessRequestConfirmation(d: {
   await resend.emails.send({
     from: `Athena Strategic Advisory <${FROM}>`,
     to: d.email,
-    replyTo: MANAGER,
+    replyTo: CONTACT_EMAIL,
     subject: "Your Athena Strategic Advisory subscription request has been received",
     html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><h1 style="font-size:22px">Thank you, ${esc(d.name)}</h1><p>We have received your Athena Strategic Advisory subscription request. Our team will review it and reply within one business day.</p><p>If you did not submit this request, please ignore this email.</p></body></html>`,
   })
@@ -204,7 +206,7 @@ function confirmationHtml(d: BriefingDetails): string {
 
           <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#333333;">
             If you need to amend any details or have questions in the meantime, please reply to this email or contact us at
-            <a href="mailto:${esc(MANAGER)}" style="color:#b49f69;">${esc(MANAGER)}</a>.
+            <a href="mailto:${esc(CONTACT_EMAIL)}" style="color:#b49f69;">${esc(CONTACT_EMAIL)}</a>.
           </p>
 
           <p style="margin:0;font-size:15px;line-height:1.7;color:#333333;">

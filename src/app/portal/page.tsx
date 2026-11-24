@@ -1,3 +1,4 @@
+import { CONTACT_EMAIL } from "@/config"
 import { currentBrandCopy } from "@/lib/brand"
 import SubmitButton from "@/components/SubmitButton"
 import Link from "next/link"
@@ -39,7 +40,7 @@ export const metadata = {
   robots: { index: false, follow: false },
 }
 
-const CONTACT = "intelligence@athenacentre.org"
+const CONTACT = CONTACT_EMAIL
 
 const SHELL = "w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12"
 

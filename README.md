@@ -6,6 +6,7 @@ The website, subscriber library and Complimentary Review service for **Athena St
 political-economy intelligence on Nigeria.
 
 - **Live site:** <https://athenaadvisory.ng>, hosted on Vercel.
+- **Public contact:** `intelligence@athenaadvisory.ng`.
 - **Repository:** `athenacenterpl-cmd/Apri-Site`. The user handles the manual hosting sync and deployment; this change is prepared on a separate review branch.
 - **Stack:**
   - Next.js 16 (App Router, server actions) and React 19;
@@ -408,7 +409,7 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 | `PAPERMARK_CALLS_PER_MINUTE` | Shared token budget for all calls; default and maximum 45/minute. Requires `20261012`. |
 | `PAPERMARK_ANALYTICS_CALLS_PER_MINUTE` | Additional analytics budget; default and maximum 10/minute. |
 | `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET` | Email sending and delivery events |
-| `RESEND_FROM_EMAIL`, `SUBSCRIBER_FROM_EMAIL`, `BRIEFING_FROM_EMAIL`, `BRIEFING_MANAGER_EMAIL` | Senders and the briefing manager |
+| `RESEND_FROM_EMAIL`, `SUBSCRIBER_FROM_EMAIL`, `BRIEFING_FROM_EMAIL`, `BRIEFING_MANAGER_EMAIL` | Verified outgoing senders and optional internal briefing-manager destination; public contact/reply-to uses `CONTACT_EMAIL` in `src/config.ts` |
 | `REVIEW_FROM_EMAIL` | Optional verified sender for review emails; otherwise they use the subscriber sender |
 | `CRON_SECRET` | Authorises `/api/cron/*` (they answer 503 without it) |
 | `BLOB_READ_WRITE_TOKEN` | Team portrait uploads |
@@ -628,7 +629,15 @@ by these health checks. See the Stage 4 guide below for limits and rollout.
 
 ## Current status and what still needs a live check
 
-Last updated **23 November 2026**.
+Last updated **24 November 2026**.
+
+**Approved contact mailbox update:** public pages, legal contact links, the subscriber
+portal's support/setup/renewal notices, subscription-request fallback copy, and website
+email contact/reply-to wording now share `intelligence@athenaadvisory.ng` from `src/config.ts`.
+An internal briefing-manager override does not replace the public contact address.
+Verified outgoing sender settings, document domains, reader access and database records
+are unchanged. No mailbox, DNS, sender verification, production email send or hosting
+deployment is performed by this source change; the user handles the manual hosting sync.
 
 **Website identity and copy update:** the approved business name is Athena Strategic Advisory,
 with Political & Regulatory Intelligence underneath. Public and Admin wording, page metadata
@@ -645,9 +654,10 @@ personal-copy settings and compatibility identifiers remain intact. Zoho templat
 are managed separately by the assigned team. Live reader and downloaded-watermark acceptance
 remain required; a source wording correction is not provider or delivery proof.
 
-**Validation:** the coding execution environment was unavailable during preparation. Existing
-checks and browser acceptance must pass before merge. Do not interpret the historical validation
-counts below as evidence for this proposed change.
+**Validation:** the 23 November identity update passed the complete PR checks, including
+the production browser checks. The 24 November contact update is checked in an isolated
+copy of the current main before committing; final results are recorded in its pull request.
+Do not interpret the historical validation counts below as evidence for a later change.
 
 **Stage 4:** staff authenticator enrolment and server-side revocation, durable
 delivery-event replay, owner-only Operations, incident contacts and bounded
@@ -847,8 +857,9 @@ Admin editorial flow at 375 px and the approved state at 1440 px.
 The approved current identity is **Athena Strategic Advisory**, with
 **Political & Regulatory Intelligence** as the service descriptor. The public origin stays
 **https://athenaadvisory.ng**. The earlier standalone-entity clarification still applies:
-no parent-organisation relationship, invented legal address or replacement mailbox is introduced.
-Factual team employment history and working verified mailboxes are retained.
+no parent-organisation relationship, invented legal address or unapproved mailbox is introduced.
+Factual team employment history and verified outgoing sender configuration are retained;
+the approved public contact mailbox is `intelligence@athenaadvisory.ng`.
 
 Existing report titles, edition codes, database keys, historical agreements, cookie names,
 provider settings and environment-variable compatibility are retained. Stored promotional

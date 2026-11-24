@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto"
 import { Resend } from "resend"
 import { deliverEmail, type EmailOutcome } from "./email-delivery"
 import { recordReviewEmailAttempt, type ReviewEmailKind } from "./review-email-attempts"
+import { CONTACT_EMAIL } from "../config"
 
-const MANAGER = "intelligence@athenacentre.org"
+const MANAGER = CONTACT_EMAIL
 /**
  * The sender for review emails. The same resolution as the subscriber emails
  * that are delivered today (SUBSCRIBER_FROM_EMAIL, then RESEND_FROM_EMAIL, then

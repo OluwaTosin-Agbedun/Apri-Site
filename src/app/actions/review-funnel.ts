@@ -34,6 +34,7 @@ import {
 } from "@/lib/subscription-journey"
 import { subscriptionActivationReady } from "@/lib/subscription-schema"
 import { emailOrigin } from "@/lib/app-url"
+import { CONTACT_EMAIL } from "@/config"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -507,7 +508,7 @@ export async function submitPublicSubscriptionRequest(
   if (!(await subscriptionActivationReady(sql))) {
     return {
       message:
-        "Subscription requests cannot be taken from this page just yet. Please email intelligence@athenacentre.org and we will help you directly.",
+        `Subscription requests cannot be taken from this page just yet. Please email ${CONTACT_EMAIL} and we will help you directly.`,
     }
   }
 

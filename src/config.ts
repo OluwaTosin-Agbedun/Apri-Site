@@ -11,5 +11,5 @@
  */
 export const BRIEFING_FORM_URL: string | null = null;
 
-/** Public contact address for APRA enquiries. */
-export const CONTACT_EMAIL = 'intelligence@athenacentre.org';
+/** Approved public contact address for Athena Strategic Advisory enquiries. */
+export const CONTACT_EMAIL = 'intelligence@athenaadvisory.ng';

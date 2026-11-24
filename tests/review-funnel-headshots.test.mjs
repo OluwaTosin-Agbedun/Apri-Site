@@ -76,8 +76,9 @@ test("activation gate requires all commercial milestones", () => {
 test("manager destination is fixed and PII is not sent to analytics", () => {
   assert.match(
     read("src/lib/review-email.ts"),
-    /intelligence@athenacentre\.org/,
+    /const MANAGER = CONTACT_EMAIL/,
   )
+  assert.match(read("src/config.ts"), /intelligence@athenaadvisory\.ng/)
   const all = read("src/app/actions/review-funnel.ts")
   assert.doesNotMatch(all, /@vercel\/analytics|track\(/)
 })

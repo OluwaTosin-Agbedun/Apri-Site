@@ -7,8 +7,7 @@
  * structured-data relationship or email signature line; the footer copyright
  * reads "© <year> Athena Strategic Advisory" without "All rights reserved"; and the
  * things the clarification says to keep are kept -- factual team biographies
- * and employment history, and the working contact mailbox until a verified
- * replacement is supplied.
+ * and employment history, and the public contact mailbox approved by the Chancellor.
  */
 import { test } from "node:test"
 import assert from "node:assert/strict"
@@ -62,7 +61,7 @@ test("no page, component, email or metadata describes Athena Strategic Advisory 
     const text = read(file).replace(/\s+/g, " ")
     for (const pattern of [
       // Outside factual biographies, nothing names the Athena Centre at all
-      // (working mailboxes such as intelligence@athenacentre.org have no space).
+      // (working mailboxes such as intelligence@athenaadvisory.ng have no space).
       /Athena Centre/i,
       /service of (the )?Athena/i,
       /Athena Centre for Policy (and|&amp;|&) Leadership/i,
@@ -98,10 +97,10 @@ test("email signatures name Athena Strategic Advisory without a parent organisat
   }
 })
 
-test("factual biographies and the working contact mailbox are kept", () => {
+test("factual biographies are kept and the contact mailbox uses the approved advisory domain", () => {
   const team = read(BIOGRAPHIES)
   assert.match(team, /Founder, Athena Centre for Policy and Leadership/, "employment history is preserved")
   assert.match(team, /Senior Research Fellow at the Athena Centre/, "employment history is preserved")
-  // Kept until a verified replacement mailbox is supplied; do not invent one.
-  assert.match(read("src/config.ts"), /CONTACT_EMAIL = 'intelligence@athenacentre\.org'/)
+  // The Chancellor supplied this replacement contact mailbox on 24 November.
+  assert.match(read("src/config.ts"), /CONTACT_EMAIL = 'intelligence@athenaadvisory\.ng'/)
 })

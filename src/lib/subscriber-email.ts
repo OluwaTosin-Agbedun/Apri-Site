@@ -10,6 +10,7 @@ import { recordClientEvent, type ClientPrincipal } from "./client-engagement"
 import { deliverEmail, fingerprint, type EmailOutcome } from "./email-delivery"
 import { signInCodeFor } from "./magic-link"
 import { formatSignInCode } from "./magic-token"
+import { CONTACT_EMAIL } from "../config"
 
 export type { EmailOutcome } from "./email-delivery"
 
@@ -50,8 +51,7 @@ function send(message: Message, idempotencyKey: string, options?: {timeoutMs?:nu
 }
 
 const FROM = process.env.SUBSCRIBER_FROM_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? "briefings@apri.athenacentre.org"
-const CONTACT =
-  process.env.BRIEFING_MANAGER_EMAIL ?? "intelligence@athenacentre.org"
+const CONTACT = CONTACT_EMAIL
 
 // ---------------------------------------------------------------------------
 // Sign-in link
@@ -72,6 +72,7 @@ export async function sendSignInLink(args: {
     from: `Athena Strategic Advisory <${FROM}>`,
     to: args.email,
     subject: "Your Athena Strategic Advisory sign-in link",
+    replyTo: CONTACT_EMAIL,
     html: shell(`
       <h1 style="margin:0 0 20px;font-size:22px;color:#1a1a1a;font-weight:normal;">Sign in to your Athena Strategic Advisory library</h1>
 
