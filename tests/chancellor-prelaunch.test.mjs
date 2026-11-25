@@ -51,12 +51,14 @@ test('S2: hero uses approved headline and sub-copy', () => {
 // Section 3 – Hero CTAs: subscriber library + request a briefing
 // ---------------------------------------------------------------------------
 
-test('S3: hero has two CTAs with correct targets', () => {
+test('S3: hero leads to intelligence and a preselected board briefing', () => {
   const page = read('src/app/page.tsx')
-  assert.match(page, /href="\/portal"/)
-  assert.match(page, /Access Subscriber Library/)
-  assert.match(page, /href="\/services"/)
-  assert.match(page, /Request a Briefing/)
+  const hero = page.slice(page.indexOf('<header'), page.indexOf('</header>'))
+  assert.match(hero, /href="\/publications"/)
+  assert.match(hero, /Explore Our Intelligence/)
+  assert.match(hero, /href=\{boardBriefingHref\}/)
+  assert.match(hero, /Request a Board Briefing/)
+  assert.match(page, /const boardBriefingHref = `\/request-briefing\?type=\$\{encodeURIComponent\("Board Political & Regulatory Risk Briefing"\)\}`/)
 })
 
 // ---------------------------------------------------------------------------
@@ -65,7 +67,7 @@ test('S3: hero has two CTAs with correct targets', () => {
 
 test('S4: publications section uses correct heading and copy', () => {
   const page = read('src/app/page.tsx')
-  assert.match(page, /Publications &amp; Briefings/)
+  assert.match(page, /Latest Intelligence/)
   assert.match(page, /publishes written intelligence on Nigeria/)
 })
 
@@ -102,7 +104,7 @@ test('S5: What Athena Strategic Advisory Tracks lists exactly the 8 approved ite
 test('S6: "Built for consequential decisions." section with approved copy', () => {
   const page = read('src/app/page.tsx')
   const flat = page.replace(/\s+/g, ' ')
-  assert.match(page, /Built for consequential decisions\./)
+  assert.match(page, /Built for consequential decisions/)
   assert.match(flat, /boards, executives, diplomatic missions and institutional decision-makers/)
   assert.match(flat, /government relations and regulated operations in Nigeria/)
 })
@@ -111,14 +113,17 @@ test('S6: "Built for consequential decisions." section with approved copy', () =
 // Section 7 – The Athena Strategic Advisory Approach
 // ---------------------------------------------------------------------------
 
-test('S7: The Athena Strategic Advisory Approach section with signal-interpretation-implication', () => {
+test('S7: The Athena Approach includes the approved analytical descriptions', () => {
   const page = read('src/app/page.tsx')
-  assert.match(page, /Our Analytical Approach/)
+  assert.match(page, /The Athena Approach/)
   assert.match(page, /Signal\. Interpretation\. Implication\./)
   assert.match(page, /Athena Strategic Advisory distinguishes political noise/)
   assert.match(page, /What changed/)
   assert.match(page, /Why it matters/)
   assert.match(page, /What to watch/)
+  assert.match(page, /Identify material political, policy and regulatory developments/)
+  assert.match(page, /Assess their implications for institutions, sectors and businesses/)
+  assert.match(page, /Identify emerging risks, scenarios and indicators of change/)
 })
 
 // ---------------------------------------------------------------------------
@@ -308,15 +313,16 @@ test('S11: portal footer uses approved security wording', () => {
 // Section 12 – Link audit: subscriber library vs request access
 // ---------------------------------------------------------------------------
 
-test('S12: hero "Access Subscriber Library" links to /portal', () => {
-  const page = read('src/app/page.tsx')
-  const heroBlock = page.slice(page.indexOf('Access Subscriber Library') - 200, page.indexOf('Access Subscriber Library') + 50)
-  assert.match(heroBlock, /href="\/portal"/)
+test('S12: permanent Client Portal links to the existing library route', () => {
+  const header = read('src/components/SiteHeader.tsx')
+  const portal = header.slice(header.indexOf('href="/portal"'), header.indexOf('Client Portal') + 13)
+  assert.match(portal, /href="\/portal"/)
+  assert.doesNotMatch(portal, /\/portal\/sign-in/)
 })
 
-test('S12: header nav includes "Subscription Access" linking to /access', () => {
+test('S12: header nav includes Subscriptions linking to /access', () => {
   const header = read('src/components/SiteHeader.tsx')
-  assert.match(header, /label: ["']Subscription Access["'], href: ["']\/access["']/)
+  assert.match(header, /label: ["']Subscriptions["'], href: ["']\/access["']/)
 })
 
 test('S12: header nav has no sign-in or library link in NAV_ITEMS', () => {
@@ -376,10 +382,11 @@ test('S14: publications page has no developer-facing empty state box', () => {
 // Section 15 – Responsive: no horizontal overflow, mobile-safe typography
 // ---------------------------------------------------------------------------
 
-test('S15: homepage uses responsive text sizes (sm: breakpoints)', () => {
-  const page = read('src/app/page.tsx')
-  assert.match(page, /text-3xl sm:text-4xl/)
-  assert.match(page, /sm:text-xl/)
+test('S15: homepage display type scales and columns stack on mobile', () => {
+  const css = read('src/app/home.module.css')
+  assert.match(css, /font-size: clamp\(/)
+  assert.match(css, /@media \(max-width: 767px\)/)
+  assert.match(css, /grid-template-columns: 1fr/)
 })
 
 test('S15: access page uses responsive text sizes', () => {
@@ -394,7 +401,8 @@ test('S15: Athena Strategic Advisory approach uses responsive grid', () => {
 
 test('S15: masthead uses responsive text sizing', () => {
   const header = read('src/components/SiteHeader.tsx')
-  assert.match(header, /text-\[10px\] sm:text-xs/)
+  assert.match(header, /text-2xl sm:text-3xl/)
+  assert.match(header, /text-sm sm:text-base/)
 })
 
 // ---------------------------------------------------------------------------

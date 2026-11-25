@@ -165,3 +165,30 @@ export const SERVICES: ServiceItem[] = [
 
 /** Sector options offered on the request form, drawn from the sector lenses. */
 export const SECTOR_OPTIONS = SERVICES.find((s) => s.id === "sector")!.listItems
+
+/** Public positioning; request values stay compatible with saved enquiries. */
+export const BOARDROOM_OFFERINGS: readonly {
+  title: string
+  description: string
+  ctaLabel: string
+  briefingType: BriefingType
+}[] = [
+  {
+    title: "Board Political & Regulatory Risk Briefings",
+    description: "Political and regulatory outlook, enterprise risk, scenario planning and board oversight.",
+    ctaLabel: "Request a Board Briefing",
+    briefingType: "Board Political & Regulatory Risk Briefing",
+  },
+  {
+    title: "Executive Strategy Briefings",
+    description: "Political and regulatory implications for corporate strategy, operating plans and investment decisions.",
+    ctaLabel: "Request a Strategy Briefing",
+    briefingType: "Executive Political & Regulatory Briefing",
+  },
+  {
+    title: "Board & Management Retreat Briefings",
+    description: "Tailored assessments of the external environment to inform annual planning and leadership deliberations.",
+    ctaLabel: "Request a Retreat Briefing",
+    briefingType: "Strategy & Retreat Briefing",
+  },
+]

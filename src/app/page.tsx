@@ -1,269 +1,188 @@
 import { currentBrandCopy } from "@/lib/brand"
 import { publicMetadata } from "@/lib/seo"
-import { siteOrigin } from "@/lib/site-config"
 import Link from "next/link"
 import type { Metadata } from "next"
 import { CONTACT_EMAIL } from "@/config"
+import { BOARDROOM_OFFERINGS } from "@/data/services"
+import { TEAM_MEMBERS } from "@/data/team"
 import SiteHeader from "@/components/SiteHeader"
 import SiteFooter from "@/components/SiteFooter"
 import { AccessBadge, AccessActionInline } from "@/components/PublicationAccess"
 import { accessNotice } from "@/lib/delivery"
-import AccessForm from "./access-form"
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 import { reviewEntryMode } from "@/lib/review-reader"
-import { categorySingularLabel, type CatalogueCategory } from "@/lib/publication-catalogue"
-import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
-import {
-  PUBLICATION_SECTIONS,
-  getPublishedPublications,
-  getReviewLibrary,
-  type Publication,
-} from "@/lib/publications"
+import { getPublishedPublications, getReviewLibrary, type Publication } from "@/lib/publications"
+import styles from "./home.module.css"
 
-/**
- * Cached, then revalidated -- not rendered for every visitor.
- *
- * force-dynamic meant one function invocation and a database round trip per
- * page view, which is the wrong cost for a public page whose content changes a
- * few times a month. Publishing calls revalidatePath, so an edit still appears
- * at once; the five-minute window is only a backstop for anything that changes
- * outside the CMS.
- */
+// Publishing revalidates this page; the five-minute cache is a backstop.
 export const revalidate = 300
-
 export const metadata: Metadata = publicMetadata("/")
+
+const boardBriefingHref = `/request-briefing?type=${encodeURIComponent("Board Political & Regulatory Risk Briefing")}`
+const issueDate = (date: string) => new Intl.DateTimeFormat("en-GB", {
+  day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+}).format(new Date(`${date}T12:00:00Z`))
 
 function PublicationCard({ doc }: { doc: Publication }) {
   return (
-    <article className="group panel-interactive p-8 sm:p-10 lg:p-12">
-      <div className="flex items-start justify-between gap-4 mb-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-accent">
-          {currentBrandCopy(doc.kicker || doc.productLine)}
-        </span>
+    <article className={styles.intelligenceCard}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className={styles.kicker}>{currentBrandCopy(doc.kicker || doc.productLine)}</p>
         <AccessBadge visibility={doc.visibility} />
       </div>
-
-      <h4 className="font-serif text-xl text-foreground">
-        <Link
-          href={`/publications/${doc.slug}`}
-          className="hover:text-accent transition-colors"
-        >
-          {doc.title}
-        </Link>
-      </h4>
-
-      {doc.strapline && (
-        <p className="font-serif text-base text-foreground/70 italic mt-2">
-          {currentBrandCopy(doc.strapline)}
-        </p>
-      )}
-
-      <p className="text-sm text-foreground/70 leading-relaxed mt-5 mb-5 max-w-4xl">
-        {currentBrandCopy(doc.description)}
-      </p>
-
-      <Link
-        href={`/publications/${doc.slug}`}
-        className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mb-4"
-      >
-        Read more <span className="ml-2 opacity-70">&rarr;</span>
-      </Link>
-
-      <dl className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-x-6 gap-y-2 mb-8 text-xs leading-relaxed">
-        <dt className="uppercase tracking-wider text-muted-foreground">
-          Frequency
-        </dt>
-        <dd className="text-foreground/70">{doc.frequency}</dd>
-        <dt className="uppercase tracking-wider text-muted-foreground">
-          Audience
-        </dt>
-        <dd className="text-foreground/70">{currentBrandCopy(doc.audience)}</dd>
-      </dl>
-
-      {/* Shared gate. Never renders papermark_link -- see PublicationAccess. */}
-      <AccessActionInline
-        visibility={doc.visibility}
-        openLinkUrl={doc.openLinkUrl}
-      />
-
-      {doc.attribution && (
-        <p className="text-xs text-muted-foreground mt-8 pt-6 border-t border-border/60 max-w-xl leading-relaxed">
-          {currentBrandCopy(doc.attribution)}
-        </p>
-      )}
+      {doc.editionDate && <time className={styles.date} dateTime={doc.editionDate}>{issueDate(doc.editionDate)}</time>}
+      <h3 className="font-serif text-2xl sm:text-3xl leading-tight">
+        <Link href={`/publications/${doc.slug}`} className={styles.titleLink}>{doc.title}</Link>
+      </h3>
+      <p className={styles.body}>{currentBrandCopy(doc.description)}</p>
+      <div className="mt-auto flex flex-wrap items-center gap-x-6 gap-y-3 pt-5">
+        <Link href={`/publications/${doc.slug}`} className={styles.textLink}>Publication details</Link>
+        {/* Retain the shared gate; never render a subscriber document URL. */}
+        <AccessActionInline visibility={doc.visibility} openLinkUrl={doc.openLinkUrl} />
+      </div>
+      {doc.attribution && <p className="mt-5 text-sm leading-relaxed text-foreground/75">{currentBrandCopy(doc.attribution)}</p>}
     </article>
   )
 }
 
-/**
- * What the offered Review cards are, in words: "Monthly Intelligence Note,
- * Athena Intelligence Update and Political Landscape Monitor". Named from the
- * cards themselves, so the sentence is true whichever categories an owner
- * offers.
- */
-function reviewCardTypes(codes: string[], categories: readonly CatalogueCategory[]): string {
-  const names = [...new Set(codes)].map((code) => categorySingularLabel(code, categories))
-  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
-}
+const openStreams = [
+  { title: "Political Landscape Monitor", origin: "Athena Election Observatory", description: "Monthly assessments of Nigeria's political, democratic and electoral environment." },
+  { title: "Election Matters", origin: "Athena Election Observatory", description: "Electoral developments, institutional assessments and evidence-based analysis." },
+  { title: "Africa Watch", origin: "Africa and Comparative Perspectives", description: "Political, electoral and institutional developments across Africa and relevant international comparators." },
+  { title: "OsitaInsight", origin: "ClearPath Media", description: "Selected video perspectives on policy, regulation, institutions and Nigeria's political economy." },
+]
 
 export default async function HomePage() {
-  const [documents, reviewLibrary, entryMode, catalogue] = await Promise.all([
-    getPublishedPublications(),
-    getReviewLibrary(),
-    reviewEntryMode(),
-    getPublicationCatalogue(),
+  const [documents, reviewLibrary, entryMode] = await Promise.all([
+    getPublishedPublications(), getReviewLibrary(), reviewEntryMode(),
   ])
+  // Public-safe records only, ordered by editorial issue date, never upload time.
+  const latest = [...documents]
+    .sort((a, b) => (b.editionDate ?? "").localeCompare(a.editionDate ?? ""))
+    .slice(0, 3)
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={`min-h-screen bg-background ${styles.home}`}>
       <SiteHeader />
-
-      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-12 sm:py-20">
-        {/* Hero */}
-        <header className="mb-16 sm:mb-20">
-          {/*
-            One line on a wide screen, and no forced break.
-
-            The size is set so the full name fits the measure rather than being
-            snapped in two by a <br>: a hard break puts the fold in the same
-            place at every width, which is what made it read like a typeset
-            document. It still wraps on a narrow screen, where it has to.
-          */}
-          <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-foreground mb-4 leading-[1.1] tracking-[-0.02em]">
-            Athena Strategic Advisory
-          </h1>
-
-          <p className="text-sm uppercase tracking-wider text-accent mb-7">Political &amp; Regulatory Intelligence</p>
-
-          <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed mb-12 max-w-4xl">
-            Independent political, regulatory and political-economy intelligence
-            for organisations operating, investing and making strategic
-            decisions in Nigeria.
+      <main id="main-content" tabIndex={-1} className={styles.main}>
+        <header className={styles.hero}>
+          <p className={styles.kicker}>Built for consequential decisions</p>
+          <h1 className={styles.headline}>Understanding power.<br />Informing strategy.</h1>
+          <p className={styles.heroDescription}>
+            Independent political, regulatory and political-economy intelligence for boards,
+            executives, investors and institutions operating in Nigeria.
           </p>
-
-          <div className="flex flex-col sm:flex-row items-start gap-4">
-            {/*
-              Goes to the library itself, not to a sign-in form. A subscriber
-              whose device has already been verified lands in their library
-              without an email step; anyone else is redirected to sign-in, which
-              issues a link only to an activated subscriber and answers everyone
-              else with the same neutral message. So this is safe to offer
-              publicly: it grants nothing on its own.
-            */}
-            <Link href="/portal" className="btn-primary">
-              Access Subscriber Library
-            </Link>
-            <Link href="/services" className="btn-secondary">
-              Request a Briefing
-            </Link>
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start">
+            <Link href="/publications" className={styles.secondaryButton}>Explore Our Intelligence</Link>
+            <Link href={boardBriefingHref} className={styles.primaryButton}>Request a Board Briefing</Link>
+          </div>
+          <div className={styles.propositions}>
+            <div>
+              <p className={styles.kicker}>Intelligence subscriptions</p>
+              <h2 className="font-serif text-2xl sm:text-3xl">Anticipate change.</h2>
+              <p className={styles.body}>Continuing political and regulatory intelligence through regular publications, assessments and focused updates.</p>
+              <Link href="/access" className={styles.textLink}>Explore subscriptions</Link>
+            </div>
+            <div>
+              <p className={styles.kicker}>Bespoke advisory</p>
+              <h2 className="font-serif text-2xl sm:text-3xl">Prepare for decisions.</h2>
+              <p className={styles.body}>Confidential briefings for boards, executive teams and strategic planning retreats, tailored to the decisions ahead.</p>
+              <Link href="/services" className={styles.textLink}>Explore advisory services</Link>
+            </div>
           </div>
         </header>
 
-        {/* At most one edition per Review publication category: only those an
-            owner explicitly offered, in catalogue order. */}
-        {reviewLibrary && (
-          <section className="mb-24 scroll-mt-28">
-            <div className="mb-10">
-              <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-6 tracking-tight">
-                Publications &amp; Briefings
-              </h2>
-              <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-4">
-                The latest {reviewCardTypes(reviewLibrary.items.map((card) => card.slotKey), catalogue.categories)} for
-                authorised Review readers.
-              </p>
+        <section id="publications" aria-labelledby="latest-intelligence" className={styles.section}>
+          <div className={styles.sectionHeading}>
+            <div>
+              <p className={styles.kicker}>Continuing intelligence</p>
+              <h2 id="latest-intelligence" className={styles.heading}>Latest Intelligence</h2>
             </div>
-            <div className="space-y-4">
-              {reviewLibrary.items.map((card) => (
-                <TrackedAccessLink
-                  key={card.slotKey}
-                  href={entryMode === "library" ? `/review/library?edition=${card.id}` : card.secureUrl}
-                  eventType="review_access_clicked"
-                  slotKey={card.slotKey}
-                  publicationId={card.id}
-                  papermarkDocumentId={card.papermarkDocumentId}
-                  newTab
-                  className="group panel-interactive block p-6 sm:p-8"
-                >
-                  <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-2">
-                    {card.publicationType}
-                  </span>
-                  <h3 className="font-serif text-lg text-foreground group-hover:text-accent transition-colors">
-                    {card.pubTitle}
-                  </h3>
-                  <p className="text-sm text-foreground/70 leading-relaxed mt-3 max-w-4xl line-clamp-2">
-                    {currentBrandCopy(card.description)}
-                  </p>
-                  <span className="inline-flex items-center text-sm font-medium text-accent mt-4 group-hover:translate-x-1 transition-transform">
-                    Access review copy &rarr;
-                  </span>
-                </TrackedAccessLink>
-              ))}
-            </div>
-            <div className="mt-8">
-              <Link href="/publications" className="btn-secondary">
-                View all editions
-              </Link>
-            </div>
-          </section>
-        )}
-
-        <aside className="mb-24 border-l-4 border-accent bg-card/30 p-8 sm:p-10">
-          <h2 className="font-serif text-2xl text-foreground">Complimentary Review</h2>
-          <p className="text-sm text-foreground/70 mt-3 mb-6 max-w-3xl">
-            New prospective readers may request verified access to a confidential selection of Athena Strategic Advisory publications.
-          </p>
-          <Link href="/review" className="btn-secondary">Request Complimentary Review Access</Link>
-        </aside>
-
-        {/* Publications */}
-        {documents.length > 0 && <section id="publications" className="mb-24 scroll-mt-28">
-          <div className="mb-14">
-            <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-6 tracking-tight">
-              Publications &amp; Briefings
-            </h2>
-            {/*
-              "political-economy" is hyphenated wherever it modifies a noun,
-              which it does here and in the hero. It was unhyphenated in one
-              place and hyphenated in the other.
-            */}
-            <p className="text-base text-foreground/70 leading-relaxed max-w-4xl mt-8">
-              Athena Strategic Advisory publishes written intelligence on Nigeria&rsquo;s political,
-              regulatory and political-economy environment, issued to
-              subscribers and authorised readers.
-            </p>
+            <Link href="/publications" className={styles.textLink}>View all publications</Link>
           </div>
-
+          <p className={`${styles.body} max-w-3xl mb-7`}>
+            Athena Strategic Advisory publishes written intelligence on Nigeria&rsquo;s political,
+            regulatory and political-economy environment. Full subscriber reports remain available
+            to authorised readers; complimentary review copies appear separately below.
+          </p>
           {documents.length === 0 ? null : (
-            <div className="space-y-16">
-              {PUBLICATION_SECTIONS.map((section) => {
-                const items = documents.filter((doc) => doc.section === section)
-                if (items.length === 0) return null
-
-                return (
-                  <div key={section}>
-                    <h3 className="eyebrow mb-8 pb-4 border-b border-hairline block">
-                      {section}
-                    </h3>
-                    <div className="space-y-6">
-                      {items.map((doc) => (
-                        <PublicationCard key={doc.id} doc={doc} />
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
+            <div className={styles.intelligenceGrid}>
+              {latest.map((doc) => <PublicationCard key={doc.id} doc={doc} />)}
             </div>
           )}
-        </section>}
+        </section>
 
-        <div className="rule-soft mb-24" />
+        <section id="boardroom" aria-labelledby="boardroom-heading" className={styles.boardroom}>
+          <div>
+            <p className={styles.darkKicker}>Private &amp; confidential</p>
+            <h2 id="boardroom-heading" className={styles.heading}>Intelligence for the Boardroom</h2>
+            <p className="mt-5 max-w-3xl text-base sm:text-lg leading-relaxed text-white/85">
+              Bespoke political and regulatory assessments for organisations making consequential
+              decisions about strategy, investment, market exposure and enterprise risk.
+            </p>
+          </div>
+          <div className={styles.boardroomList}>
+            {BOARDROOM_OFFERINGS.map((offering) => (
+              <article key={offering.briefingType} className={styles.boardroomOffering}>
+                <div>
+                  <h3 className="font-serif text-2xl sm:text-3xl leading-tight">{offering.title}</h3>
+                  <p className="mt-3 max-w-2xl text-base leading-relaxed text-white/85">{offering.description}</p>
+                </div>
+                <Link href={`/request-briefing?type=${encodeURIComponent(offering.briefingType)}`} className={styles.darkLink}>{offering.ctaLabel}</Link>
+              </article>
+            ))}
+          </div>
+          <Link href="/services" className={styles.darkLink}>View all board and advisory services</Link>
+        </section>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-16 lg:gap-24 mb-28">
-          <section>
-            <h2 className="font-serif text-xl sm:text-2xl text-foreground section-head mb-8 tracking-tight">
-              What We Track
-            </h2>
-            <ul className="space-y-4 text-sm text-foreground/80">
+        {/* Selected Client Engagements belongs here once the team approves its descriptions. */}
+
+        <section id="open-insights" aria-labelledby="open-insights-heading" className={styles.section}>
+          <p className={styles.kicker}>Research &amp; perspectives</p>
+          <h2 id="open-insights-heading" className={styles.heading}>Open Insights</h2>
+          <p className={`${styles.body} max-w-3xl mt-5 mb-8`}>
+            Public research and perspectives from across the Athena ecosystem.
+            Each stream retains the identity of its originating institution.
+          </p>
+          {/* Stage 1 introduces the streams. Stage 2 adds approved public editions and videos.
+              A restricted PLM or Review copy must never become public through this section. */}
+          <div className={styles.streamGrid}>
+            {openStreams.map((stream) => (
+              <article key={stream.title} className="border-t border-border pt-6">
+                <p className={styles.kicker}>{stream.origin}</p>
+                <h3 className="font-serif text-2xl sm:text-3xl">{stream.title}</h3>
+                <p className={styles.body}>{stream.description}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="athena-approach" aria-labelledby="approach-heading" className={styles.section}>
+          <div className={styles.sectionHeading}>
+            <h2 id="approach-heading" className={styles.heading}>The Athena Approach</h2>
+            <p className="font-serif text-lg sm:text-xl italic">Signal. Interpretation. Implication.</p>
+          </div>
+          <p className={`${styles.body} max-w-3xl mb-8`}>
+            Athena Strategic Advisory distinguishes political noise from developments that can
+            materially affect regulation, capital allocation, market access and corporate strategy.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-7">
+            <div className="border-t border-accent pt-5">
+              <h3 className={styles.kicker}>What changed</h3>
+              <p className={styles.body}>Identify material political, policy and regulatory developments.</p>
+            </div>
+            <div className="border-t border-accent pt-5">
+              <h3 className={styles.kicker}>Why it matters</h3>
+              <p className={styles.body}>Assess their implications for institutions, sectors and businesses.</p>
+            </div>
+            <div className="border-t border-accent pt-5">
+              <h3 className={styles.kicker}>What to watch</h3>
+              <p className={styles.body}>Identify emerging risks, scenarios and indicators of change.</p>
+            </div>
+          </div>
+          <details className="mt-8 border-y border-border py-5">
+            <summary className="cursor-pointer text-base font-medium">What We Track</summary>
+            <ul className="mt-5 grid gap-x-8 gap-y-3 text-base text-foreground/80 sm:grid-cols-2">
               {[
                 "Political Power & Coalition Dynamics",
                 "Executive & Legislative Watch",
@@ -273,161 +192,108 @@ export default async function HomePage() {
                 "State-Level Political Risk",
                 "Election & Transition Risk",
                 "Political Economy Outlook",
-              ].map((item) => (
-                <li key={item} className="flex gap-3">
-                  <span className="text-accent">&mdash;</span>
-                  {item}
-                </li>
-              ))}
+              ].map((item) => <li key={item}>{item}</li>)}
             </ul>
-          </section>
-
-          <section>
-            <h2 className="font-serif text-xl sm:text-2xl text-foreground section-head mb-8 tracking-tight">
-              Built for consequential decisions.
-            </h2>
-            <p className="text-sm text-foreground/80 leading-relaxed mb-8">
-              For boards, executives, diplomatic missions and institutional
-              decision-makers responsible for strategy, risk, investment,
-              policy, country assessment, government relations and regulated
-              operations in Nigeria.
-            </p>
-            <Link
-              href="/services"
-              className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors"
-            >
-              Services &amp; Briefings{" "}
-              <span className="ml-2 opacity-70">&rarr;</span>
-            </Link>
-          </section>
-        </div>
-
-        {/* Our Analytical Approach */}
-        <section className="mb-24 pt-16 border-t border-border">
-          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-4 tracking-tight">
-            The Athena Strategic Advisory Approach
-          </h2>
-          <p className="font-serif text-base sm:text-lg text-foreground/70 italic mb-8">
-            Signal. Interpretation. Implication.
-          </p>
-          <p className="text-sm text-foreground/80 leading-relaxed mb-10 max-w-4xl">
-            Athena Strategic Advisory distinguishes political noise from developments that can
-            materially affect regulation, capital allocation, market access and
-            corporate strategy. Our analysis combines political intelligence,
-            regulatory monitoring, institutional analysis and sector-specific
-            assessment.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
-            <div>
-              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">
-                What changed
-              </h3>
-            </div>
-            <div>
-              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">
-                Why it matters
-              </h3>
-            </div>
-            <div>
-              <h3 className="text-xs font-medium uppercase tracking-wider text-accent mb-3">
-                What to watch
-              </h3>
-            </div>
-          </div>
-          <Link
-            href="/team#analytical-approach"
-            className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mt-10"
-          >
-            Meet our team and read our analytical approach{" "}
-            <span className="ml-2 opacity-70">&rarr;</span>
-          </Link>
+          </details>
         </section>
 
-        {/* Subscription Access */}
-        <section
-          id="access"
-          className="mb-24 pt-16 border-t border-border scroll-mt-28"
-        >
-          <h2 className="font-serif text-2xl text-foreground mb-4">
-            Subscription Access
-          </h2>
-          <p className="text-sm text-foreground/70 leading-relaxed mb-10 max-w-4xl">
-            Subscribing organisations receive regular political and regulatory analysis,
-            an archive of assigned publications and secure access for individually named
-            readers. Our intelligence helps teams assess policy changes, anticipate
-            operating risks and make informed investment and strategy decisions.
-          </p>
-
-          <p className="text-sm mb-6"><Link href="/portal" className="text-accent underline">Existing reader? Open your subscriber library.</Link></p>
-          <p className="text-sm text-foreground/70 mb-6">For an organisational subscription, tell us about your requirements below. Bespoke advisory and board briefings are separately commissioned through <Link href="/request-briefing" className="text-accent underline">Request a Briefing</Link>.</p>
-
-          <AccessForm />
-
-          <div className="mt-8">
-            <Link
-              href="/access"
-              className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors"
-            >
-              View all subscription levels{" "}
-              <span className="ml-2 opacity-70">&rarr;</span>
-            </Link>
+        <section id="intelligence-team" aria-labelledby="intelligence-team-heading" className={styles.section}>
+          <div className={styles.sectionHeading}>
+            <div>
+              <p className={styles.kicker}>Who we are</p>
+              <h2 id="intelligence-team-heading" className={styles.heading}>Our Intelligence Team</h2>
+            </div>
+            <Link href="/team" className={styles.textLink}>Meet the full team</Link>
           </div>
-
-          <div className="mt-10 pt-8 border-t border-border">
-            <p className="text-sm text-muted-foreground leading-relaxed max-w-4xl">
-              <span className="font-medium text-foreground">Access note:</span>{" "}
-              {accessNotice()}
-            </p>
+          <p className={`${styles.body} max-w-3xl mb-7`}>
+            Practitioners, political scientists, economists, governance researchers and election
+            analysts. Our intelligence combines continuous monitoring, structured analysis and
+            internal editorial review.
+          </p>
+          <div className="grid gap-7 sm:grid-cols-3">
+            {TEAM_MEMBERS.slice(0, 3).map((member) => (
+              <article key={member.key} className="border-t border-border pt-5">
+                <h3 className="font-serif text-xl sm:text-2xl">{member.name}</h3>
+                <p className="mt-3 text-base leading-relaxed text-foreground/80">{member.apriRole}</p>
+              </article>
+            ))}
           </div>
         </section>
 
-        {/* Contact */}
-        <section
-          id="contact"
-          className="mb-24 pt-16 border-t border-border scroll-mt-28"
-        >
-          <h2 className="font-serif text-xl text-foreground mb-6">
-            About Athena Strategic Advisory
-          </h2>
-          <p className="text-sm text-foreground/80 leading-relaxed mb-8 max-w-4xl">
-            Athena Strategic Advisory helps business
-            leaders, boards, diplomatic missions and institutional
-            decision-makers understand how shifts in political power, public
-            policy, regulation and institutional behaviour may affect their
-            operating environment, investment decisions, country assessment and
-            strategic outlook.
+        <section id="complimentary-review" aria-labelledby="complimentary-review-heading" className={styles.review}>
+          <div className={styles.sectionHeading}>
+            <div>
+              <p className={styles.kicker}>For prospective readers</p>
+              <h2 id="complimentary-review-heading" className={styles.heading}>Complimentary Review</h2>
+            </div>
+            <Link href="/review" className={styles.secondaryButton}>Request Complimentary Review Access</Link>
+          </div>
+          <p className={`${styles.body} max-w-3xl mb-7`}>
+            Request verified access to a confidential selection of our publications. Existing
+            approved review readers can open their assigned editions below using their registered email.
           </p>
-
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-7 text-sm mb-8">
-            <p>
-              <span className="text-muted-foreground mr-2">Athena Strategic Advisory:</span>
-              <a
-                href={siteOrigin()}
-                className="text-accent hover:text-accent-hover transition-colors"
-              >
-                {new URL(siteOrigin()).hostname}
-              </a>
-            </p>
-          </div>
-          <Link
-            href="/team"
-            className="inline-flex items-center text-sm font-medium text-accent hover:text-accent-hover transition-colors mb-8"
-          >
-            Meet our intelligence team{" "}
-            <span className="ml-2 opacity-70">&rarr;</span>
-          </Link>
-
-          <div className="text-sm">
-            <span className="text-muted-foreground mr-2">Contact:</span>
-            <a
-              href={`mailto:${CONTACT_EMAIL}`}
-              className="text-foreground hover:text-accent transition-colors font-medium"
-            >
-              {CONTACT_EMAIL}
-            </a>
-          </div>
+          {reviewLibrary && (
+            <div className="grid gap-5 md:grid-cols-2">
+              {reviewLibrary.items.map((card) => (
+                <TrackedAccessLink
+                  key={card.slotKey}
+                  href={entryMode === "library" ? `/review/library?edition=${card.id}` : card.secureUrl}
+                  eventType="review_access_clicked"
+                  slotKey={card.slotKey}
+                  publicationId={card.id}
+                  papermarkDocumentId={card.papermarkDocumentId}
+                  newTab
+                  className={styles.reviewCard}
+                >
+                  <span className={styles.kicker}>Complimentary review copy</span>
+                  <span className="block mt-1 text-sm text-foreground/75">{card.publicationType}</span>
+                  <h3 className="font-serif text-2xl leading-tight mt-3">{card.pubTitle}</h3>
+                  {(card.editionLabel || card.editionDate) && (
+                    <p className="text-sm text-foreground/75 mt-3">
+                      {card.editionLabel}{card.editionLabel && card.editionDate ? " · " : ""}
+                      {card.editionDate && <time dateTime={card.editionDate}>{issueDate(card.editionDate)}</time>}
+                    </p>
+                  )}
+                  <p className={styles.body}>{currentBrandCopy(card.description)}</p>
+                  <span className={`${styles.textLink} inline-block mt-5`}>Access review copy</span>
+                </TrackedAccessLink>
+              ))}
+            </div>
+          )}
         </section>
 
+        <section id="access" aria-labelledby="subscription-heading" className={styles.section}>
+          <div className={styles.contactGrid}>
+            <div>
+              <p className={styles.kicker}>Continuing access</p>
+              <h2 id="subscription-heading" className={styles.heading}>Intelligence for your organisation</h2>
+              <p className={styles.body}>
+                Subscribing organisations receive regular political and regulatory analysis,
+                an archive of assigned publications and secure access for individually named readers.
+                Our intelligence supports strategy, risk assessment and investment decisions.
+              </p>
+              <div className="mt-6 flex flex-col items-start gap-5">
+                <Link href="/access" className={styles.primaryButton}>Explore subscription options</Link>
+                <Link href="/portal" className={styles.textLink}>Existing reader? Open your subscriber library.</Link>
+              </div>
+            </div>
+            <div id="contact">
+              <p className={styles.kicker}>Contact</p>
+              <h2 className="font-serif text-2xl sm:text-3xl">About Athena Strategic Advisory</h2>
+              <p className={styles.body}>
+                For boards, executives, diplomatic missions and institutional decision-makers
+                responsible for strategy, risk, investment, policy, country assessment,
+                government relations and regulated operations in Nigeria.
+              </p>
+              <p className={styles.body}>Bespoke advisory and board briefings are separately commissioned.</p>
+              <a href={`mailto:${CONTACT_EMAIL}`} className={`${styles.textLink} mt-5 inline-block break-all`}>{CONTACT_EMAIL}</a>
+              <p className="mt-5"><Link href="/request-briefing" className={styles.textLink}>Request a Briefing</Link></p>
+            </div>
+          </div>
+          <p className="mt-8 pt-6 border-t border-border text-sm leading-relaxed text-foreground/75">
+            <span className="font-medium text-foreground">Access note:</span> {accessNotice()}
+          </p>
+        </section>
         <SiteFooter />
       </main>
     </div>

@@ -1,15 +1,5 @@
 "use client"
 
-/*
- * There is deliberately no Sign in link in this header.
- *
- * Subscribers reach their library through "Access Subscriber Library" on the
- * home page, which goes to /portal. A device that has already been verified
- * lands straight in the library; only a device with no session is asked for an
- * email address. A second Sign in control in the site chrome made that look
- * like a step everyone had to take every time.
- */
-
 import { useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -20,11 +10,11 @@ type NavItem = {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Publications", href: "/publications" },
-  { label: "Services & Briefings", href: "/services" },
-  { label: "Our Intelligence Team", href: "/team" },
-  { label: "Subscription Access", href: "/access" },
-  { label: "Contact", href: "/#contact" },
+  { label: "Intelligence", href: "/publications" },
+  { label: "Board & Advisory Services", href: "/services" },
+  { label: "Open Insights", href: "/#open-insights" },
+  { label: "Who We Are", href: "/team" },
+  { label: "Subscriptions", href: "/access" },
 ]
 
 export default function SiteHeader() {
@@ -42,30 +32,48 @@ export default function SiteHeader() {
   }
 
   const linkClass = (href: string) =>
-    `text-sm tracking-wide transition-colors ${
+    `text-base font-medium transition-colors ${
       isCurrent(href)
         ? "text-foreground border-b border-accent pb-0.5"
-        : "text-foreground/60 hover:text-foreground"
+        : "text-foreground/80 hover:text-accent"
     }`
 
   return (
-    <header className="sticky top-0 z-40 border-b border-hairline bg-background/90 backdrop-blur-md">
-      <div className="max-w-5xl lg:max-w-6xl mx-auto px-6">
-        <div className="flex items-center justify-between h-24">
+    <header className="sticky top-0 z-40 border-b border-border bg-background">
+      <div className="max-w-7xl mx-auto px-5 sm:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4 sm:py-5">
           <Link
             href="/"
-            className="group flex flex-col"
+            className="group flex min-w-0 basis-full flex-col sm:basis-auto"
             onClick={() => setIsOpen(false)}
           >
-            <span className="font-serif text-lg text-foreground tracking-tight leading-none">
+            <span className="font-serif text-2xl sm:text-3xl text-foreground tracking-tight leading-tight">
               Athena Strategic Advisory
             </span>
-            <span className="text-[10px] sm:text-xs text-muted-foreground tracking-wide leading-tight mt-0.5">
+            <span className="text-sm sm:text-base text-foreground/75 leading-tight mt-1">
               Political &amp; Regulatory Intelligence
             </span>
           </Link>
 
-          <nav aria-label="Main navigation" className="hidden xl:flex items-center gap-7">
+          <div className="flex w-full items-center justify-between gap-4 sm:w-auto">
+            {/* /portal preserves the existing verified-device journey. */}
+            <Link href="/portal" onClick={() => setIsOpen(false)} className="inline-flex min-h-11 items-center justify-center bg-foreground px-5 py-3 text-sm sm:text-base font-medium text-background">
+              Client Portal
+            </Link>
+            <button
+              type="button"
+              ref={toggle}
+              onKeyDown={dismiss}
+              onClick={() => setIsOpen((open) => !open)}
+              aria-expanded={isOpen}
+              aria-controls={isOpen?"mobile-navigation":undefined}
+              aria-label={isOpen ? "Close navigation menu" : "Menu"}
+              className="xl:hidden min-w-11 min-h-11 text-base font-medium text-foreground cursor-pointer"
+            >
+              {isOpen ? "Close" : "Menu"}
+            </button>
+          </div>
+          <nav aria-label="Main navigation" className="hidden xl:flex w-full items-center gap-8 border-t border-hairline pt-4">
             {NAV_ITEMS.map((item) => (
               <Link
                 key={item.href}
@@ -78,22 +86,10 @@ export default function SiteHeader() {
             ))}
           </nav>
 
-          <button
-            type="button"
-            ref={toggle}
-            onKeyDown={dismiss}
-            onClick={() => setIsOpen((open) => !open)}
-            aria-expanded={isOpen}
-            aria-controls={isOpen?"mobile-navigation":undefined}
-            aria-label={isOpen ? "Close navigation menu" : "Menu"}
-            className="xl:hidden min-w-11 min-h-11 text-sm text-foreground/70 hover:text-foreground transition-colors cursor-pointer"
-          >
-            {isOpen ? "Close" : "Menu"}
-          </button>
         </div>
 
         {isOpen && (
-          <nav id="mobile-navigation" aria-label="Mobile navigation" onKeyDown={dismiss} className="xl:hidden pb-6 flex flex-col gap-2 border-t border-border pt-6">
+          <nav id="mobile-navigation" aria-label="Mobile navigation" onKeyDown={dismiss} className="xl:hidden pb-5 flex flex-col gap-1 border-t border-border pt-4">
             {NAV_ITEMS.map((item) => (
               <Link
                 key={item.href}

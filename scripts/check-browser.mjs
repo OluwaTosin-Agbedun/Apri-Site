@@ -336,6 +336,13 @@ try {
       for (const path of publicPaths)
         await audit(page, path, width, path === "/" ? "home" : path.slice(1))
       await page.goto(origin + "/")
+      const portal = page.getByRole("link", { name: "Client Portal", exact: true })
+      assert.equal(await portal.isVisible(), true, `Client Portal visible at ${width}px`)
+      assert.equal(await portal.getAttribute("href"), "/portal")
+      assert.equal(await page.locator("main form").count(), 0, "Homepage application removed")
+      assert.equal(await page.locator("#publications article").count(), 3, "Three published intelligence teasers")
+      const publicHome = await page.content()
+      assert.doesNotMatch(publicHome, /https:\/\/docs\.athenacentre\.org\/browsercopy/, "No personal subscriber URL in public HTML")
       await page.keyboard.press("Tab")
       assert.equal(
         await page.locator(":focus").textContent(),
@@ -361,6 +368,24 @@ try {
           await menu.evaluate((e) => e === document.activeElement),
           true,
         )
+      }
+      // Follow the actual commercial links and verify the existing form's selected value.
+      if (width === 1440) {
+        const requests = [
+          ["Request a Board Briefing", "Board Political & Regulatory Risk Briefing"],
+          ["Request a Strategy Briefing", "Executive Political & Regulatory Briefing"],
+          ["Request a Retreat Briefing", "Strategy & Retreat Briefing"],
+        ]
+        for (const [label, expected] of requests) {
+          await page.goto(origin + "/")
+          const href = await page.locator("#boardroom").getByRole("link", { name: label, exact: true }).getAttribute("href")
+          assert.equal(new URL(href, origin).pathname, "/request-briefing")
+          await page.goto(origin + href)
+          assert.equal(await page.locator('select[name="briefingType"]').inputValue(), expected, label)
+        }
+        await page.goto(origin + "/access")
+        assert.equal(await page.locator('form input[name="email"]').count(), 1, "Dedicated subscription application retained")
+        report.browser.push({ label: "Stage 1 briefing preselection, portal visibility and subscription routes", width, status: "PASS" })
       }
       await ctx.close()
     }

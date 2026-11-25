@@ -177,7 +177,8 @@ test('a verified device goes straight to the library, whichever kind of client i
   assert.match(dal, /export async function hasPortalSession/)
 
   // The public call to action goes to the library, not to a form.
-  assert.match(home, /href="\/portal"\s*\n?\s*className="btn-primary"/)
+  assert.match(home, /href="\/portal" className=\{styles\.textLink\}/)
+  assert.match(read('src/components/SiteHeader.tsx'), /href="\/portal"/)
 })
 
 test('the portal explains the Papermark check rather than adding an APRA one', () => {

@@ -49,7 +49,7 @@ political-economy intelligence on Nigeria.
 
 | Path | Purpose |
 |---|---|
-| `/` | Homepage: services, featured Complimentary Review editions, **Access Subscriber Library** |
+| `/` | Institutional homepage: Latest Intelligence, boardroom services, Open Insights stream introductions, approach, team, separate Complimentary Review editions, subscriptions and contact |
 | `/publications`, `/publications/[slug]` | Publications, and the Review Publication Archive (ordered from Admin; one column per category with published editions) |
 | `/services`, `/team` | Services, and the team page (owner-managed portraits) |
 | `/access` | Subscription access requests (Individual / Professional) |
@@ -629,7 +629,45 @@ by these health checks. See the Stage 4 guide below for limits and rollout.
 
 ## Current status and what still needs a live check
 
-Last updated **24 November 2026**.
+Last updated **25 November 2026**.
+
+**Interim website improvements — Stage 1 (review branch):** the public masthead and
+navigation are larger and clearer, with **Client Portal** permanently visible on mobile
+and desktop. It links to `/portal`, retaining the verified-device journey. Intelligence,
+Board & Advisory Services, Open Insights, Who We Are and Subscriptions retain existing
+routes; Open Insights goes to the homepage's `#open-insights` section.
+
+The homepage leads with **Built for consequential decisions** and **Understanding power.
+Informing strategy.**, the two commercial offerings and direct routes to intelligence and
+a board briefing. **Latest Intelligence** shows at most three existing published,
+public-safe subscriber records ordered by issue date, with genuine dates only when saved.
+The distinct **Complimentary Review** section retains the owner's offered editions,
+tracking, email verification and exact configured link destinations. No report is made
+public by moving its card. The dark **Intelligence for the Boardroom** section offers
+board, executive strategy and retreat briefings, using the existing form's recognised
+request values. Sector, Rapid and Diplomatic briefings remain on `/services`.
+
+**The Athena Approach** now includes all three approved descriptions. The existing team
+is introduced before Complimentary Review. The full subscription form is removed from
+the homepage only; `/access` retains the application and its existing workflow. Contact
+continues to use `intelligence@athenaadvisory.ng`. Homepage typography and layout are scoped
+in `src/app/home.module.css`; no subscriber or Admin layout is restyled by that stylesheet.
+
+**Stage 2 content still needed:** approved publication covers and issue-specific public
+summaries/coverage periods; approved public editions and video URLs, thumbnails, dates and
+institutional credits; and reviewed descriptions of the two client engagements. Stage 1
+introduces the four Open Insights streams without fabricated stories or links. Selected
+Client Engagements is intentionally withheld until approved, with its intended position
+immediately after the boardroom section. No confidential analysis, unapproved images or
+unmarked document originals are used as public promotional content.
+
+**Stage 3:** complete editorial ownership and content-entry instructions, approval review,
+and the user's manual hosting sync. This branch is not merged or deployed by Stage 1.
+There are no migrations, new dependencies, environment settings, Neon operations,
+permission changes, provider mutations or email sends. Publication metadata still uses
+the existing Admin controls; Open Insights and client stories do not gain a new Admin
+editor in this stage. Their eventual public content should remain portable for Epinox.
+Validation results and any browser limitations are recorded in the pull request.
 
 **Approved contact mailbox update:** public pages, legal contact links, the subscriber
 portal's support/setup/renewal notices, subscription-request fallback copy, and website
