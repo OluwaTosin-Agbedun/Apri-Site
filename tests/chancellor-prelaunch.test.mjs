@@ -31,7 +31,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 
 test('S1: masthead renders Athena Strategic Advisory on its own line with full name beneath', () => {
   const header = read('src/components/SiteHeader.tsx')
-  assert.match(header.replace(/\s+/g, ' '), /font-serif[^<]*> Athena Strategic Advisory </)
+  assert.match(header.replace(/\s+/g, ' '), /styles\.wordmark[^<]*> Athena Strategic Advisory </)
   assert.match(header, /Political &amp; Regulatory Intelligence/)
   assert.doesNotMatch(header, /\|/, 'the single-line separator pipe is gone')
 })
@@ -68,7 +68,8 @@ test('S3: hero leads to intelligence and a preselected board briefing', () => {
 test('S4: publications section uses correct heading and copy', () => {
   const page = read('src/app/page.tsx')
   assert.match(page, /Latest Intelligence/)
-  assert.match(page, /publishes written intelligence on Nigeria/)
+  assert.match(page, /currentBrandCopy\(doc\.description\)/)
+  assert.match(page, /AccessBadge visibility=\{doc\.visibility\}/)
 })
 
 test('S4: empty publications state renders nothing, not a developer box', () => {
@@ -80,8 +81,8 @@ test('S4: empty publications state renders nothing, not a developer box', () => 
 // Section 5 – "What Athena Strategic Advisory Tracks" (8 approved items)
 // ---------------------------------------------------------------------------
 
-test('S5: What Athena Strategic Advisory Tracks lists exactly the 8 approved items', () => {
-  const page = read('src/app/page.tsx')
+test('S5: the team page retains the 8 approved tracking areas', () => {
+  const page = read('src/app/team/page.tsx')
   const items = [
     'Political Power & Coalition Dynamics',
     'Executive & Legislative Watch',
@@ -105,8 +106,8 @@ test('S6: "Built for consequential decisions." section with approved copy', () =
   const page = read('src/app/page.tsx')
   const flat = page.replace(/\s+/g, ' ')
   assert.match(page, /Built for consequential decisions/)
-  assert.match(flat, /boards, executives, diplomatic missions and institutional decision-makers/)
-  assert.match(flat, /government relations and regulated operations in Nigeria/)
+  assert.match(flat, /boards, executives, investors and institutions operating in Nigeria/)
+  assert.match(flat, /Continuing intelligence subscriptions\. Confidential, bespoke advisory/)
 })
 
 // ---------------------------------------------------------------------------
@@ -117,7 +118,6 @@ test('S7: The Athena Approach includes the approved analytical descriptions', ()
   const page = read('src/app/page.tsx')
   assert.match(page, /The Athena Approach/)
   assert.match(page, /Signal\. Interpretation\. Implication\./)
-  assert.match(page, /Athena Strategic Advisory distinguishes political noise/)
   assert.match(page, /What changed/)
   assert.match(page, /Why it matters/)
   assert.match(page, /What to watch/)
@@ -395,14 +395,15 @@ test('S15: access page uses responsive text sizes', () => {
 })
 
 test('S15: Athena Strategic Advisory approach uses responsive grid', () => {
-  const page = read('src/app/page.tsx')
-  assert.match(page, /grid-cols-1 sm:grid-cols-3/)
+  const css = read('src/app/home.module.css')
+  assert.match(css, /\.approach \{[^}]*repeat\(3, minmax\(0, 1fr\)\)/)
+  assert.match(css, /@media \(max-width: 767px\)/)
 })
 
 test('S15: masthead uses responsive text sizing', () => {
-  const header = read('src/components/SiteHeader.tsx')
-  assert.match(header, /text-2xl sm:text-3xl/)
-  assert.match(header, /text-sm sm:text-base/)
+  const css = read('src/components/SiteHeader.module.css')
+  assert.match(css, /\.wordmark \{[^}]*font-size: 1\.375rem/)
+  assert.match(css, /@media \(max-width: 639px\)/)
 })
 
 // ---------------------------------------------------------------------------

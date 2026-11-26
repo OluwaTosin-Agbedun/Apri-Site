@@ -52,6 +52,7 @@ political-economy intelligence on Nigeria.
 | `/` | Institutional homepage: Latest Intelligence, boardroom services, Open Insights stream introductions, approach, team, separate Complimentary Review editions, subscriptions and contact |
 | `/publications`, `/publications/[slug]` | Publications, and the Review Publication Archive (ordered from Admin; one column per category with published editions) |
 | `/services`, `/team` | Services, and the team page (owner-managed portraits) |
+| `/open-insights` | Public research streams and approved editorial/video entries, attributed to their originating institutions |
 | `/access` | Subscription access requests (Individual / Professional) |
 | `/request-briefing` | Request a briefing; notifies the briefing manager |
 | `/review` | New prospects request a Complimentary Review; email confirmation, then manual approval |
@@ -629,7 +630,50 @@ by these health checks. See the Stage 4 guide below for limits and rollout.
 
 ## Current status and what still needs a live check
 
-Last updated **25 November 2026**.
+Last updated **26 November 2026**.
+
+**26 November simplification and remaining editorial work:** Stage 1 is merged
+into main (`b9afeb9`, PR #47). This refinement puts desktop navigation, the Athena
+wordmark and Client Portal on one horizontal header row. At narrow widths the
+menu collapses while Client Portal remains visible. It retains Athena's serif/sans
+fonts and white, black and muted-gold identity. Gatehouse's restrained hierarchy
+is a visual reference; Eurasia informs the visitor journey, not a copied design.
+
+The homepage now uses a shorter proposition, compact editorial edition rows and
+three concise boardroom service columns. Duplicate offer panels, long repeated
+introductions and homepage team biographies are removed; detailed team and
+tracking information remain on `/team`. Existing owner-offered review editions
+appear under Latest Intelligence, solving the blank listing on installations
+with review editions but no published subscriber catalogue records. Up to three
+subscriber teasers and three offered review editions are shown, by recorded issue
+date. The full archive remains available; no edition is withdrawn by the limit.
+Secure destinations, click recording, approved readers and publication access
+rules are unchanged. Requests and existing-reader routes remain distinct.
+
+Displayed prices are removed from `/access`, both subscription request forms and
+the review library's upgrade options. Named-reader limits, stored plan identifiers,
+agreements, payment processing and private Admin commercial records are unchanged.
+
+Open Insights has a dedicated `/open-insights` page with the four attributed
+streams. `src/data/editorial.ts` holds portable approved public editorial entries,
+publication-cover mappings and anonymised client engagements. Empty or unapproved
+engagements are not published. No imaginary articles, covers, dates or video links
+are inserted. Approved assets and public links, plus final approval of client
+descriptions, remain content-team dependencies.
+
+[`docs/editorial-publishing-guide.md`](docs/editorial-publishing-guide.md) maps
+editorial responsibilities, the existing Admin process, manual public-content
+entry, approval checks, Epinox portability and the remaining inputs. There is no
+new Admin editor, migration, Neon operation, authentication/permission change,
+document-security change, provider mutation, email send or hosting operation.
+The user handles the manual hosting sync after review. Verification results and
+any preview limitation are recorded in the pull request.
+
+The review-editions shortcut goes to `/publications` without a conditional archive
+fragment, so it also works when the archive is empty. Browser acceptance clears
+only its generated `.next` output before building with isolated fixtures and
+checks that those fixtures are actually present; a preceding credential-free
+build must not supply cached empty public pages to this check.
 
 **Interim website improvements — Stage 1 (review branch):** the public masthead and
 navigation are larger and clearer, with **Client Portal** permanently visible on mobile

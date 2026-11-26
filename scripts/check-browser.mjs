@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { createServer } from "node:net"
 import { request as httpRequest } from "node:http"
-import { mkdir, readFile, writeFile, access } from "node:fs/promises"
+import { mkdir, readFile, writeFile, access, rm } from "node:fs/promises"
 import { createWriteStream } from "node:fs"
 import { randomBytes } from "node:crypto"
 import { fileURLToPath } from "node:url"
@@ -106,6 +106,9 @@ const record = (name) => {
 }
 try {
   fixtures = await seedBrowserData(isolated, secret)
+  // The normal CI build has no database and can cache empty public pages.
+  // This acceptance build must start from its own seeded fixture state.
+  await rm(resolve(root, ".next"), { recursive: true, force: true })
   await command(
     ["node_modules/next/dist/bin/next", "build", "--webpack"],
     "production-build",
@@ -144,6 +147,7 @@ try {
     "/",
     "/publications",
     "/services",
+    "/open-insights",
     "/team",
     "/access",
     "/review",
@@ -158,6 +162,10 @@ try {
     })
     assert.equal(response.status, 200, path)
     const html = await response.text()
+    if (path === "/") {
+      assert.match(html, /href="\/publications\/browser-edition-/, "Seeded subscriber teasers must appear in the public build")
+      assert.ok(html.includes(`Review ${fixtures.categories[0].singularLabel}`), "Seeded offered review editions must appear in the public build")
+    }
     assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1, path)
     assert.ok(
       html.includes(
@@ -340,7 +348,18 @@ try {
       assert.equal(await portal.isVisible(), true, `Client Portal visible at ${width}px`)
       assert.equal(await portal.getAttribute("href"), "/portal")
       assert.equal(await page.locator("main form").count(), 0, "Homepage application removed")
-      assert.equal(await page.locator("#publications article").count(), 3, "Three published intelligence teasers")
+      assert.equal(await page.locator("#subscriber-intelligence article").count(), 3, "Three published intelligence teasers")
+      assert.equal(await page.locator("#review-editions article").count(), 3, "Explicitly offered review editions remain visible")
+      if (width === 1440) {
+        const headerLayout = await page.evaluate(() => {
+          const header = document.querySelector("header")
+          const brand = header.querySelector('a[href="/"]').getBoundingClientRect()
+          const nav = header.querySelector('nav[aria-label="Main navigation"]').getBoundingClientRect()
+          return {height:header.getBoundingClientRect().height,aligned:nav.top >= brand.top - 4 && nav.bottom <= brand.bottom + 4}
+        })
+        assert.equal(headerLayout.aligned, true, "Desktop navigation shares the brand row")
+        assert.ok(headerLayout.height < 110, "Header is a single compact row")
+      }
       const publicHome = await page.content()
       assert.doesNotMatch(publicHome, /https:\/\/docs\.athenacentre\.org\/browsercopy/, "No personal subscriber URL in public HTML")
       await page.keyboard.press("Tab")
@@ -385,6 +404,15 @@ try {
         }
         await page.goto(origin + "/access")
         assert.equal(await page.locator('form input[name="email"]').count(), 1, "Dedicated subscription application retained")
+        for (const plan of ["Individual Access", "Professional Team Access"]) {
+          await page.goto(origin + "/access?level=" + encodeURIComponent(plan))
+          await page.waitForLoadState("networkidle")
+          assert.doesNotMatch(await page.locator("main").innerText(), /₦|million annually/, "No published rate on selected-plan page")
+        }
+        await page.goto(origin + "/open-insights")
+        for (const id of ["political-landscape-monitor", "election-matters", "africa-watch", "ositainsight"]) {
+          assert.equal(await page.locator("#" + id).count(), 1, "Insight stream anchor exists: " + id)
+        }
         report.browser.push({ label: "Stage 1 briefing preselection, portal visibility and subscription routes", width, status: "PASS" })
       }
       await ctx.close()

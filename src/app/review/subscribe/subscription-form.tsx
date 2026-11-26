@@ -35,7 +35,7 @@ export default function SubscriptionForm(props: Props) {
     <form action={formAction} className="space-y-5">
       <input type="hidden" name="plan" value={plan} />
       <p className="border border-border bg-card/40 p-4">
-        <strong>{details.label}</strong> — {details.price}; {details.users.charAt(0).toLowerCase() + details.users.slice(1)}.
+        <strong>{details.label}</strong> — {details.users}. Subscription terms will be shared directly.
       </p>
 
       {props.mode === "public" && (

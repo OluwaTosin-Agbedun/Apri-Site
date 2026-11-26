@@ -101,6 +101,21 @@ export default async function TeamPage() {
           <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-8 tracking-tight">
             Our Analytical Approach
           </h2>
+          <details className="mb-8 border-y border-border py-5">
+            <summary className="cursor-pointer text-base font-medium">What We Track</summary>
+            <ul className="mt-5 grid sm:grid-cols-2 gap-x-8 gap-y-3 text-base leading-relaxed text-foreground/80">
+              {[
+                "Political Power & Coalition Dynamics",
+                "Executive & Legislative Watch",
+                "Government & Regulatory Intelligence",
+                "Policy Implementation & Institutional Behaviour",
+                "Sector Exposure & Operating Risk",
+                "State-Level Political Risk",
+                "Election & Transition Risk",
+                "Political Economy Outlook",
+              ].map(item => <li key={item}>{item}</li>)}
+            </ul>
+          </details>
           <div className="space-y-5 text-sm sm:text-base text-foreground/80 leading-relaxed">
             <p>
               Athena Strategic Advisory combines continuous monitoring of political, electoral,

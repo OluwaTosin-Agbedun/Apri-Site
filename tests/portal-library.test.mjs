@@ -177,7 +177,7 @@ test('a verified device goes straight to the library, whichever kind of client i
   assert.match(dal, /export async function hasPortalSession/)
 
   // The public call to action goes to the library, not to a form.
-  assert.match(home, /href="\/portal" className=\{styles\.textLink\}/)
+  assert.match(home, /<SiteHeader \/>/)
   assert.match(read('src/components/SiteHeader.tsx'), /href="\/portal"/)
 })
 

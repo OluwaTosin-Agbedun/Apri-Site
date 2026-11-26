@@ -80,7 +80,7 @@ test("no page, component, email or metadata describes Athena Strategic Advisory 
 test("the homepage About section, team introduction and privacy notice name Athena Strategic Advisory alone", () => {
   const home = read("src/app/page.tsx")
   const about = home.slice(home.indexOf('id="contact"'))
-  assert.match(about, /About Athena Strategic Advisory/)
+  assert.match(about, /Contact Athena Strategic Advisory/)
   assert.doesNotMatch(about, /Athena Centre/)
   const team = read("src/app/team/page.tsx")
   assert.doesNotMatch(team, /Athena Centre|Institutional Foundation/)

@@ -42,10 +42,6 @@ export default function SiteFooter() {
           >
             Privacy
           </Link>
-          <span
-            className="w-2 h-2 bg-accent/40 rounded-full"
-            aria-hidden="true"
-          />
         </nav>
       </div>
     </footer>

@@ -27,6 +27,10 @@ export const PAGE_INFORMATION: Record<typeof INDEXABLE_PATHS[number], {
     description:
       "Private political and regulatory intelligence briefings for boards, executives, diplomatic missions and institutional decision-makers.",
   },
+  "/open-insights": {
+    title: `Open Insights | ${SITE_NAME}`,
+    description: "Public research and perspectives from the Athena Election Observatory, Africa Watch and ClearPath Media, with clear attribution to each originating institution.",
+  },
   "/team": {
     title: `Our Intelligence Team | ${SITE_NAME}`,
     description:

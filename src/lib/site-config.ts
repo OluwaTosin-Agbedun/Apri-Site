@@ -33,6 +33,7 @@ export const INDEXABLE_PATHS = [
   "/",
   "/publications",
   "/services",
+  "/open-insights",
   "/team",
   "/access",
   "/review",

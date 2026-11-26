@@ -147,14 +147,14 @@ export default async function Library({
 
         <section className="mt-16 sm:mt-20 grid md:grid-cols-2 gap-6">
           <article className="border border-border p-6 sm:p-8">
-            <h2 className="font-serif text-2xl">Individual Access — ₦2 million annually</h2>
+            <h2 className="font-serif text-2xl">Individual Access</h2>
             <p className="my-5">1 named authorised subscriber.</p>
             <Link className="btn-primary" href={`/review/subscribe?plan=Individual`}>
               Request Individual Access
             </Link>
           </article>
           <article className="border border-border p-6 sm:p-8">
-            <h2 className="font-serif text-2xl">Professional Access — ₦5 million annually</h2>
+            <h2 className="font-serif text-2xl">Professional Access</h2>
             <p className="my-5">Up to 3 named authorised subscribers.</p>
             <Link className="btn-primary" href={`/review/subscribe?plan=Professional`}>
               Request Professional Access

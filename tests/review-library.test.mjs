@@ -254,10 +254,11 @@ test('homepage: review cards link to their corresponding secure URLs', () => {
 
 test('homepage: keeps /review as a separate prospect CTA', () => {
   const src = read('src/app/page.tsx')
-  const start = src.indexOf('<section id="complimentary-review"')
+  const start = src.indexOf('<section id="publications"')
   const section = src.slice(start, src.indexOf('</section>', start))
   const cards = section.slice(section.indexOf('{reviewLibrary && ('))
-  const cta = section.slice(0, section.indexOf('{reviewLibrary && ('))
+  const ctaStart = src.indexOf('<section id="complimentary-review"')
+  const cta = src.slice(ctaStart, src.indexOf('</section>', ctaStart))
   assert.ok(cards.length > 0 && cta.length > 0)
   assert.doesNotMatch(cards, /href="\/review"/, 'review cards never route to /review')
   assert.match(cta, /href="\/review"/)

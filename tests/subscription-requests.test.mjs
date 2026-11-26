@@ -41,7 +41,7 @@ const ACTIVATION = "src/lib/subscriber-activation.ts"
 describe("Subscription Access shows the two plans", () => {
   const page = read("src/app/access/page.tsx")
 
-  it("with their prices, limits and request buttons, which select the plan in the existing form", () => {
+  it("keeps named-reader limits and request buttons which select the plan in the existing form", () => {
     assert.match(page, /<section id="plans"/)
     assert.match(page, /SUBSCRIPTION_LEVELS\.map/)
     assert.match(page, /href=\{`\/access\?level=\$\{encodeURIComponent\(storedName\)\}\$\{utmQuery\}#subscribe`\}/)
@@ -96,9 +96,16 @@ describe("Subscription Access shows the two plans", () => {
   it("the Review Library keeps the same two plans after its publication listings", () => {
     const library = read("src/app/review/library/page.tsx")
     assert.ok(library.indexOf("Request Individual Access") > library.indexOf("editions.map("))
-    assert.match(library, /Individual Access — ₦2 million annually/)
-    assert.match(library, /Professional Access — ₦5 million annually/)
+    assert.match(library, />Individual Access<\/h2>/)
+    assert.match(library, />Professional Access<\/h2>/)
+    assert.doesNotMatch(library, /₦|million annually/)
     assert.match(library, /Up to 3 named authorised subscribers/)
+  })
+
+  it("does not display published prices on either subscription application surface", () => {
+    for (const path of ["src/app/access/page.tsx", "src/app/access-form.tsx", "src/app/review/subscribe/subscription-form.tsx"]) {
+      assert.doesNotMatch(read(path), /\{(?:offering|plan|details)\.price\}|₦|million annually/, path)
+    }
   })
 
   it("/review stays the complimentary review request, with no plan cards", () => {

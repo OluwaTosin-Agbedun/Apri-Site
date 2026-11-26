@@ -241,7 +241,7 @@ export default function AccessForm({
       {plan && (
         <div className="space-y-5 border-t border-border pt-5">
           <p className="text-sm text-foreground border border-border bg-background p-3">
-            <strong>{plan.label}</strong> — {plan.price}; {plan.users.charAt(0).toLowerCase() + plan.users.slice(1)}.
+            <strong>{plan.label}</strong> — {plan.users}. Subscription terms will be shared directly.
           </p>
           <input type="hidden" name="plan" value={plan.plan} />
           <input type="hidden" name="referrerHost" value={referrerHost} />

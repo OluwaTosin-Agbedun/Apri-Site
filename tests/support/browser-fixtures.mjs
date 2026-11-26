@@ -49,8 +49,8 @@ export async function seedBrowserData(database, secret) {
   const editions = []
   for (const [i, category] of categories.entries()) {
     const [edition] =
-      await sql`insert into review_publication_editions(series,title,description,edition_date,papermark_document_id,secure_link_id,secure_link_url,secure_link_document_id,secure_link_verified_at,publication_state,recipient_mode)
-      values(${category.code},${`Review ${category.singularLabel}`},'APRI review access.','2026-08-01',${`browser-review-pdf-${i}`},${`browserreview${i}`},${`https://docs.athenacentre.org/browserreview${i}`},${`browser-review-pdf-${i}`},now(),'published','edition') returning id`
+      await sql`insert into review_publication_editions(series,title,description,edition_date,papermark_document_id,secure_link_id,secure_link_url,secure_link_document_id,secure_link_verified_at,publication_state,recipient_mode,complimentary_featured)
+      values(${category.code},${`Review ${category.singularLabel}`},'APRI review access.','2026-08-01',${`browser-review-pdf-${i}`},${`browserreview${i}`},${`https://docs.athenacentre.org/browserreview${i}`},${`browser-review-pdf-${i}`},now(),'published','edition',${i < 3}) returning id`
     await sql`insert into review_edition_recipients(edition_id,email,source) values(${edition.id}::uuid,${email},'owner')`
     editions.push(edition.id)
   }

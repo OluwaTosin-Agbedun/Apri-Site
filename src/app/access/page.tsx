@@ -63,10 +63,10 @@ export default async function AccessPage({
     <div className="min-h-screen bg-background">
       <SiteHeader />
 
-      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-20 sm:py-28">
-        <header className="mb-16">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl lg:max-w-6xl mx-auto px-6 py-12 sm:py-16">
+        <header className="mb-10">
           <h1 className="font-serif text-4xl sm:text-5xl text-foreground mb-8 leading-[1.1] tracking-[-0.02em]">
-            Subscription Access
+            Subscriptions
           </h1>
           <p className="text-lg sm:text-xl text-foreground/70 leading-relaxed max-w-4xl">
             Access to Athena Strategic Advisory intelligence products is available through tiered
@@ -76,7 +76,7 @@ export default async function AccessPage({
         </header>
 
         <section id="plans" className="mb-16 scroll-mt-24">
-          <h2 className="font-serif text-2xl sm:text-3xl text-foreground section-head mb-10 tracking-tight">
+          <h2 className="font-serif text-2xl sm:text-3xl text-foreground mb-8 tracking-tight">
             Subscription levels
           </h2>
 
@@ -86,41 +86,37 @@ export default async function AccessPage({
             than scroll past the remaining four and then pick it again from a
             dropdown -- so the level travels with the click.
           */}
-          <div className="space-y-6">
-            {SUBSCRIPTION_LEVELS.map((offering, index) => {
+          <div className="divide-y divide-border border-y border-border">
+            {SUBSCRIPTION_LEVELS.map((offering) => {
               const storedName = offering.storedName
               const displayName = tierDisplayName(storedName)
               return (
                 <a
                   key={storedName}
                   href={`/access?level=${encodeURIComponent(storedName)}${utmQuery}#subscribe`}
-                  className="group panel-interactive block p-8 sm:p-10 lg:p-12"
+                  className="group grid sm:grid-cols-[14rem_1fr] gap-x-8 gap-y-3 py-6"
                 >
-                  <div className="flex items-baseline gap-4 mb-3">
-                    <span className="text-xs text-accent tabular-nums">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <h3 className="font-serif text-xl text-foreground group-hover:text-accent transition-colors">
+                    <h3 className="font-serif text-2xl text-foreground group-hover:text-accent transition-colors">
                       {displayName}
                     </h3>
-                  </div>
-                  <p className="text-sm text-foreground/70 leading-relaxed max-w-4xl ml-8">
+                  <div>
+                  <p className="text-base text-foreground/80 leading-relaxed max-w-3xl">
                     {TIER_DESCRIPTIONS[storedName] ?? ""}
                   </p>
-                  {offering.price && <p className="mt-3 text-sm text-foreground ml-8">{offering.price} · {offering.seats === 1 ? "One named authorised subscriber" : `Up to ${offering.seats} named authorised subscribers`}</p>}
-                  <span className="inline-flex items-center text-sm font-medium text-accent mt-6 ml-8 group-hover:translate-x-1 transition-transform">
-                    Request Access &rarr;
+                  <p className="mt-3 text-sm text-foreground/75">{offering.seats === 1 ? "One named authorised subscriber" : `Up to ${offering.seats} named authorised subscribers`}</p>
+                  <span className="inline-block text-base font-medium text-accent mt-4 underline underline-offset-4">
+                    Request Access
                   </span>
+                  </div>
                 </a>
               )
             })}
           </div>
-          <p className="mt-6 text-sm text-muted-foreground leading-relaxed max-w-4xl">Each named subscriber receives their own secure sign-in. Individual and Professional access activates only after the agreement is signed and manual payment is confirmed.</p>
+          <p className="mt-6 text-base text-foreground/80 leading-relaxed max-w-4xl">Subscription terms are discussed directly with your organisation. Each named subscriber receives their own secure sign-in. Individual and Professional access activates after the agreement is signed and payment is confirmed.</p>
           <p className="mt-2 text-sm text-muted-foreground">Already a subscriber? <a className="text-accent" href="/portal/sign-in">Sign in to your library</a>.</p>
         </section>
 
-        <section className="mb-16 border border-border bg-card/30 p-8 sm:p-10 lg:p-12">
-          <p className="eyebrow mb-4">Included for subscribers</p>
+        <section className="mb-12 border-t border-border pt-8">
           <h2 className="font-serif text-2xl sm:text-3xl text-foreground mb-6 tracking-tight">
             Quarterly Subscriber Intelligence Briefing
           </h2>
