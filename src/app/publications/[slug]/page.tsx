@@ -5,6 +5,9 @@ import {publicationVersions,familyHistory,latestEntitledVersions} from '@/lib/pu
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import { AccessBadge, AccessAction } from '@/components/PublicationAccess'
+import PublicationCover from '@/components/PublicationCover'
+import { getPublicationCovers } from '@/lib/publication-covers'
+import { coverKey } from '@/lib/publication-cover'
 
 export const revalidate = 300
 
@@ -30,6 +33,7 @@ export default async function PublicationDetailPage({
   const coverageAreas = doc.coverageAreas
     ? doc.coverageAreas.split('\n').map((s) => s.trim()).filter(Boolean)
     : []
+  const covers = await getPublicationCovers()
 
   return (
     <div className="min-h-screen bg-background">
@@ -37,6 +41,7 @@ export default async function PublicationDetailPage({
 
       <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
         <header className="mb-16">
+          <PublicationCover cover={covers.get(coverKey('publication', doc.id)!)} className="mb-8 w-40" />
           <div className="flex items-start justify-between gap-4 mb-4">
             <span className="text-xs font-medium uppercase tracking-wider text-accent">
               {currentBrandCopy(doc.kicker || doc.productLine)}

@@ -12,6 +12,7 @@ import { resolve } from "node:path"
 import { chromium } from "playwright"
 import { startTestDatabase } from "../tests/support/test-database.mjs"
 import { seedBrowserData } from "../tests/support/browser-fixtures.mjs"
+import { COVER_TEST_PNG } from "../tests/support/cover-fixture.mjs"
 const root = resolve(import.meta.dirname, "..")
 const output = resolve(root, "browser-results")
 await mkdir(output, { recursive: true })
@@ -277,6 +278,8 @@ try {
       await context.route("**/*", (route) => {
         const url = new URL(route.request().url())
         if (url.origin === origin) return route.continue()
+        if (url.hostname === "cover-test.public.blob.vercel-storage.com" && url.pathname.startsWith("/publication-covers/"))
+          return route.fulfill({ contentType: "image/png", body: COVER_TEST_PNG })
         if (url.hostname === "docs.athenacentre.org")
           return route.fulfill({
             contentType: "text/html",
@@ -503,6 +506,32 @@ try {
     assert.equal((await fixtures.sql`select state from publication_workflows where document_id=${fixtures.workflowPublication}::uuid`)[0].state,'approved')
     assert.equal((await fixtures.sql`select paid_release_state from documents where id=${fixtures.workflowPublication}::uuid`)[0].paid_release_state,'withheld','editorial approval alone does not release reader access')
     await audit(admin,`/admin/documents/${fixtures.workflowPublication}`,1440,'admin-editorial-approved')
+    const coverEditor = admin.locator('[data-cover-editor]')
+    await coverEditor.getByRole('img', { name: 'Cover of an invented test edition', exact: true }).waitFor()
+    // Admin scrolls inside its own panel: full-page screenshots only capture
+    // the first viewport. Frame the actual cover editor before reviewing it.
+    await coverEditor.scrollIntoViewIfNeeded()
+    await coverEditor.screenshot({ path: resolve(output, 'publication-cover-editor-1440.png') })
+    await admin.setViewportSize({ width: 375, height: 1200 })
+    await coverEditor.scrollIntoViewIfNeeded()
+    await coverEditor.screenshot({ path: resolve(output, 'publication-cover-editor-375.png') })
+    await coverEditor.getByLabel('Cover image', { exact: true }).setInputFiles({ name: 'test-cover.png', mimeType: 'image/png', buffer: COVER_TEST_PNG })
+    await coverEditor.getByRole('img', { name: 'Selected cover preview', exact: true }).waitFor()
+    await coverEditor.screenshot({ path: resolve(output, 'publication-cover-selected-375.png') })
+    await coverEditor.getByLabel('This cover image is approved for public display.', { exact: true }).check()
+    await coverEditor.getByRole('button', { name: 'Replace cover', exact: true }).click()
+    await coverEditor.getByRole('status').filter({ hasText: 'Cover upload is not configured yet' }).waitFor()
+    const coverKey = `publication_cover_v1:publication:${fixtures.workflowPublication}`
+    assert.ok(JSON.parse((await fixtures.sql`select value from app_settings where key=${coverKey}`)[0].value).image, 'missing provider configuration must preserve the current cover')
+    await coverEditor.getByRole('button', { name: 'Remove cover', exact: true }).click()
+    await coverEditor.getByRole('status').filter({ hasText: 'Cover removed' }).waitFor()
+    await coverEditor.getByText('No cover uploaded.', { exact: true }).waitFor()
+    assert.equal(JSON.parse((await fixtures.sql`select value from app_settings where key=${coverKey}`)[0].value).image, null)
+    assert.equal((await fixtures.sql`select paid_release_state from documents where id=${fixtures.workflowPublication}::uuid`)[0].paid_release_state, 'withheld')
+    await audit(admin,`/admin/documents/${fixtures.workflowPublication}`,375,'admin-cover-editor')
+    await audit(admin,'/admin/review-library',375,'admin-review-covers')
+    assert.ok(await admin.locator('[data-cover-editor]').count() >= fixtures.categories.length)
+    report.browser.push({ label: 'cover-preview-replace-failure-remove-and-access-preservation', width: 375, status: 'PASS' })
     await adminContext.close()
     const performanceContext = await context(375)
     const performancePage = await performanceContext.newPage()

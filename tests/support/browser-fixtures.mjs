@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import bcrypt from 'bcryptjs'
 import { SignJWT } from "jose"
 import { neon, neonConfig } from "@neondatabase/serverless"
@@ -56,6 +56,15 @@ export async function seedBrowserData(database, secret) {
   }
   const [reviewSession] =
     await sql`insert into review_reader_sessions(email,method) values(${email},'code') returning id`
+  const coverFixtures = [
+    ["publication", publications.at(-1).id], ["publication", publications[0].id],
+    ["publication", workflowPublication.id], ["review", editions[0]],
+  ]
+  for (const [kind, id] of coverFixtures) {
+    const image = { src: `https://cover-test.public.blob.vercel-storage.com/publication-covers/${kind}/${id}/cover-fixture.png`, alt: "Cover of an invented test edition", credit: "Test Publications" }
+    const value = { revision: randomUUID(), image, updatedAt: new Date().toISOString(), updatedBy: owner.id }
+    await sql`insert into app_settings(key,value) values(${`publication_cover_v1:${kind}:${id}`},${JSON.stringify(value)})`
+  }
   const key = new TextEncoder().encode(secret)
   const sign = (payload, expiry) =>
     new SignJWT(payload)

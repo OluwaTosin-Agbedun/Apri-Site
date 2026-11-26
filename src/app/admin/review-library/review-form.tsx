@@ -19,6 +19,8 @@ import type { FormState } from "@/lib/definitions"
 import { EditionAccessPanel, type EditionAccess } from "./edition-access-panel"
 import { EditionWithdrawalPanel, type EditionWithdrawal } from "./edition-withdrawal-panel"
 import { hasApprovedReviewCopy, reviewCopyProblem } from "@/lib/review-classify"
+import PublicationCoverForm from "@/components/PublicationCoverForm"
+import type { StoredPublicationCover } from "@/lib/publication-cover"
 
 /** A category an edition may be filed under, from the owner's publication catalogue. */
 type ReviewCategoryOption = { code: string; label: string; active: boolean }
@@ -34,6 +36,8 @@ const secondary =
 
 type Edition = {
   id: string
+  cover?: StoredPublicationCover
+  coverReady: boolean
   series: string | null
   title: string
   editionLabel: string
@@ -431,6 +435,8 @@ function EditionCard({
           below before publishing: nothing is filled in for you, and publishing is refused until you have. {copyProblem}
         </p>
       )}
+      <PublicationCoverForm kind="review" id={e.id} title={e.title || e.papermarkFilename}
+        current={e.cover} ready={e.coverReady} />
       <EditionAccessPanel
         key={`${e.access.mode}:${e.access.recipients.join(",")}`}
         editionId={e.id}

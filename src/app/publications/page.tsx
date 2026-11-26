@@ -11,17 +11,21 @@ import {
 import TrackedAccessLink from "@/components/TrackedAccessLink"
 import { reviewEntryMode } from "@/lib/review-reader"
 import { getPublicationCatalogue } from "@/lib/publication-catalogue-dal"
+import PublicationCover from "@/components/PublicationCover"
+import { getPublicationCovers } from "@/lib/publication-covers"
+import { coverKey } from "@/lib/publication-cover"
 
 export const revalidate = 300
 
 export const metadata = publicMetadata("/publications")
 
 export default async function PublicationsPage() {
-  const [publications, archive, entryMode, catalogue] = await Promise.all([
+  const [publications, archive, entryMode, catalogue, covers] = await Promise.all([
     getPublishedPublications(),
     getReviewPublicationArchive(),
     reviewEntryMode(),
     getPublicationCatalogue(),
+    getPublicationCovers(),
   ])
   // One column per catalogue category that has published editions here, in
   // the owner's order. The archive query already returns only what is
@@ -79,6 +83,7 @@ export default async function PublicationsPage() {
                         key={card.id}
                         className="border border-border bg-card/30 p-6 sm:p-8 flex flex-col"
                       >
+                        <PublicationCover cover={covers.get(coverKey("review", card.id)!)} className="mb-5 w-24 shrink-0" />
                         <span className="text-xs font-medium uppercase tracking-wider text-accent block mb-3">
                           {card.publicationType}
                         </span>
@@ -169,6 +174,7 @@ export default async function PublicationsPage() {
               internal
               className="group panel-interactive block p-8 sm:p-10 lg:p-12"
             >
+              <PublicationCover cover={covers.get(coverKey("publication", doc.id)!)} className="mb-5 w-24 shrink-0" />
               <div className="flex items-start justify-between gap-4 mb-3">
                 <span className="text-xs font-medium uppercase tracking-wider text-accent">
                   {currentBrandCopy(doc.kicker || doc.productLine)}

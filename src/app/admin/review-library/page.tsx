@@ -24,6 +24,8 @@ import { recentReviewEmailAttempts, attemptStatus, maskEmail } from "@/lib/revie
 import { reviewReadiness } from "@/lib/review-readiness"
 import { getPublicationCatalogue, orderedCodes } from "@/lib/publication-catalogue-dal"
 import { isReviewCode } from "@/lib/publication-catalogue"
+import { loadPublicationCovers } from "@/lib/publication-covers"
+import { coverKey } from "@/lib/publication-cover"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -171,12 +173,15 @@ export default async function ReviewLibraryPage() {
     (e) => e.recipient_mode === "shared_legacy" && e.publication_state === "published",
   ).length
 
+  const coverState = await loadPublicationCovers()
   const editionProps: React.ComponentProps<typeof ReviewLibraryForm>["editions"] = editions.map((e) => {
     const mode = isRecipientMode(e.recipient_mode) ? e.recipient_mode : "edition"
     const recipients = recipientsByEdition.get(e.id) ?? []
     const hasLink = Boolean(e.secure_link_id)
     return ({
     id: e.id,
+    cover: coverState.covers.get(coverKey("review", e.id)!),
+    coverReady: coverState.ready,
     series: e.series,
     title: e.title,
     editionLabel: e.edition_label,

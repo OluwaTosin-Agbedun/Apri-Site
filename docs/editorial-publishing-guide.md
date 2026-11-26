@@ -30,12 +30,32 @@ guide covers the public presentation added during the interim website work.
 
 ## Covers, Open Insights and client engagements
 
-There is no new database or Admin media editor in this interim change. The
-webmaster maintains `src/data/editorial.ts` through the normal reviewed code change:
+Publication covers are now maintained in Admin. There is no new database table or
+migration. Each edition's cover uses its own existing settings record, separate
+from the report PDF, its reader list and its secure link.
 
-- `PUBLICATION_VISUALS`: map a publication ID (or subscriber publication slug) to
-  an actual approved cover's `src`, `alt` and `credit`. Use approved public image
-  assets only. Never point an image at a report's protected original.
+1. For a subscriber publication, open **Dashboard → Manage publication records**
+   (or **Data Rooms → Edit publication details**), choose the saved edition and
+   find **Publication cover**. Save a new publication record before adding a cover.
+2. For a complimentary edition, open **Review Library**, find the edition and
+   its **Publication cover** section. This remains owner-only.
+3. Choose the actual approved JPEG, PNG or WebP cover, no larger than 4 MB.
+   Check the preview, add a short image description and an optional image credit,
+   confirm public-display approval and click **Upload cover** or **Replace cover**.
+4. The cover appears on that edition's existing homepage listing, public archive
+   and subscriber publication detail page, when those entries are already published.
+   A draft stays a draft. **Remove cover** removes the image only.
+5. Refresh if another editor changed the cover. A failed upload leaves the current
+   cover in place. Uploads need the same public image Blob connection as team
+   portraits; do not change a confidential report store to public.
+
+The publication and review records have separate covers; reuse the approved image
+by uploading it to each relevant edition. Admin cannot yet edit Open Insights or
+client engagements. The webmaster maintains those in `src/data/editorial.ts`:
+
+- `PUBLICATION_VISUALS`: optional existing source-based homepage fallbacks. An
+  uploaded Admin cover takes precedence. Use approved public image assets only;
+  never point an image at a report's protected original.
 - `OPEN_INSIGHTS`: add a title, real date, short description, source institution,
   publicly accessible `href`, actual visual and credit, and the matching stream
   ID. Set `approved: true` only after editorial approval. Unapproved entries are

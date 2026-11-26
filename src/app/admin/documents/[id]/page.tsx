@@ -15,6 +15,9 @@ import { loadEditorPanel } from '@/lib/publication-metadata-dal'
 import { EDITORIAL_METADATA_PENDING, EMPTY_METADATA, EMPTY_SUMMARY, formatDay } from '@/lib/publication-metadata'
 import type { StoredSummary } from '@/lib/publication-summaries'
 import PublicationWorkflowPanel from '@/components/PublicationWorkflowPanel'
+import PublicationCoverForm from '@/components/PublicationCoverForm'
+import { loadPublicationCovers } from '@/lib/publication-covers'
+import { coverKey } from '@/lib/publication-cover'
 
 /** Who did what to a protected summary, for the editor (Admin only). */
 function summaryNotes(summary: StoredSummary | null): string[] {
@@ -124,6 +127,7 @@ export default async function EditDocumentPage({
         description="Saved as a draft. It will not appear publicly until you publish it."
       >
         <DocumentForm draft={BLANK} seriesOptions={seriesOptions(catalogue, '')} />
+        <p className="mt-5 text-sm text-muted-foreground">Save the publication record first, then upload its cover on the saved edition.</p>
       </AdminShell>
     )
   }
@@ -201,6 +205,7 @@ export default async function EditDocumentPage({
   // Reader details, tags and the protected summary (migration 20261114_publication_editorial_metadata).
   // A read failure leaves the panels disabled rather than breaking the editor.
   const panel = await loadEditorPanel(sql, row.id).catch(() => null)
+  const coverState = await loadPublicationCovers()
 
   return (
     <AdminShell
@@ -237,6 +242,8 @@ export default async function EditDocumentPage({
         </section>
       )}
       <DocumentForm draft={draft} seriesOptions={seriesOptions(catalogue, draft.series)} />
+      <PublicationCoverForm kind="publication" id={row.id} title={row.title}
+        current={coverState.covers.get(coverKey('publication', row.id)!)} ready={coverState.ready} />
       <PublicationDetailsForm
         id={row.id}
         ready={panel?.ready === true}

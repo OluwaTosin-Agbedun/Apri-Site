@@ -1,5 +1,7 @@
 import Link from "next/link"
-import Image from "next/image"
+import PublicationCover from "@/components/PublicationCover"
+import { getPublicationCovers } from "@/lib/publication-covers"
+import { coverKey, type PublicationCover as Cover } from "@/lib/publication-cover"
 import type { Metadata } from "next"
 import { CONTACT_EMAIL } from "@/config"
 import { BOARDROOM_OFFERINGS } from "@/data/services"
@@ -22,11 +24,11 @@ const issueDate = (date: string) => new Intl.DateTimeFormat("en-GB", {
   day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
 }).format(new Date(`${date}T12:00:00Z`))
 
-function PublicationCard({ doc }: { doc: Publication }) {
-  const visual = PUBLICATION_VISUALS[doc.id] ?? PUBLICATION_VISUALS[doc.slug]
+function PublicationCard({ doc, cover }: { doc: Publication; cover?: Cover | null }) {
+  const visual = cover === undefined ? PUBLICATION_VISUALS[doc.id] ?? PUBLICATION_VISUALS[doc.slug] : cover
   return (
     <article className={styles.edition}>
-      {visual && <Image src={visual.src} alt={visual.alt} width={160} height={220} className={styles.cover} unoptimized />}
+      <PublicationCover cover={visual} className={styles.cover} />
       <div className={styles.editionCopy}>
         <div className={styles.editionMeta}>
           <span>{currentBrandCopy(doc.kicker || doc.productLine)}</span>
@@ -47,8 +49,8 @@ function PublicationCard({ doc }: { doc: Publication }) {
 }
 
 export default async function HomePage() {
-  const [documents, reviewLibrary, entryMode] = await Promise.all([
-    getPublishedPublications(), getReviewLibrary(), reviewEntryMode(),
+  const [documents, reviewLibrary, entryMode, covers] = await Promise.all([
+    getPublishedPublications(), getReviewLibrary(), reviewEntryMode(), getPublicationCovers(),
   ])
   const latest = [...documents].sort((a, b) => (b.editionDate ?? "").localeCompare(a.editionDate ?? "")).slice(0, 3)
   // These are only the owner's explicitly offered, verified review editions.
@@ -81,15 +83,16 @@ export default async function HomePage() {
             <Link href="/publications" className={styles.textLink}>All publications</Link>
           </div>
           {documents.length === 0 ? null : (
-            <div id="subscriber-intelligence">{latest.map(doc => <PublicationCard key={doc.id} doc={doc} />)}</div>
+            <div id="subscriber-intelligence">{latest.map(doc => <PublicationCard key={doc.id} doc={doc} cover={covers.get(coverKey("publication", doc.id)!)} />)}</div>
           )}
           {reviewLibrary && (
             <div id="review-editions">
               {reviewEditions.map((card) => {
-                const visual = PUBLICATION_VISUALS[card.id]
+                const key = coverKey("review", card.id)!
+                const visual = covers.has(key) ? covers.get(key) : PUBLICATION_VISUALS[card.id]
                 return (
                   <article key={card.slotKey} className={styles.edition}>
-                    {visual && <Image src={visual.src} alt={visual.alt} width={160} height={220} className={styles.cover} unoptimized />}
+                    <PublicationCover cover={visual} className={styles.cover} />
                     <div className={styles.editionCopy}>
                       <div className={styles.editionMeta}>
                         <span>Complimentary review copy</span>

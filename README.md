@@ -14,7 +14,7 @@ political-economy intelligence on Nigeria.
   - Neon Postgres (`@neondatabase/serverless`);
   - Papermark (secure document viewing);
   - Resend (email);
-  - Vercel Blob (team images).
+  - Vercel Blob (team images and approved public publication covers).
 
 > **Keeping this file current.** This README is updated in the same commit as every change to
 > the project: new pages, Admin controls, environment variables, migrations, scripts, docs and
@@ -46,6 +46,24 @@ political-economy intelligence on Nigeria.
 ## What the site does
 
 ### Public site
+
+**Publication covers (26 November 2026).** Authorised editors can upload, preview,
+replace and remove the actual approved cover on a saved **Publication record**;
+owners can do the same per edition in **Review Library**. JPEG, PNG and WebP only,
+maximum 4 MB, with a required image description, optional credit and explicit
+public-display approval. Covers appear alongside already-published editions on
+the homepage and Publications archive, and on subscriber publication detail
+pages. Uploading a cover never publishes an edition, changes reader access or
+exposes a PDF. Cover settings reuse `app_settings`; no migration is needed or
+automatically applied. Images use the existing server-only `BLOB_READ_WRITE_TOKEN`
+and public image Blob store, as team headshots do. A private confidential-report
+store must remain private. Missing image storage returns an Admin message, and
+failed replacement keeps the previous cover. Concurrent edits refuse stale saves.
+An uncertain database response retains the uploaded image until its saved state
+can be checked. Actual live storage upload still requires confirmation after the
+user's manual hosting sync. See [the editorial publishing guide](docs/editorial-publishing-guide.md).
+Browser evidence includes focused desktop/mobile cover-editor captures, including
+the selected-file preview, because Admin content scrolls inside its own panel.
 
 | Path | Purpose |
 |---|---|
@@ -413,7 +431,7 @@ Names only: values belong in Vercel and `.env.local`. See `.env.example` for not
 | `RESEND_FROM_EMAIL`, `SUBSCRIBER_FROM_EMAIL`, `BRIEFING_FROM_EMAIL`, `BRIEFING_MANAGER_EMAIL` | Verified outgoing senders and optional internal briefing-manager destination; public contact/reply-to uses `CONTACT_EMAIL` in `src/config.ts` |
 | `REVIEW_FROM_EMAIL` | Optional verified sender for review emails; otherwise they use the subscriber sender |
 | `CRON_SECRET` | Authorises `/api/cron/*` (they answer 503 without it) |
-| `BLOB_READ_WRITE_TOKEN` | Team portrait uploads |
+| `BLOB_READ_WRITE_TOKEN` | Public team portrait and approved publication-cover uploads |
 | `WATERMARKING_ENABLED` | Whether watermarking is claimed and requested |
 | `NEXT_PUBLIC_SUBSCRIBER_PORTAL_ENABLED` | Shows a header sign-in link (a public flag, never a secret) |
 
@@ -632,8 +650,8 @@ by these health checks. See the Stage 4 guide below for limits and rollout.
 
 Last updated **26 November 2026**.
 
-**26 November simplification and remaining editorial work:** Stage 1 is merged
-into main (`b9afeb9`, PR #47). This refinement puts desktop navigation, the Athena
+**26 November simplification and remaining editorial work:** Stage 1 and the public
+UI refinement are merged into main (PRs #47 and #48, `61c5c89`). The refinement puts desktop navigation, the Athena
 wordmark and Client Portal on one horizontal header row. At narrow widths the
 menu collapses while Client Portal remains visible. It retains Athena's serif/sans
 fonts and white, black and muted-gold identity. Gatehouse's restrained hierarchy
@@ -656,16 +674,19 @@ agreements, payment processing and private Admin commercial records are unchange
 
 Open Insights has a dedicated `/open-insights` page with the four attributed
 streams. `src/data/editorial.ts` holds portable approved public editorial entries,
-publication-cover mappings and anonymised client engagements. Empty or unapproved
+optional cover fallbacks and anonymised client engagements; newly uploaded covers
+are maintained in Admin using `src/lib/publication-covers.ts`. Empty or unapproved
 engagements are not published. No imaginary articles, covers, dates or video links
 are inserted. Approved assets and public links, plus final approval of client
 descriptions, remain content-team dependencies.
 
 [`docs/editorial-publishing-guide.md`](docs/editorial-publishing-guide.md) maps
 editorial responsibilities, the existing Admin process, manual public-content
-entry, approval checks, Epinox portability and the remaining inputs. There is no
-new Admin editor, migration, Neon operation, authentication/permission change,
-document-security change, provider mutation, email send or hosting operation.
+entry, cover uploads, approval checks, Epinox portability and the remaining inputs.
+The cover editor requires no migration and only writes its own cover settings when
+an authorised user submits it. No live Neon operation, authentication/permission
+change, document-security change, provider mutation, email send or hosting operation
+is performed during development; provider tests use isolated fixtures and mocks.
 The user handles the manual hosting sync after review. Verification results and
 any preview limitation are recorded in the pull request.
 
